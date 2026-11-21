@@ -1,0 +1,2463 @@
+{
+  "battery": "src.intelligence.research.null_battery_daily_residual",
+  "binding": {
+    "battery_code_key": "3632233bc6102594ed8f275b091de107c240bf1d3dc19d1f50807e99a187b320",
+    "battery_input_hash": "9556820035c2fee4190db9f6b4b8214a3fb53c1b96074038806f627156521dad",
+    "family": "daily_residual",
+    "recorded": "2026-11-21",
+    "spec_hashes": [
+      "096abd796f0eee02ca62185c41b459e5743a6115c71f527b53463ac2235db6d3",
+      "7308dafd538db35598802622280d2e53f5dcfdc7e335da0da69ea7e676eb47dd"
+    ]
+  },
+  "blocks": [
+    {
+      "battery": "src.intelligence.research.null_battery_daily_residual",
+      "failures": [],
+      "report": [
+        {
+          "arm": "book_equal",
+          "cell": "daily_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.002,
+              "rejected": 4
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.028,
+              "rejected": 56
+            }
+          },
+          "mean_t": -0.018963066978663356,
+          "sd_t": 0.8457015969617481,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.002,
+              "rejected": 4
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.021,
+              "rejected": 42
+            }
+          },
+          "mean_t": -0.010311709677093984,
+          "sd_t": 0.8268707069115281,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.002,
+              "rejected": 4
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0205,
+              "rejected": 41
+            }
+          },
+          "mean_t": -0.00958180282054145,
+          "sd_t": 0.8264277807642266,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0085,
+              "rejected": 17
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.047,
+              "rejected": 94
+            }
+          },
+          "mean_t": -0.023070938773106384,
+          "sd_t": 0.9968368872523458,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0045,
+              "rejected": 9
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0335,
+              "rejected": 67
+            }
+          },
+          "mean_t": -0.021107279954808746,
+          "sd_t": 0.8798612538396983,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.003,
+              "rejected": 6
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0255,
+              "rejected": 51
+            }
+          },
+          "mean_t": -0.031233491622096845,
+          "sd_t": 0.870415946400183,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.003,
+              "rejected": 6
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0275,
+              "rejected": 55
+            }
+          },
+          "mean_t": -0.03126245504408672,
+          "sd_t": 0.8704991780128211,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0055,
+              "rejected": 11
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.048,
+              "rejected": 96
+            }
+          },
+          "mean_t": 0.006842294426553817,
+          "sd_t": 0.9936620923698862,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.003,
+              "rejected": 6
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0225,
+              "rejected": 45
+            }
+          },
+          "mean_t": -0.010680196913785326,
+          "sd_t": 0.8580087511089028,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.018,
+              "rejected": 36
+            }
+          },
+          "mean_t": -0.012032144085949839,
+          "sd_t": 0.8284698154018627,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0195,
+              "rejected": 39
+            }
+          },
+          "mean_t": -0.012375055753914517,
+          "sd_t": 0.8376249030332313,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.003,
+              "rejected": 6
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0085,
+              "rejected": 17
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0475,
+              "rejected": 95
+            }
+          },
+          "mean_t": 0.00040862853427599385,
+          "sd_t": 1.013712974044687,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_hostile_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.007,
+              "rejected": 14
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.045,
+              "rejected": 90
+            }
+          },
+          "mean_t": -0.023152726520663195,
+          "sd_t": 1.007043534872352,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_hostile_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0065,
+              "rejected": 13
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0475,
+              "rejected": 95
+            }
+          },
+          "mean_t": -0.022766022210710488,
+          "sd_t": 1.0106852369260961,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_hostile_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.007,
+              "rejected": 14
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0465,
+              "rejected": 93
+            }
+          },
+          "mean_t": -0.023902331886553902,
+          "sd_t": 1.0080412174389677,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_hostile_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0085,
+              "rejected": 17
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0565,
+              "rejected": 113
+            }
+          },
+          "mean_t": 0.0073527476690742576,
+          "sd_t": 1.0163977638297503,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.003,
+              "rejected": 6
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.026,
+              "rejected": 52
+            }
+          },
+          "mean_t": -0.004354709729716644,
+          "sd_t": 0.8592750120717793,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0225,
+              "rejected": 45
+            }
+          },
+          "mean_t": -0.01566010927206293,
+          "sd_t": 0.8193598392710252,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0235,
+              "rejected": 47
+            }
+          },
+          "mean_t": -0.015207599749062353,
+          "sd_t": 0.8220469023988946,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.012,
+              "rejected": 24
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0495,
+              "rejected": 99
+            }
+          },
+          "mean_t": 0.016685234546358417,
+          "sd_t": 1.0160635231922783,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0055,
+              "rejected": 11
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0355,
+              "rejected": 71
+            }
+          },
+          "mean_t": -0.004165829360472467,
+          "sd_t": 0.9314923889022737,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0055,
+              "rejected": 11
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0395,
+              "rejected": 79
+            }
+          },
+          "mean_t": 0.03328785231557722,
+          "sd_t": 0.92552789598785,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.006,
+              "rejected": 12
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.039,
+              "rejected": 78
+            }
+          },
+          "mean_t": 0.0332434840973932,
+          "sd_t": 0.9271624993082715,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.01,
+              "rejected": 20
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.043,
+              "rejected": 86
+            }
+          },
+          "mean_t": -0.07659176783109888,
+          "sd_t": 1.006278812501707,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.006,
+              "rejected": 12
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.03,
+              "rejected": 60
+            }
+          },
+          "mean_t": -0.023464404856926444,
+          "sd_t": 0.9255888264193679,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.003,
+              "rejected": 6
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0255,
+              "rejected": 51
+            }
+          },
+          "mean_t": -0.03350337706866764,
+          "sd_t": 0.9100200175884127,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0035,
+              "rejected": 7
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0255,
+              "rejected": 51
+            }
+          },
+          "mean_t": -0.034188662207756224,
+          "sd_t": 0.9096363522543365,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0025,
+              "rejected": 5
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0125,
+              "rejected": 25
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0535,
+              "rejected": 107
+            }
+          },
+          "mean_t": 0.0018584533752034295,
+          "sd_t": 1.022472224597599,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_static_vol_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0045,
+              "rejected": 9
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.04,
+              "rejected": 80
+            }
+          },
+          "mean_t": -0.07266844139193944,
+          "sd_t": 0.9866755184860602,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_static_vol_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0035,
+              "rejected": 7
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.039,
+              "rejected": 78
+            }
+          },
+          "mean_t": -0.09783150711672002,
+          "sd_t": 0.9844648718289174,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_static_vol_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.003,
+              "rejected": 6
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.037,
+              "rejected": 74
+            }
+          },
+          "mean_t": -0.09646197440272856,
+          "sd_t": 0.9840578120783872,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_static_vol_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.014,
+              "rejected": 28
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.058,
+              "rejected": 116
+            }
+          },
+          "mean_t": 0.09486663779513765,
+          "sd_t": 1.001554356846853,
+          "sims": 2000
+        }
+      ],
+      "scenarios": [
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "daily_gaussian",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "daily_static_means",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.06,
+          "t4_noise": false,
+          "vol_clustering": false
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "daily_late_listings",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.5,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "daily_hostile",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.06,
+          "t4_noise": true,
+          "vol_clustering": true
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.5,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "daily_hostile_no_static",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.0,
+          "t4_noise": true,
+          "vol_clustering": true
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.5,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "daily_s1_hostile",
+          "names": 100,
+          "s1": true,
+          "sessions": 2000,
+          "static_sd": 0.06,
+          "t4_noise": true,
+          "vol_clustering": true
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "daily_static_vol_stress",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.3,
+          "t4_noise": false,
+          "vol_clustering": true
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.5,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "daily_hostile_stress",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.3,
+          "t4_noise": true,
+          "vol_clustering": true
+        }
+      ],
+      "schema": "e17_null_battery_v1",
+      "seed_base": 7000000,
+      "seed_base_recorded": true,
+      "sims_per_cell": 2000
+    },
+    {
+      "battery": "src.intelligence.research.null_battery_daily_residual",
+      "failures": [],
+      "report": [
+        {
+          "arm": "book_equal",
+          "cell": "daily_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.004,
+              "rejected": 8
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.026,
+              "rejected": 52
+            }
+          },
+          "mean_t": 0.02128774804829885,
+          "sd_t": 0.86778125139293,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0015,
+              "rejected": 3
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.017,
+              "rejected": 34
+            }
+          },
+          "mean_t": 0.021236582618866094,
+          "sd_t": 0.8289315954555467,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.002,
+              "rejected": 4
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.018,
+              "rejected": 36
+            }
+          },
+          "mean_t": 0.020962147915728434,
+          "sd_t": 0.8300620355764734,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0015,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.009,
+              "rejected": 18
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0425,
+              "rejected": 85
+            }
+          },
+          "mean_t": -0.010626123047303414,
+          "sd_t": 0.9890848317881483,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.005,
+              "rejected": 10
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.03,
+              "rejected": 60
+            }
+          },
+          "mean_t": -0.0031092746969581374,
+          "sd_t": 0.8897783014598941,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.003,
+              "rejected": 6
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0305,
+              "rejected": 61
+            }
+          },
+          "mean_t": 0.002206392878733763,
+          "sd_t": 0.8981098307811486,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0035,
+              "rejected": 7
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.032,
+              "rejected": 64
+            }
+          },
+          "mean_t": 0.003042185122473741,
+          "sd_t": 0.9000477137153606,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0015,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0085,
+              "rejected": 17
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.05,
+              "rejected": 100
+            }
+          },
+          "mean_t": -0.02927386147223958,
+          "sd_t": 1.0279477750783164,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0015,
+              "rejected": 3
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.026,
+              "rejected": 52
+            }
+          },
+          "mean_t": -0.01080890527004152,
+          "sd_t": 0.8594348329205511,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.002,
+              "rejected": 4
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.02,
+              "rejected": 40
+            }
+          },
+          "mean_t": -0.0043028325297730565,
+          "sd_t": 0.8346102383957021,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0215,
+              "rejected": 43
+            }
+          },
+          "mean_t": -0.005760695339397487,
+          "sd_t": 0.8391127005742037,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.012,
+              "rejected": 24
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0485,
+              "rejected": 97
+            }
+          },
+          "mean_t": -0.021736522956751606,
+          "sd_t": 0.9960283274180103,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_hostile_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0075,
+              "rejected": 15
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.052,
+              "rejected": 104
+            }
+          },
+          "mean_t": 0.029784319690998085,
+          "sd_t": 0.9967670084393746,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_hostile_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.009,
+              "rejected": 18
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0465,
+              "rejected": 93
+            }
+          },
+          "mean_t": 0.03631845443179913,
+          "sd_t": 0.9975153441091466,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_hostile_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0015,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0095,
+              "rejected": 19
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0455,
+              "rejected": 91
+            }
+          },
+          "mean_t": 0.03600363509191686,
+          "sd_t": 0.9985103351516361,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_hostile_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.003,
+              "rejected": 6
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0075,
+              "rejected": 15
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.043,
+              "rejected": 86
+            }
+          },
+          "mean_t": -0.03617795412806142,
+          "sd_t": 1.0006240337945438,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.004,
+              "rejected": 8
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.028,
+              "rejected": 56
+            }
+          },
+          "mean_t": 0.03113773663369692,
+          "sd_t": 0.8633909257130898,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.002,
+              "rejected": 4
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.024,
+              "rejected": 48
+            }
+          },
+          "mean_t": 0.030966205682845527,
+          "sd_t": 0.8457598910731955,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.002,
+              "rejected": 4
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.024,
+              "rejected": 48
+            }
+          },
+          "mean_t": 0.031679337670471285,
+          "sd_t": 0.8457144484140249,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0015,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0125,
+              "rejected": 25
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0535,
+              "rejected": 107
+            }
+          },
+          "mean_t": 0.012749333431706934,
+          "sd_t": 1.0107401153917126,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0065,
+              "rejected": 13
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.043,
+              "rejected": 86
+            }
+          },
+          "mean_t": -0.0041246785391357565,
+          "sd_t": 0.9641863663952823,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.008,
+              "rejected": 16
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.043,
+              "rejected": 86
+            }
+          },
+          "mean_t": 0.02146370251378249,
+          "sd_t": 0.9646653464796158,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0065,
+              "rejected": 13
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.04,
+              "rejected": 80
+            }
+          },
+          "mean_t": 0.022134070595599128,
+          "sd_t": 0.9637500068239399,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.009,
+              "rejected": 18
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.047,
+              "rejected": 94
+            }
+          },
+          "mean_t": -0.0731758280733416,
+          "sd_t": 1.0203014409755091,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.005,
+              "rejected": 10
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.037,
+              "rejected": 74
+            }
+          },
+          "mean_t": -0.00017471645958037235,
+          "sd_t": 0.913008225283479,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0045,
+              "rejected": 9
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.033,
+              "rejected": 66
+            }
+          },
+          "mean_t": -0.020247803195147334,
+          "sd_t": 0.9105468159108495,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.005,
+              "rejected": 10
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.032,
+              "rejected": 64
+            }
+          },
+          "mean_t": -0.02051072536254302,
+          "sd_t": 0.9101127530926711,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0015,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.0135,
+              "rejected": 27
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0545,
+              "rejected": 109
+            }
+          },
+          "mean_t": 0.03207661972885988,
+          "sd_t": 1.0125494350986908,
+          "sims": 2000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "daily_static_vol_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.006,
+              "rejected": 12
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.039,
+              "rejected": 78
+            }
+          },
+          "mean_t": -0.016061189417951535,
+          "sd_t": 0.9625030863785711,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1",
+          "cell": "daily_static_vol_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.006,
+              "rejected": 12
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0365,
+              "rejected": 73
+            }
+          },
+          "mean_t": -0.023817905195154043,
+          "sd_t": 0.9746542282423896,
+          "sims": 2000
+        },
+        {
+          "arm": "residual_momentum_12_1_z",
+          "cell": "daily_static_vol_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.0005,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.006,
+              "rejected": 12
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.0385,
+              "rejected": 77
+            }
+          },
+          "mean_t": -0.023478927972090627,
+          "sd_t": 0.9752794894628218,
+          "sims": 2000
+        },
+        {
+          "arm": "reversal_21",
+          "cell": "daily_static_vol_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 8,
+              "rate": 0.001,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 31,
+              "rate": 0.01,
+              "rejected": 20
+            },
+            "0.05": {
+              "bound": 123,
+              "rate": 0.054,
+              "rejected": 108
+            }
+          },
+          "mean_t": 0.003447141441506999,
+          "sd_t": 1.0053839309366333,
+          "sims": 2000
+        }
+      ],
+      "scenarios": [
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "daily_gaussian",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "daily_static_means",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.06,
+          "t4_noise": false,
+          "vol_clustering": false
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "daily_late_listings",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.5,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "daily_hostile",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.06,
+          "t4_noise": true,
+          "vol_clustering": true
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.5,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "daily_hostile_no_static",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.0,
+          "t4_noise": true,
+          "vol_clustering": true
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.5,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "daily_s1_hostile",
+          "names": 100,
+          "s1": true,
+          "sessions": 2000,
+          "static_sd": 0.06,
+          "t4_noise": true,
+          "vol_clustering": true
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "daily_static_vol_stress",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.3,
+          "t4_noise": false,
+          "vol_clustering": true
+        },
+        {
+          "bars_per_session": 1,
+          "factor_sd": 0.5,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "daily_hostile_stress",
+          "names": 100,
+          "s1": false,
+          "sessions": 2000,
+          "static_sd": 0.3,
+          "t4_noise": true,
+          "vol_clustering": true
+        }
+      ],
+      "schema": "e17_null_battery_v1",
+      "seed_base": 8000000,
+      "seed_base_recorded": true,
+      "sims_per_cell": 2000
+    }
+  ],
+  "commit": "1f19476aa4b841091fce802060f4d2796fd09623",
+  "diagnostic_cells": [
+    "daily_hostile_stress",
+    "daily_static_vol_stress"
+  ],
+  "failures": [],
+  "report": [
+    {
+      "arm": "book_equal",
+      "cell": "daily_gaussian",
+      "levels": {
+        "0.00167": {
+          "rejected": 1
+        },
+        "0.01": {
+          "rejected": 12
+        },
+        "0.05": {
+          "rejected": 108
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1",
+      "cell": "daily_gaussian",
+      "levels": {
+        "0.00167": {
+          "rejected": 2
+        },
+        "0.01": {
+          "rejected": 7
+        },
+        "0.05": {
+          "rejected": 76
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1_z",
+      "cell": "daily_gaussian",
+      "levels": {
+        "0.00167": {
+          "rejected": 2
+        },
+        "0.01": {
+          "rejected": 8
+        },
+        "0.05": {
+          "rejected": 77
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "reversal_21",
+      "cell": "daily_gaussian",
+      "levels": {
+        "0.00167": {
+          "rejected": 4
+        },
+        "0.01": {
+          "rejected": 35
+        },
+        "0.05": {
+          "rejected": 179
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "daily_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 1
+        },
+        "0.01": {
+          "rejected": 19
+        },
+        "0.05": {
+          "rejected": 127
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1",
+      "cell": "daily_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 1
+        },
+        "0.01": {
+          "rejected": 12
+        },
+        "0.05": {
+          "rejected": 112
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1_z",
+      "cell": "daily_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 1
+        },
+        "0.01": {
+          "rejected": 13
+        },
+        "0.05": {
+          "rejected": 119
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "reversal_21",
+      "cell": "daily_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 5
+        },
+        "0.01": {
+          "rejected": 28
+        },
+        "0.05": {
+          "rejected": 196
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "daily_hostile_no_static",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 9
+        },
+        "0.05": {
+          "rejected": 97
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1",
+      "cell": "daily_hostile_no_static",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 5
+        },
+        "0.05": {
+          "rejected": 76
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1_z",
+      "cell": "daily_hostile_no_static",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 3
+        },
+        "0.05": {
+          "rejected": 82
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "reversal_21",
+      "cell": "daily_hostile_no_static",
+      "levels": {
+        "0.00167": {
+          "rejected": 8
+        },
+        "0.01": {
+          "rejected": 41
+        },
+        "0.05": {
+          "rejected": 192
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "daily_hostile_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 29
+        },
+        "0.05": {
+          "rejected": 194
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1",
+      "cell": "daily_hostile_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 2
+        },
+        "0.01": {
+          "rejected": 31
+        },
+        "0.05": {
+          "rejected": 188
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1_z",
+      "cell": "daily_hostile_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 3
+        },
+        "0.01": {
+          "rejected": 33
+        },
+        "0.05": {
+          "rejected": 184
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "reversal_21",
+      "cell": "daily_hostile_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 6
+        },
+        "0.01": {
+          "rejected": 32
+        },
+        "0.05": {
+          "rejected": 199
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "daily_late_listings",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 14
+        },
+        "0.05": {
+          "rejected": 108
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1",
+      "cell": "daily_late_listings",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 6
+        },
+        "0.05": {
+          "rejected": 93
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1_z",
+      "cell": "daily_late_listings",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 6
+        },
+        "0.05": {
+          "rejected": 95
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "reversal_21",
+      "cell": "daily_late_listings",
+      "levels": {
+        "0.00167": {
+          "rejected": 5
+        },
+        "0.01": {
+          "rejected": 49
+        },
+        "0.05": {
+          "rejected": 206
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "daily_s1_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 2
+        },
+        "0.01": {
+          "rejected": 24
+        },
+        "0.05": {
+          "rejected": 157
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1",
+      "cell": "daily_s1_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 2
+        },
+        "0.01": {
+          "rejected": 27
+        },
+        "0.05": {
+          "rejected": 165
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1_z",
+      "cell": "daily_s1_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 3
+        },
+        "0.01": {
+          "rejected": 25
+        },
+        "0.05": {
+          "rejected": 158
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "reversal_21",
+      "cell": "daily_s1_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 3
+        },
+        "0.01": {
+          "rejected": 38
+        },
+        "0.05": {
+          "rejected": 180
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "daily_static_means",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 22
+        },
+        "0.05": {
+          "rejected": 134
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1",
+      "cell": "daily_static_means",
+      "levels": {
+        "0.00167": {
+          "rejected": 2
+        },
+        "0.01": {
+          "rejected": 15
+        },
+        "0.05": {
+          "rejected": 117
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1_z",
+      "cell": "daily_static_means",
+      "levels": {
+        "0.00167": {
+          "rejected": 2
+        },
+        "0.01": {
+          "rejected": 17
+        },
+        "0.05": {
+          "rejected": 115
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "reversal_21",
+      "cell": "daily_static_means",
+      "levels": {
+        "0.00167": {
+          "rejected": 8
+        },
+        "0.01": {
+          "rejected": 52
+        },
+        "0.05": {
+          "rejected": 216
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "daily_static_vol_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 21
+        },
+        "0.05": {
+          "rejected": 158
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1",
+      "cell": "daily_static_vol_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 19
+        },
+        "0.05": {
+          "rejected": 151
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "residual_momentum_12_1_z",
+      "cell": "daily_static_vol_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 1
+        },
+        "0.01": {
+          "rejected": 18
+        },
+        "0.05": {
+          "rejected": 151
+        }
+      },
+      "sims": 4000
+    },
+    {
+      "arm": "reversal_21",
+      "cell": "daily_static_vol_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 2
+        },
+        "0.01": {
+          "rejected": 48
+        },
+        "0.05": {
+          "rejected": 224
+        }
+      },
+      "sims": 4000
+    }
+  ],
+  "scenarios": [
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "daily_gaussian",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.0,
+      "t4_noise": false,
+      "vol_clustering": false
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "daily_static_means",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.06,
+      "t4_noise": false,
+      "vol_clustering": false
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "daily_late_listings",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.0,
+      "t4_noise": false,
+      "vol_clustering": false
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "daily_hostile",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.06,
+      "t4_noise": true,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "daily_hostile_no_static",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.0,
+      "t4_noise": true,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "daily_s1_hostile",
+      "names": 100,
+      "s1": true,
+      "sessions": 2000,
+      "static_sd": 0.06,
+      "t4_noise": true,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "daily_static_vol_stress",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.3,
+      "t4_noise": false,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "daily_hostile_stress",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.3,
+      "t4_noise": true,
+      "vol_clustering": true
+    }
+  ],
+  "schema": "e17_null_battery_v1",
+  "seed_bases": [
+    7000000,
+    8000000
+  ],
+  "sims_per_cell": 4000
+}
