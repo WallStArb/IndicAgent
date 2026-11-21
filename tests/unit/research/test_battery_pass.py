@@ -468,8 +468,18 @@ def test_the_daily_residual_declaration_is_two_fresh_disjoint_blocks_bound_only_
     monkeypatch,
 ):
     declared = bp.DECLARED_REPLICATIONS["daily_residual"]
-    assert declared == (5_000_000, 6_000_000)
-    used = (0, 1_000_000, 2_000_000, 3_000_000, 4_000_000, 9_000_000, 77_000_000)
+    assert declared == (7_000_000, 8_000_000)
+    used = (
+        0,
+        1_000_000,
+        2_000_000,
+        3_000_000,
+        4_000_000,
+        5_000_000,
+        6_000_000,
+        9_000_000,
+        77_000_000,
+    )
     daily = bp.battery_scenarios("src.intelligence.research.null_battery_daily_residual")
     span = bp.SEED_STRIDE * (len(daily) - 1) + 2_000  # the driver draws base + stride * cell + sim
     ranges = [(b, b + span) for b in (*used, *declared)]
@@ -484,7 +494,7 @@ def test_the_daily_residual_declaration_is_two_fresh_disjoint_blocks_bound_only_
         [declared[0]],
         [declared[1], declared[0]],
         [declared[0], 3_000_000],
-        [*declared, 7_000_000],
+        [*declared, 9_000_000],
     ):
         with pytest.raises(bp.BatteryPassRefused, match="pre-declared replication"):
             _make(blocks[0], replication_blocks=list(blocks[1]), seed_bases=bad)

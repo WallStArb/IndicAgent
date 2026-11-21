@@ -1,4 +1,4 @@
-"""The A1/A2 daily residual spec and the H-C seasonality specs (todo 609 B-S)."""
+"""The A1/A4 daily residual spec and the H-C seasonality specs (todo 609 B-S)."""
 
 from pathlib import Path
 
@@ -25,22 +25,16 @@ def test_the_primary_and_core_specs_differ_only_in_the_universe_comments_aside(p
     assert a.model_copy(update={"panel": b.panel}) == b
 
 
-def test_the_daily_residual_spec_has_four_members_and_no_flag_universe():
+def test_the_daily_residual_spec_has_three_members_and_no_flag_universe():
     spec = _spec("daily_residual_h5")
-    assert [m.name for m in spec.members][:3] == [
+    # A3 dropped the two 5-session arms, A4 dropped the continuity member (battery size excess)
+    assert [m.name for m in spec.members] == [
         "residual_momentum_12_1",
         "residual_momentum_12_1_z",
-        "residual_momentum_12_1_continuity",
+        "reversal_21",
     ]
-    assert [m.name for m in spec.members][3:] == [
-        "reversal_21"
-    ]  # A3 dropped the two 5-session arms
-    assert len(spec.members) == 4 and spec.panel.members_universe is None
-    m3 = next(m for m in spec.members if m.name.endswith("continuity"))
-    assert (m3.slot_history_sessions, m3.declared_memory_rows) == (
-        252,
-        declared_memory_rows(252, 1),
-    )
+    assert spec.panel.members_universe is None
+    assert [m.slot_history_sessions for m in spec.members] == [252, 252, 21]
 
 
 @pytest.mark.parametrize("name", ["seasonality_h5", "seasonality_h5_core"])

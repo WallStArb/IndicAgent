@@ -1,4 +1,4 @@
-"""M3 residual-momentum continuity and the H-C seasonality members (drafts H-A and H-C)."""
+"""The H-C seasonality members (drafts H-C). M3 (drafts H-A) was dropped by amendment A4."""
 
 import numpy as np
 import pytest
@@ -14,50 +14,6 @@ def _weekdays(start, n):
     days = np.arange(np.datetime64(start), np.datetime64(start) + 2 * n + 14)
     days = days[(days.astype("datetime64[D]").astype(int) + 4) % 7 < 5]
     return days[:n]
-
-
-# -- M3 -------------------------------------------------------------------------------------
-
-
-def _m3(e):
-    return dr.residual_momentum_continuity(e, bars_per_session=1, coverage_floor=FLOOR)
-
-
-def test_m3_long_continuous_winners_short_discrete_winners():
-    n, L = 300, dr.MOMENTUM_SESSIONS
-    e = np.zeros((n, 4))
-    # window for row d: d-251 .. d-21; use d = 299 -> sessions 48 .. 278
-    w = slice(48, 279)
-    e[w, 0] = 0.001  # continuous winner: every day small up
-    # discrete winner: one huge up day, the rest small down
-    e[w, 1] = np.where(np.arange(n)[w] == w.start, 0.001 * L + 0.0002 * (L - 1), -0.0002)
-    e[w, 2] = -0.001  # continuous loser
-    e[w, 3] = 0.0002
-    e[w.start, 3] = -(0.0002 * (L - 1) + 0.001 * L)  # discrete loser: one huge down day
-    out = _m3(e)[299]
-    assert out[0] > 0 > out[1]  # continuous winner long, discrete winner short
-    assert out[3] > 0 > out[2]  # discrete loser long, continuous loser short (rank order)
-
-
-def test_m3_is_nan_without_half_a_window_or_with_zero_pret():
-    e = np.zeros((300, 4))
-    assert np.isnan(_m3(e)).all()  # every PRET is zero
-    sparse = np.full((300, 4), np.nan)
-    sparse[48:60] = 0.001
-    assert np.isnan(_m3(sparse)).all()
-
-
-def test_m3_reads_only_the_declared_window():
-    rng = np.random.default_rng(3)
-    e = rng.normal(0, 0.01, (400, 8))
-    base = _m3(e)
-    changed = e.copy()
-    changed[:100] += 5.0  # older than d-251 for every row d >= 351
-    out = _m3(changed)
-    assert np.array_equal(base[351:], out[351:], equal_nan=True)
-    future = e.copy()
-    future[350:] = rng.normal(0, 1, (50, 8))
-    assert np.array_equal(base[:350], _m3(future)[:350], equal_nan=True)
 
 
 # -- H-C ------------------------------------------------------------------------------------
@@ -179,7 +135,7 @@ def test_misfit_dates_and_bad_params_refuse():
 
 def test_the_runner_binds_session_dates_only_for_members_that_declare_the_need():
     assert sea.seasonal_same_month.needs_session_dates is True
-    assert not getattr(dr.residual_momentum_continuity, "needs_session_dates", False)
+    assert not getattr(dr.residual_momentum, "needs_session_dates", False)
     assert SESSION_DATES == "session_dates"
 
 
