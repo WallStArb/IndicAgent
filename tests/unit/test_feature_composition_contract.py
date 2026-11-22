@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 import subprocess
 
+import pytest
+
 from scripts.research import seed_hmm_recipes as seed
 from src.intelligence.features.feature_vector_persistence import (
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
@@ -54,6 +56,11 @@ def test_seed_code_pointer_and_commit_are_pinned():
     # (services/regime_writer.py was retired in todo 590).
     assert seed.CODE_POINTER == "services.regime_writer:_write_family_results"
     assert re.fullmatch(r"[0-9a-f]{40}", seed.CODE_COMMIT)
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"], capture_output=True, text=True, check=False
+    )
+    if shallow.stdout.strip() != "false":  # CI's checkout has no fetch-depth: no pinned history
+        pytest.skip("shallow clone or no git history: the pinned commit cannot be resolved")
     commit = subprocess.run(
         ["git", "cat-file", "-t", seed.CODE_COMMIT], capture_output=True, text=True, check=False
     )
