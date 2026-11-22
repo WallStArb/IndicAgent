@@ -34,17 +34,13 @@ src/api/routes/vocabulary.py:0: error: Cannot determine type of "group_result"
 src/api/routes/vocabulary.py:0: error: Cannot determine type of "group_result"
 src/api/routes/vocabulary.py:0: error: Cannot determine type of "group_result"
 src/config/outbox_publisher.py:0: error: Item "None" of
+src/config/settings.py:0: error: Returning Any from function declared to
 src/core/agent/base.py:0: error: "type[BaseDaemon]" has no attribute
 src/core/database_manager.py:0: error: Returning Any from function declared
 src/core/database_manager.py:0: error: Returning Any from function declared to
-src/core/kafka_utils.py:0: error: Argument "headers" to "produce" of
-src/core/kafka_utils.py:0: error: Argument "on_delivery" to "produce" of
 src/core/market_calendar.py:0: error: Returning Any from function declared to
-src/core/resource_lease.py:0: error: Value of type "tuple[Any, ...] | None"
-src/core/resource_lease.py:0: error: Value of type "tuple[Any, ...] | None"
 src/core/retry_utils.py:0: error: Returning Any from function declared to
 src/core/schemas/bar_message.py:0: error: Parameter 1 of Literal[...] is
-src/core/state_serializer.py:0: error: Argument 1 to
 src/core/state_serializer.py:0: error: Returning Any from function declared to
 src/core/state_serializer.py:0: error: Returning Any from function declared to
 src/intelligence/bars/complete_bars.py:0: error: Name "complete" already
@@ -53,6 +49,7 @@ src/intelligence/bars/digest.py:0: error: Argument 1 to "float" has
 src/intelligence/bars/digest.py:0: error: Argument 1 to "float" has
 src/intelligence/bars/integrity_checks.py:0: error: Argument 5 to "BarValues"
 src/intelligence/bars/integrity_checks.py:0: error: Item "None" of
+src/intelligence/bars/labels.py:0: error: Returning Any from function declared
 src/intelligence/bars/level_seams.py:0: error: Argument 3 to "SeamVerdict"
 src/intelligence/bars/level_seams.py:0: error: Argument 3 to "SeamVerdict"
 src/intelligence/bars/level_seams.py:0: error: Argument 3 to "SeamVerdict"
@@ -70,21 +67,10 @@ src/intelligence/bars/level_seams.py:0: error: Argument 3 to "SeamVerdict"
 src/intelligence/bars/level_seams.py:0: error: Argument 3 to "SeamVerdict"
 src/intelligence/bars/scrub_rules.py:0: error: Argument 1 to "float" has
 src/intelligence/bars/scrub_rules.py:0: error: Argument 1 to "float" has
-src/intelligence/bars/scrub_rules.py:0: error: Argument 3 to "_hit_fields"
-src/intelligence/bars/scrub_rules.py:0: error: Argument 3 to "_hit_fields"
 src/intelligence/bars/scrub_rules.py:0: error: No overload variant of
-src/intelligence/bars/scrub_rules.py:0: error: No overload variant of "zip"
 src/intelligence/bars/scrub_rules.py:0: note: Possible overload variants:
-src/intelligence/bars/scrub_rules.py:0: note: Possible overload variants:
-src/intelligence/bars/scrub_rules.py:0: note: def [_T_co, _T1, _T2, _T3, _T4, _T5] zip(Iterable[_T1], Iterable[_T2], Iterable[_T3], Iterable[_T4], Iterable[_T5], /, *, strict: bool = ...) -> zip[tuple[_T1, _T2, _T3, _T4, _T5]]
-src/intelligence/bars/scrub_rules.py:0: note: def [_T_co, _T1, _T2, _T3, _T4] zip(Iterable[_T1], Iterable[_T2], Iterable[_T3], Iterable[_T4], /, *, strict: bool = ...) -> zip[tuple[_T1, _T2, _T3, _T4]]
-src/intelligence/bars/scrub_rules.py:0: note: def [_T_co, _T1, _T2, _T3] zip(Iterable[_T1], Iterable[_T2], Iterable[_T3], /, *, strict: bool = ...) -> zip[tuple[_T1, _T2, _T3]]
-src/intelligence/bars/scrub_rules.py:0: note: def [_T_co, _T1, _T2] zip(Iterable[_T1], Iterable[_T2], /, *, strict: bool = ...) -> zip[tuple[_T1, _T2]]
-src/intelligence/bars/scrub_rules.py:0: note: def [_T_co, _T1] zip(Iterable[_T1], /, *, strict: bool = ...) -> zip[tuple[_T1]]
 src/intelligence/bars/scrub_rules.py:0: note: def [_T_co] frozenset() -> frozenset[_T_co]
 src/intelligence/bars/scrub_rules.py:0: note: def [_T_co] frozenset(Iterable[_T_co], /) -> frozenset[_T_co]
-src/intelligence/bars/scrub_rules.py:0: note: def [_T_co] zip(*, strict: bool = ...) -> zip[Any]
-src/intelligence/bars/scrub_rules.py:0: note: def [_T_co] zip(Iterable[Any], Iterable[Any], Iterable[Any], Iterable[Any], Iterable[Any], Iterable[Any], /, *iterables: Iterable[Any], strict: bool = ...) -> zip[tuple[Any, ...]]
 src/intelligence/bars/split_reconciliation.py:0: error: Incompatible return
 src/intelligence/bars/split_reconciliation.py:0: note: Perhaps you need a type annotation for "counts"? Suggestion: "dict[str, int]"
 src/intelligence/bars/ticker_entity_map.py:0: error: Dict entry 1 has
@@ -104,14 +90,9 @@ src/intelligence/bars/verdict_gate.py:0: error: Unsupported operand types for
 src/intelligence/features/contract/registry.py:0: error: Incompatible types
 src/intelligence/features/contract/registry.py:0: error: Incompatible types
 src/intelligence/features/contract/registry.py:0: error: Incompatible types
-src/intelligence/features/kernels/_primitives.py:0: error: Argument 1 to
-src/intelligence/features/kernels/_primitives.py:0: error: Argument 1 to
-src/intelligence/features/kernels/_primitives.py:0: error: Returning Any from
 src/intelligence/features/kernels/_primitives.py:0: error: Returning Any from
 src/intelligence/features/kernels/control.py:0: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
 src/intelligence/features/kernels/control.py:0: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
-src/intelligence/features/kernels/price.py:0: error: Returning Any from
-src/intelligence/features/kernels/price.py:0: error: Returning Any from
 src/intelligence/features/kernels/price.py:0: error: Returning Any from
 src/intelligence/features/kernels/price.py:0: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
 src/intelligence/features/kernels/vp_sr.py:0: error: Incompatible return
@@ -137,49 +118,43 @@ src/intelligence/features/kernels/vp_sr.py:0: note: Right operand is of type "fl
 src/intelligence/features/kernels/vp_sr.py:0: note: Right operand is of type "float | None"
 src/intelligence/features/kernels/vp_sr.py:0: note: Right operand is of type "float | None"
 src/intelligence/features/kernels/vp_sr.py:0: note: Right operand is of type "float | None"
-src/intelligence/measure/ic.py:0: error: Returning Any from function declared
-src/intelligence/measure/regime_disclosure.py:0: error: Returning Any from
-src/intelligence/measure/regime_disclosure.py:0: error: Returning Any from
-src/intelligence/measure/regime_disclosure.py:0: error: Returning Any from
-src/intelligence/measure/targets.py:0: error: Returning Any from function
-src/intelligence/portfolio/weighting.py:0: error: Returning Any from function
-src/intelligence/research/combiner.py:0: error: Returning Any from function
-src/intelligence/research/combiner.py:0: error: Returning Any from function
 src/intelligence/research/construction.py:0: error: Argument 1 to
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
+src/intelligence/research/construction.py:0: error: Variable
 src/intelligence/research/construction.py:0: note: <8 more conflict(s) not shown>
 src/intelligence/research/construction.py:0: note: Protocol member EvaluationConfig.bootstrap_mean_block expected settable variable, got read-only attribute
 src/intelligence/research/construction.py:0: note: Protocol member EvaluationConfig.bootstrap_reps expected settable variable, got read-only attribute
-src/intelligence/research/contribution.py:0: error: Returning Any from
-src/intelligence/research/contribution.py:0: error: Value of type
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+src/intelligence/research/construction.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
 src/intelligence/research/dividends.py:0: error: Argument 3 to "disagree" of
-src/intelligence/research/dividends.py:0: error: Argument 3 to "replace" of
-src/intelligence/research/dividends.py:0: error: Argument 3 to "replace" of
-src/intelligence/research/dividends.py:0: error: Argument 4 to "replace" of
-src/intelligence/research/dividends.py:0: error: Argument 4 to "replace" of
 src/intelligence/research/evaluate.py:0: error: "None" not callable  [misc]
 src/intelligence/research/evaluate.py:0: error: Argument 1 to "_run_shifts"
-src/intelligence/research/evaluate.py:0: error: Incompatible return value
-src/intelligence/research/evaluate.py:0: error: Incompatible return value
-src/intelligence/research/evaluate.py:0: error: Returning Any from function
 src/intelligence/research/evaluate.py:0: error: Returning Any from function
 src/intelligence/research/evaluate.py:0: error: Value of type variable
 src/intelligence/research/evidence.py:0: error: Returning Any from function
-src/intelligence/research/factors.py:0: error: Argument 2 to "_slot_market"
-src/intelligence/research/factors.py:0: error: Argument 2 to "_slot_market"
-src/intelligence/research/factors.py:0: error: Returning Any from function
-src/intelligence/research/factors.py:0: error: Returning Any from function
-src/intelligence/research/families/intraday_periodicity.py:0: error: Returning
-src/intelligence/research/guards.py:0: error: Returning Any from function
-src/intelligence/research/horizon.py:0: error: Incompatible return value type
-src/intelligence/research/horizon.py:0: error: Incompatible return value type
-src/intelligence/research/kernel_source.py:0: error: Argument 1 to "shape"
-src/intelligence/research/kernel_source.py:0: error: Argument 1 to "shape"
 src/intelligence/research/ledger.py:0: error: Returning Any from function
-src/intelligence/research/legs.py:0: error: Argument "valid" to "replace" of
-src/intelligence/research/legs.py:0: error: Argument 2 to "replace" of
-src/intelligence/research/legs.py:0: error: Argument 2 to "replace" of
-src/intelligence/research/legs.py:0: error: Argument 2 to "replace" of
-src/intelligence/research/legs.py:0: error: Argument 2 to "replace" of
 src/intelligence/research/null_battery.py:0: error: Argument 2 to
 src/intelligence/research/null_battery.py:0: error: Argument 2 to
 src/intelligence/research/null_battery.py:0: error: Argument 2 to
@@ -195,8 +170,6 @@ src/intelligence/research/null_battery.py:0: error: Argument 3 to
 src/intelligence/research/null_battery.py:0: error: Argument 4 to
 src/intelligence/research/null_battery.py:0: error: Argument 4 to
 src/intelligence/research/null_battery.py:0: error: Incompatible types in
-src/intelligence/research/null_battery.py:0: error: Value expression in
-src/intelligence/research/null_battery_daily_residual.py:0: error: Argument 2
 src/intelligence/research/null_battery_daily_residual.py:0: error: Argument 2
 src/intelligence/research/null_battery_daily_residual.py:0: error: Argument 2
 src/intelligence/research/null_battery_daily_residual.py:0: error: Argument 2
@@ -231,54 +204,17 @@ src/intelligence/research/null_battery_persistent.py:0: error: Argument 1 to
 src/intelligence/research/null_battery_persistent.py:0: error: Cannot infer
 src/intelligence/research/null_battery_persistent.py:0: error: Dict entry 0
 src/intelligence/research/null_battery_persistent.py:0: error: Dict entry 0
-src/intelligence/research/null_battery_persistent.py:0: error: Returning Any
-src/intelligence/research/null_battery_persistent.py:0: error: Returning Any
 src/intelligence/research/null_battery_persistent.py:0: error: Unsupported
 src/intelligence/research/null_battery_persistent.py:0: note: Left operand is of type "float | None"
-src/intelligence/research/null_panels.py:0: error: Returning Any from function
-src/intelligence/research/null_panels.py:0: error: Value of type "float" is
-src/intelligence/research/panel.py:0: error: Argument 3 to
-src/intelligence/research/panel.py:0: error: Argument 8 to "replace" of
-src/intelligence/research/panel.py:0: error: Argument 8 to "replace" of
-src/intelligence/research/panel.py:0: error: Argument 8 to "replace" of
 src/intelligence/research/pod.py:0: error: Argument "spec_blob" to
-src/intelligence/research/pod.py:0: error: Item "BookSpec" of
-src/intelligence/research/pod.py:0: error: Item "BookSpec" of
-src/intelligence/research/pod.py:0: error: Item "BookSpec" of
-src/intelligence/research/pod.py:0: error: Item "BookSpec" of
-src/intelligence/research/pod.py:0: error: Item "FamilySpec" of
-src/intelligence/research/pod.py:0: error: Item "FamilySpec" of
-src/intelligence/research/pod.py:0: error: Item "FamilySpec" of
-src/intelligence/research/pod.py:0: error: Item "FamilySpec" of
-src/intelligence/research/pod.py:0: error: Item "FamilySpec" of
 src/intelligence/research/pod.py:0: error: Item "None" of "LedgerPort | None"
-src/intelligence/research/pod.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/portfolio.py:0: error: Argument 1 to "append" of
-src/intelligence/research/portfolio.py:0: error: Argument 1 to "append" of
-src/intelligence/research/portfolio.py:0: error: Argument 2 to
-src/intelligence/research/portfolio.py:0: error: Argument 2 to "where" has
-src/intelligence/research/portfolio.py:0: error: Argument 3 to
 src/intelligence/research/portfolio.py:0: error: Need type annotation for
 src/intelligence/research/portfolio.py:0: error: Need type annotation for
 src/intelligence/research/portfolio.py:0: error: Need type annotation for
-src/intelligence/research/portfolio.py:0: error: No overload variant of
 src/intelligence/research/portfolio.py:0: error: Unsupported operand types
-src/intelligence/research/portfolio.py:0: error: Unsupported operand types for
-src/intelligence/research/portfolio.py:0: error: Unsupported operand types for
-src/intelligence/research/portfolio.py:0: note: "list" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-src/intelligence/research/portfolio.py:0: note: Consider using "Sequence" instead, which is covariant
-src/intelligence/research/portfolio.py:0: note: Left operand is of type "SupportsDunderLT[Any] | SupportsDunderGT[Any]"
-src/intelligence/research/portfolio.py:0: note: Left operand is of type "ndarray[tuple[Any, ...], dtype[Any]] | None"
-src/intelligence/research/portfolio.py:0: note: Possible overload variants:
-src/intelligence/research/portfolio.py:0: note: def range(SupportsIndex, /) -> range
-src/intelligence/research/portfolio.py:0: note: def range(SupportsIndex, SupportsIndex, SupportsIndex = ..., /) -> range
+src/intelligence/research/portfolio.py:0: note: Left operand is of type "Any | None"
 src/intelligence/research/provenance.py:0: error: Returning Any from function
 src/intelligence/research/provenance.py:0: error: Returning Any from function
-src/intelligence/research/recipe.py:0: error: Argument 1 to "_universe" has
-src/intelligence/research/recipe.py:0: error: Item "BookSpec" of
-src/intelligence/research/recipe.py:0: error: Item "FamilySpec" of
-src/intelligence/research/recipe.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/recipe.py:0: error: Item "PodBookSpec" of
 src/intelligence/research/recipe.py:0: error: Returning Any from function
 src/intelligence/research/recipe.py:0: error: Returning Any from function
 src/intelligence/research/runner.py:0: error: "object" has no attribute
@@ -291,77 +227,21 @@ src/intelligence/research/runner.py:0: error: Argument "spec_blob" to
 src/intelligence/research/runner.py:0: error: Argument 1 to
 src/intelligence/research/runner.py:0: error: Argument 1 to
 src/intelligence/research/runner.py:0: error: Argument 1 to
-src/intelligence/research/runner.py:0: error: Argument 1 to
-src/intelligence/research/runner.py:0: error: Argument 1 to
-src/intelligence/research/runner.py:0: error: Argument 1 to
-src/intelligence/research/runner.py:0: error: Argument 1 to
-src/intelligence/research/runner.py:0: error: Argument 1 to
-src/intelligence/research/runner.py:0: error: Argument 1 to
-src/intelligence/research/runner.py:0: error: Argument 1 to "_check_spec"
 src/intelligence/research/runner.py:0: error: Argument 1 to "_default_build"
-src/intelligence/research/runner.py:0: error: Argument 1 to "_refit_subset"
-src/intelligence/research/runner.py:0: error: Argument 1 to "_require_r1"
-src/intelligence/research/runner.py:0: error: Argument 1 to "_require_r1"
-src/intelligence/research/runner.py:0: error: Argument 1 to "combiner_kind"
 src/intelligence/research/runner.py:0: error: Argument 1 to "dict" has
 src/intelligence/research/runner.py:0: error: Argument 1 to "int" has
 src/intelligence/research/runner.py:0: error: Argument 1 to "kernel_registry"
 src/intelligence/research/runner.py:0: error: Argument 1 to "kernel_registry"
 src/intelligence/research/runner.py:0: error: Argument 1 to "no_dividends"
-src/intelligence/research/runner.py:0: error: Argument 1 to "static_gate"
 src/intelligence/research/runner.py:0: error: Argument 2 to
 src/intelligence/research/runner.py:0: error: Argument 2 to "_default_build"
 src/intelligence/research/runner.py:0: error: Argument 2 to "_prepare_panel"
-src/intelligence/research/runner.py:0: error: Argument 2 to "from_timing" of
-src/intelligence/research/runner.py:0: error: Argument 2 to "from_timing" of
-src/intelligence/research/runner.py:0: error: Argument 2 to "real_guards"
-src/intelligence/research/runner.py:0: error: Argument 2 to "replace" of
-src/intelligence/research/runner.py:0: error: Argument 2 to "replace" of
-src/intelligence/research/runner.py:0: error: Argument 2 to "replace" of
-src/intelligence/research/runner.py:0: error: Argument 2 to "replace" of
-src/intelligence/research/runner.py:0: error: Argument 3 to
 src/intelligence/research/runner.py:0: error: Argument 3 to "member_index"
 src/intelligence/research/runner.py:0: error: Argument 5 to "evaluate" has
-src/intelligence/research/runner.py:0: error: Argument 7 to "replace" of
-src/intelligence/research/runner.py:0: error: Argument 7 to "replace" of
-src/intelligence/research/runner.py:0: error: Argument 7 to "replace" of
-src/intelligence/research/runner.py:0: error: Argument 7 to "replace" of
 src/intelligence/research/runner.py:0: error: Argument 9 to "Panel" has
 src/intelligence/research/runner.py:0: error: Argument 9 to "Panel" has
 src/intelligence/research/runner.py:0: error: Incompatible types in
 src/intelligence/research/runner.py:0: error: Incompatible types in
-src/intelligence/research/runner.py:0: error: Invalid index type
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "BookSpec" of
-src/intelligence/research/runner.py:0: error: Item "FamilySpec" of
-src/intelligence/research/runner.py:0: error: Item "FamilySpec" of
-src/intelligence/research/runner.py:0: error: Item "FamilySpec" of
-src/intelligence/research/runner.py:0: error: Item "FamilySpec" of
 src/intelligence/research/runner.py:0: error: Item "None" of
 src/intelligence/research/runner.py:0: error: Item "None" of
 src/intelligence/research/runner.py:0: error: Item "None" of
@@ -442,96 +322,34 @@ src/intelligence/research/runner.py:0: error: Item "None" of
 src/intelligence/research/runner.py:0: error: Item "None" of
 src/intelligence/research/runner.py:0: error: Item "None" of "Panel | None"
 src/intelligence/research/runner.py:0: error: Item "None" of "Panel | None"
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/runner.py:0: error: Returning Any from function
-src/intelligence/research/runner.py:0: error: Returning Any from function
 src/intelligence/research/runner.py:0: error: Returning Any from function
 src/intelligence/research/runner.py:0: error: Returning Any from function
 src/intelligence/research/runner.py:0: error: Returning Any from function
 src/intelligence/research/runner.py:0: error: Unsupported operand types for
 src/intelligence/research/runner.py:0: error: Unsupported operand types for
 src/intelligence/research/runner.py:0: error: Value of type
-src/intelligence/research/runner.py:0: error: Value of type
-src/intelligence/research/runner.py:0: error: Value of type
+src/intelligence/research/runner.py:0: error: Value of type "Any | None" is
+src/intelligence/research/runner.py:0: error: Value of type "Any | None" is
 src/intelligence/research/runner.py:0: note: <8 more conflict(s) not shown>
 src/intelligence/research/runner.py:0: note: Left operand is of type "int | None"
 src/intelligence/research/runner.py:0: note: Left operand is of type "int | None"
 src/intelligence/research/runner.py:0: note: Protocol member EvaluationConfig.bootstrap_mean_block expected settable variable, got read-only attribute
 src/intelligence/research/runner.py:0: note: Protocol member EvaluationConfig.bootstrap_reps expected settable variable, got read-only attribute
-src/intelligence/research/smoothing.py:0: error: Returning Any from function
 src/intelligence/research/snapshot.py:0: error: Argument 4 to "_coverage" has
 src/intelligence/research/snapshot.py:0: error: Argument 4 to "_coverage" has
-src/intelligence/research/snapshot.py:0: error: Argument 7 to "Panel" has
-src/intelligence/research/snapshot.py:0: error: Returning Any from function
-src/intelligence/research/snapshot.py:0: error: Value of type
+src/intelligence/research/snapshot.py:0: error: Value of type "Any | None" is
 src/intelligence/research/spec.py:0: error: Generator has incompatible item
-src/intelligence/research/spec.py:0: error: Generator has incompatible item
-src/intelligence/research/spec.py:0: error: Item "BookSpec" of
-src/intelligence/research/spec.py:0: error: Item "BookSpec" of
-src/intelligence/research/spec.py:0: error: Item "BookSpec" of
-src/intelligence/research/spec.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/spec.py:0: error: Item "PodBookSpec" of
-src/intelligence/research/spec.py:0: error: Item "PodBookSpec" of
+src/intelligence/research/spec.py:0: error: Returning Any from function
+src/intelligence/research/spec.py:0: error: Returning Any from function
+src/intelligence/research/spec.py:0: error: Returning Any from function
+src/intelligence/research/spec.py:0: error: Returning Any from function
+src/intelligence/research/spec.py:0: error: Returning Any from function
 src/intelligence/research/spec.py:0: error: Returning Any from function
 src/intelligence/research/static_sizes.py:0: error: Returning Any from
-src/intelligence/research/static_sizes.py:0: error: Returning Any from
 src/intelligence/research/store.py:0: error: Returning Any from function
-src/intelligence/research/store.py:0: error: Returning Any from function
-src/intelligence/research/synthetic.py:0: error: Returning Any from function
-src/intelligence/research/timing.py:0: error: Argument 1 to "below" has
-src/intelligence/statistics/factor_math.py:0: error: Returning Any from
-src/intelligence/statistics/ic_bootstrap_jit.py:0: error: Module has no
-src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
-src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
-src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
-src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
-src/intelligence/statistics/panel_null.py:0: error: Returning Any from
 src/intelligence/statistics/stepm.py:0: error: Returning Any from function
-src/intelligence/statistics/term_structure_lag.py:0: error: Argument 3 to
-src/intelligence/statistics/term_structure_lag.py:0: error: Argument 3 to
-src/intelligence/statistics/term_structure_lag.py:0: error: No overload
+src/intelligence/statistics/stepm.py:0: error: Returning Any from function
 src/intelligence/statistics/term_structure_lag.py:0: error: Value of type
-src/intelligence/statistics/term_structure_lag.py:0: note: Possible overload variants:
-src/intelligence/statistics/term_structure_lag.py:0: note: Right operand is of type "int | None"
-src/intelligence/statistics/term_structure_lag.py:0: note: def __floordiv__(self, _SupportsArray[dtype[floating[_64Bit]]] | _NestedSequence[_SupportsArray[dtype[floating[_64Bit]]]], /) -> ndarray[tuple[Any, ...], dtype[float64]]
-src/intelligence/statistics/term_structure_lag.py:0: note: def __floordiv__(self, _SupportsArray[dtype[numpy.bool[builtins.bool] | integer[Any] | floating[Any]]] | _NestedSequence[_SupportsArray[dtype[numpy.bool[builtins.bool] | integer[Any] | floating[Any]]]] | float | _NestedSequence[float], /) -> ndarray[tuple[Any, ...], dtype[floating[Any]]]
-src/intelligence/statistics/term_structure_lag.py:0: note: def __floordiv__(self, _SupportsArray[dtype[numpy.bool[builtins.bool] | integer[Any]]] | _NestedSequence[_SupportsArray[dtype[numpy.bool[builtins.bool] | integer[Any]]]] | int | _NestedSequence[int], /) -> ndarray[tuple[Any, ...], dtype[signedinteger[Any]]]
-src/intelligence/statistics/term_structure_lag.py:0: note: def __floordiv__(self, _SupportsArray[dtype[numpy.bool[builtins.bool]]] | _NestedSequence[_SupportsArray[dtype[numpy.bool[builtins.bool]]]] | builtins.bool | _NestedSequence[builtins.bool], /) -> ndarray[tuple[Any, ...], dtype[signedinteger[_32Bit | _64Bit]]]
-src/intelligence/statistics/term_structure_lag.py:0: note: def __floordiv__(self, _SupportsArray[dtype[object_]] | _NestedSequence[_SupportsArray[dtype[object_]]], /) -> Any
-src/intelligence/statistics/term_structure_lag.py:0: note: def __floordiv__(self, int | numpy.bool[builtins.bool], /) -> ndarray[tuple[int], dtype[signedinteger[_32Bit | _64Bit]]]
 src/intelligence/utils/core.py:0: error: Returning Any from function declared
 src/intelligence/utils/core.py:0: error: Returning Any from function declared
 src/intelligence/utils/core.py:0: error: Returning Any from function declared
