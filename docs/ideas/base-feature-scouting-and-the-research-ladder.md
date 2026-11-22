@@ -122,6 +122,28 @@ Superseded and withdrawn: the "exploration span versus confirmation span" lever 
 
 Possible refinement worth a research note (not a change now): sequential confirmation. A fixed power-dated test date (E18 refuses a date more than 3 years out) wastes calendar time when evidence is strong early or hopeless early. Group-sequential or always-valid (e-value) confirmation on book P&L would allow early stopping in both directions without spending extra alpha. The difficulty is autocorrelated P&L under the E17 HAC statistic; it needs a study, a synthetic power check and a ledger entry before use. This attacks the real bottleneck (forward-span time), which the screen's price does not.
 
+## Atomic feature status (verified against the kernels 2026-11-22)
+
+One place that says where each atomic-feature idea stands. Status is read from `src/intelligence/features/` (names grepped in `feature_vector.py` and `kernels/`), not from the idea docs' own status lines. Detail stays in the source docs.
+
+| Idea set | Source doc | Status |
+|---|---|---|
+| OHLCV primitives: bar anatomy, lagged returns, volume structure, realized variance and volatility, alternative estimators, volatility dynamics, breakout distance, return distribution, open-to-close split, interaction primitives | `docs/research/signal-renaissance-primitives-ohlcv.md` | Landed: 88 of the 101 names in its catalog are in the kernels |
+| Calendar primitives, including `quarter_cycle`, `tdom` and `minute_of_hour` sin/cos pairs and the opex, quad-witching and earnings-season flags | `docs/research/signal-temporal-atomic-primitives.md` | Landed |
+| Pre-rebuild add-list (ten columns: idiosyncratic volatility, market residual trio, beta stability, max daily return, max drawdown, downside deviation, size proxy, dividend yield) | `docs/plans/2026-10-28-pre-rebuild-feature-additions-draft.md` | Landed 2026-11-03 (todo 584 item 8), all `candidate` until a family names them |
+| `days_to_ex_dividend` | same | Deferred: no declaration time in the dividend layer when decided; not rechecked since Massive dividends landed (todo 651) |
+| Flow activity primitives 1 to 10 (volume change, acceleration, short-window volume z, trade count change and z, range and body-ratio change, lag-1 return) | OHLCV doc, section "Flow activity primitives" | Not stored. The trade count members need capture first (adjacency register, todo 600); the rest are free to add and have no named consuming family |
+| `new_high_flag`, `new_low_flag`, `ret_div_1m_5m`, `volatility_pct` | OHLCV doc | Named in the catalog, not in the kernels; no consuming family |
+| Residual OU half-life and equilibrium sigma, residual reversal interactions | pre-rebuild doc, "Research-layer first" | Research layer only, by rule; promoted to storage after a family verdict |
+| Fundamentals, short interest, borrow, trade count, VWAP, extended-hours summaries | this doc, rung 0; adjacency register | Blocked on capture or a source decision |
+| Sensitivity-by-regime interaction products | `docs/ideas/signal-sensitivity-regime-interaction-primitives.md` | Idea, rigor pass done, never run; interaction rung, not atomic |
+| Scoped regime states | `docs/ideas/signal-scoped-regime-states.md` | Idea; the rigor pass its status line asks for has not been done |
+| Macro and schedule series, candidate regime axes | `docs/ideas/signal-macro-context-layer.md` | Idea; depends on todos 481 and 482; regime inputs, not atomic features |
+| Per-symbol percentile-rank candidates, `rank_z` trio | `docs/research/measurement-per-symbol-percentile-rank-candidates.md` | Dead (closed 2026-09-01); the three `rank_z` columns retired |
+| Combinatorial interaction factory | `docs/research/intel-feature-interaction-factory.md` | Superseded by Phase 151's curated layer; the generated_family grammar is todo 440 |
+
+Any column added to this list passes the admission gates above before measurement. A column rebuilt after a kernel edit moves `rebuild_code_key()`, so batch additions into one pass when a corpus run is about to start.
+
 ## Cadence and ownership
 
 - Quarterly scouting pass: refresh the register from vendor schemas, list diffs, propose captures. Capture is cheap and carries no outcome, so it needs no look count.

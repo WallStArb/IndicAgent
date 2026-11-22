@@ -1,6 +1,6 @@
 # Renaissance Primitives — OHLCV Expansion Candidates
 
-**Status:** Idea — not planned
+**Status:** Mostly landed. 88 of the 101 catalog names are in the kernels (checked 2026-11-22); the flow activity primitives, `new_high_flag`, `new_low_flag`, `ret_div_1m_5m` and `volatility_pct` are not stored. The "ensemble discovers" framing and the `corpus_pipeline_run.sh` steps are from the deleted ensemble chain; read the feature list, not the workflow. Current status of every idea: `docs/ideas/base-feature-scouting-and-the-research-ladder.md`, "Atomic feature status".
 **Restored:** 2026-07-06 — moved from archive (was `docs/research/archive/renaissance-primitives-ohlcv.md`)
 **Context:** Feature Factory (v3.0) produces 54 features. This doc catalogs true
 primitives derivable from OHLCV bar data that we do not yet compute. The goal is a

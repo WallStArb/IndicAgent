@@ -1,6 +1,6 @@
 # Calendar Primitives
 
-**Status:** Research - Fable-reviewed 2026-07-13
+**Status:** Research - Fable-reviewed 2026-07-13. The proposed `quarter_cycle`, `tdom` and `minute_of_hour` pairs and the opex and quad-witching flags are in the kernels (checked 2026-11-22). Status of every feature idea: `docs/ideas/base-feature-scouting-and-the-research-ladder.md`.
 **Author:** Claude (Fable 5), dispatched review, 2026-07-13 - todo 104 (quarterly-seasonality/OPEX
 rigor pass) plus extraction and expansion of the "Temporal Coordinate Primitives" section of
 `docs/research/signal-renaissance-primitives-ohlcv.md` (that section is now a pointer here).
