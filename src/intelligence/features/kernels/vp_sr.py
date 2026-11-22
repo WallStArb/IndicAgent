@@ -1058,6 +1058,19 @@ def _compute_fib_zones(
 # None of these eleven columns has a legacy default to preserve -- they are
 # brand-new Phase 165 columns -- so every one falls back to None, matching
 # migration 267's COMMENT ON COLUMN NULL conditions.
+_SESSION_ATR_DISTANCES = frozenset(
+    {
+        "prior_session_high_dist_atr",
+        "prior_session_low_dist_atr",
+        "prior_session_close_dist_atr",
+        "weekly_pivot_dist_atr",
+        "weekly_r1_dist_atr",
+        "weekly_r2_dist_atr",
+        "weekly_s1_dist_atr",
+        "weekly_s2_dist_atr",
+        "nearest_level_dist_atr",
+    }
+)
 _SESSION_LEVELS_FALLBACK: dict[str, float | None] = {
     "prior_session_high_dist_atr": None,
     "prior_session_low_dist_atr": None,
@@ -1411,7 +1424,7 @@ KERNELS = (
         # nan_state_keys); the sets coincide (round 8). Every other output is NaN/None
         # there (group 4).
         zero_is_state=_SR_ATR_GATED_STATE,
-        atr_gated_state=_SR_ATR_GATED_STATE,
+        degenerate_input_state=_SR_ATR_GATED_STATE,
         object_dependent=SR.nullable,  # no qualifying level cluster in the window
     ),
     Kernel(
@@ -1439,7 +1452,10 @@ KERNELS = (
         # the opening gap needs a prior session close; a zero gap and the filled flag are
         # measured states once it exists (D1 rule 4)
         object_dependent=frozenset({"opening_gap_pct", "gap_filled"}),
-        zero_is_state=frozenset({"opening_gap_pct", "gap_filled"}),
+        # each *_dist_atr is (level - close) / ATR: NaN when the level is absent or the ATR is
+        # invalid, 0.0 only when the close sits exactly on the level (a measured distance)
+        zero_is_state=frozenset({"opening_gap_pct", "gap_filled"} | _SESSION_ATR_DISTANCES),
+        degenerate_input_state=_SESSION_ATR_DISTANCES,
         volume_basis_safe=True,  # update_session_levels takes no volume; the replay's weekly VWAP is unread
         path_dependent=True,
         path_dependent_reason=_PATH_SESSION_ACCUMULATOR,

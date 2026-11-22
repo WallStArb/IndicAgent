@@ -362,12 +362,12 @@ def test_a_declaration_outside_the_kernel_outputs_raises():
         KernelRegistry.from_kernels([_k("a", zero_is_state=frozenset({"nope"}))])
 
 
-def test_an_atr_gated_state_outside_zero_is_state_raises():
+def test_an_degenerate_input_state_outside_zero_is_state_raises():
     # The contract-test exemption and the G3 fill audit's skip both key on zero_is_state
-    # membership, so an atr_gated_state key outside it silently loses both (round 8).
+    # membership, so an degenerate_input_state key outside it silently loses both (round 8).
     with pytest.raises(KernelRegistryError, match="outside zero_is_state"):
         KernelRegistry.from_kernels(
-            [_k("a", zero_is_state=frozenset(), atr_gated_state=frozenset({"a"}))]
+            [_k("a", zero_is_state=frozenset(), degenerate_input_state=frozenset({"a"}))]
         )
 
 

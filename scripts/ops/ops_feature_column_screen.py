@@ -19,7 +19,20 @@ Per (tf, name) and column:
   here only on not being entirely NULL; its share is judged on the rows where its object exists,
   from the units' provenance unit_stats (services/corpus_rerun.py object_share_gate).
 - G3 fill audit: the exact-0.0 share of finite post-warmup rows, above
-  `threshold.pilot_gate.zero_share_max`, for a column outside the kernels' `zero_is_state` set.
+  `threshold.pilot_gate.zero_share_max`, for a column a 0.0 can stand in for. Skipped, each by a
+  declared kernel property and never a column list: `zero_is_state` (0.0 is the measured state)
+  and the outputs of an `acausal_control` kernel (a deliberate-lookahead control, not a feature).
+  `object_dependent` columns are NOT skipped: review found 0.0 returned for an absent object
+  (`struct_accel_bias` with under two extremes, `reclaim_velocity` for a sweep too recent to
+  observe), which is exactly what G3 exists to catch.
+- Context clock (G2, G6): the cross-asset record columns (`macro.RECORD_COLUMNS`) are date
+  functions of the same series for every name, so a NaN before the first date on which any
+  screened name holds a finite value is an input that does not exist yet (HYG begins in 2007),
+  never filled. Each name's warmup for them is at least its rows before that date; a name that is
+  NaN after it still fails G2. The date is read from the screened rows themselves.
+- Dividend coverage (G1, G6): `dividend_yield` is NaN for a name with no Yahoo
+  `dividend_event_coverage` row, the one source the feature layer reads (unknown, never 0.0), so every row of such a name is before its input exists and the name is
+  not judged on that column; the count is in the report as `dividend_uncovered_names`.
 A name with no more rows than a column's declared memory is not judged on that column (empty is
 expected). Names with fewer than --min-name-rows rows on a timeframe are not judged at all.
 
@@ -44,6 +57,8 @@ import argparse
 import json
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Mapping
+from collections.abc import Set as AbstractSet
 from datetime import UTC, datetime
 from itertools import batched
 from pathlib import Path
@@ -69,6 +84,7 @@ from src.intelligence.features.feature_vector_persistence import (  # noqa: E402
     feature_vectors_numeric_columns,
 )
 from src.intelligence.features.kernels.control import _CANARY_CONSTANT_VALUE  # noqa: E402
+from src.intelligence.features.kernels.macro import RECORD_COLUMNS  # noqa: E402
 
 DECLARED_CONSTANTS = {"canary_constant": _CANARY_CONSTANT_VALUE}
 REPORT_DIR = project_root / "logs"
@@ -132,6 +148,15 @@ def zero_is_state(registry) -> frozenset[str]:
     return frozenset(o for k in registry.kernels for o in k.zero_is_state)
 
 
+def fill_audit_exempt(registry) -> frozenset[str]:
+    """Outputs G3 does not judge: those where a 0.0 cannot stand for a missing input or object.
+    Keyed on the declared kernel properties, so a new column is covered by declaring it."""
+    controls = (
+        o for k in registry.kernels if getattr(k, "acausal_control", False) for o in k.outputs
+    )
+    return zero_is_state(registry) | frozenset(controls)
+
+
 def declared_memory(registry, config, columns: tuple[str, ...], tfs) -> dict[str, dict[str, int]]:
     """Per tf, the first row the rebuild can store for each column (stored_first_row): the
     memory of a column the writer masks inside it, or a path-dependent column's definition
@@ -180,11 +205,12 @@ def screen_rows(
     *,
     memory: dict[str, dict[str, int]],
     applicable: dict[str, frozenset[str]],
-    zero_state: frozenset[str],
+    fill_exempt: frozenset[str],
     min_rows: int,
     min_name_rows: int,
     warmup_gap_max: int,
     zero_share_max: float,
+    clock: Mapping[tuple[str, str], Mapping[str, int]] | None = None,
 ) -> tuple[dict[str, dict], dict[str, int]]:
     """Per-timeframe gate report from the per-(tf, symbol) rows (tf, symbol, row count, then
     STATS_PER_COLUMN per column), and the timeframes skipped below min_rows."""
@@ -207,7 +233,7 @@ def screen_rows(
             for column, (non_null, finite, first_rn, low, high, zeros, finite_post) in zip(
                 columns, per_column, strict=True
             ):
-                mem = memory[tf][column]
+                mem = _effective_memory(memory, clock, tf, symbol, column)
                 if n <= mem:
                     continue  # history shorter than the declared memory: empty is expected
                 judged_for[column] += 1
@@ -220,7 +246,7 @@ def screen_rows(
                 if first_rn - 1 - mem > warmup_gap_max:
                     fails["G2"][column].append(symbol)
                 if (
-                    column not in zero_state
+                    column not in fill_exempt
                     and finite_post
                     and zeros / finite_post > zero_share_max
                 ):
@@ -249,6 +275,7 @@ def null_share_gate(
     max_null_fraction: float,
     min_name_rows: int,
     worst: int = EXAMPLES,
+    clock: Mapping[tuple[str, str], Mapping[str, int]] | None = None,
 ) -> dict[str, dict]:
     """G6 per tf: the NULL or non-finite share of each applicable column over the rows past its
     declared warmup (`declared_memory`), pooled over the judged names. A column the registry
@@ -257,12 +284,12 @@ def null_share_gate(
     fails. Returns, per tf, the failing columns with their reason and the worst shares."""
     measured: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])  # [rows, finite]
     judged_tfs: set[str] = set()
-    for tf, _symbol, n, *stats in rows:
+    for tf, symbol, n, *stats in rows:
         if n < min_name_rows:
             continue
         judged_tfs.add(tf)
         for column, cell in zip(columns, batched(stats, STATS_PER_COLUMN, strict=True)):
-            mem = memory[tf][column]
+            mem = _effective_memory(memory, clock, tf, symbol, column)
             if n > mem:
                 measured[(tf, column)][0] += n - mem
                 measured[(tf, column)][1] += cell[6]
@@ -291,6 +318,65 @@ def null_share_gate(
             "worst": dict(sorted(shares.items(), key=lambda kv: -kv[1])[:worst]),
         }
     return out
+
+
+def _effective_memory(memory, clock, tf: str, symbol: str, column: str) -> int:
+    """The column's declared warmup, or the name's rows before the column's context clock when
+    that is later."""
+    declared = memory[tf][column]
+    if not clock:
+        return declared
+    return max(declared, clock.get((tf, symbol), {}).get(column, 0))
+
+
+DIVIDEND_COLUMN = "dividend_yield"
+
+
+def uncovered_dividend_clock(
+    rows: Iterable[tuple], covered: AbstractSet[str]
+) -> dict[tuple[str, str], dict[str, int]]:
+    """Per (tf, symbol) without a dividend coverage row, a clock past every row it has: the
+    dividend input is unknown for the whole history, so the name is not judged on the column."""
+    return {
+        (tf, symbol): {DIVIDEND_COLUMN: n_rows}
+        for tf, symbol, n_rows, *_ in rows
+        if symbol not in covered
+    }
+
+
+def context_columns(columns: tuple[str, ...]) -> tuple[str, ...]:
+    """The screened columns that are symbol-independent date functions (macro.RECORD_COLUMNS)."""
+    return tuple(c for c in columns if c in RECORD_COLUMNS)
+
+
+def _clock_query(context: tuple[str, ...], where: sql.Composable) -> sql.Composed:
+    """Per (tf, symbol): the rows before the first date on which any screened name holds a finite
+    value of each context column (none: a column finite nowhere keeps a zero clock, so it still
+    fails G1 and G6). The filtered scan is referenced twice and not materialized."""
+    finite = "{c} > '-Infinity' AND {c} < 'Infinity'"
+    firsts = sql.SQL(", ").join(
+        sql.SQL(f"min(bar_ts) FILTER (WHERE {finite}) AS {{a}}").format(
+            c=sql.Identifier(c), a=sql.Identifier(f"first_{c}")
+        )
+        for c in context
+    )
+    counts = sql.SQL(", ").join(
+        sql.SQL("count(*) FILTER (WHERE f.bar_ts < avail.{a})").format(
+            a=sql.Identifier(f"first_{c}")
+        )
+        for c in context
+    )
+    return sql.SQL(
+        "WITH f AS NOT MATERIALIZED (SELECT tf, symbol, bar_ts, {cols} FROM feature_vectors{where}), "
+        "avail AS (SELECT tf, {firsts} FROM f GROUP BY tf) "
+        "SELECT f.tf, f.symbol, {counts} FROM f JOIN avail ON avail.tf = f.tf "
+        "GROUP BY f.tf, f.symbol"
+    ).format(
+        cols=sql.SQL(", ").join(sql.Identifier(c) for c in context),
+        where=where,
+        firsts=firsts,
+        counts=counts,
+    )
 
 
 def gate_failures(report: dict[str, dict]) -> dict[str, int]:
@@ -394,17 +480,33 @@ def main(argv: list[str] | None = None) -> int:
         for part in batched(columns, COLUMNS_PER_PASS, strict=False):
             for tf, symbol, n_rows, *stats in conn.execute(_query(part, memory, where), params):
                 rows_by_key.setdefault((tf, symbol), [tf, symbol, n_rows]).extend(stats)
+        context = context_columns(columns)
+        clock: dict[tuple[str, str], dict[str, int]] = {}
+        if context:
+            for tf, symbol, *pre in conn.execute(_clock_query(context, where), params):
+                clock[(tf, symbol)] = dict(zip(context, pre, strict=True))
+        # the source the feature layer reads (backfill_feature_factory._DIVIDEND_COVERAGE_SQL)
+        covered = {
+            r[0]
+            for r in conn.execute(
+                "SELECT DISTINCT symbol FROM dividend_event_coverage WHERE source = 'yahoo'"
+            )
+        }
+        uncovered = uncovered_dividend_clock(rows_by_key.values(), covered)
+        for key, entry in uncovered.items():
+            clock.setdefault(key, {}).update(entry)
     timeframes = {tf for tf, _ in rows_by_key}
     report, skipped = screen_rows(
         columns,
         list(rows_by_key.values()),
         memory=memory,
         applicable={tf: applicable_columns(registry, columns, tf) for tf in timeframes},
-        zero_state=zero_is_state(registry),
+        fill_exempt=fill_audit_exempt(registry),
         min_rows=args.min_rows,
         min_name_rows=args.min_name_rows,
         warmup_gap_max=warmup_gap_max,
         zero_share_max=zero_share_max,
+        clock=clock,
     )
 
     for tf, n_rows in skipped.items():
@@ -426,6 +528,7 @@ def main(argv: list[str] | None = None) -> int:
             object_columns=object_dependent(registry),
             max_null_fraction=max_null,
             min_name_rows=args.min_name_rows,
+            clock=clock,
         )
         failures[NULL_GATE] = sum(len(entry["failing"]) for entry in nulls.values())
         for tf, entry in nulls.items():
@@ -458,6 +561,10 @@ def main(argv: list[str] | None = None) -> int:
         "missing_symbols": missing_symbols,
         "gate_failures": failures,
         "report": report,
+        "context_clock": {f"{tf}/{symbol}": cols for (tf, symbol), cols in sorted(clock.items())},
+        "dividend_uncovered_names": {
+            tf: sorted(symbol for t, symbol in uncovered if t == tf) for tf in report
+        },
         "null_gate": nulls,
     }
     path.write_text(json.dumps(payload, indent=1, sort_keys=True))

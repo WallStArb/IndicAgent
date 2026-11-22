@@ -174,11 +174,12 @@ class Kernel:
     # object or validity state is false. The rebuild writer counts, per unit, the rows where it is
     # 0 (present) and of those the NaN ones; the corpus gate's G6 judges that share (186-31).
     object_dependent: frozenset[str] = frozenset()
-    # zero_is_state outputs whose detection tolerance itself scales by an invalid input (the
-    # ATR), so on that invalid row the count is NaN (present, unmeasured), never a measured
-    # empty set (186-31 review round 6). The single declaration the contract tests and the
-    # kernels' `invalid_input_fallback(nan_state_keys=...)` both read.
-    atr_gated_state: frozenset[str] = frozenset()
+    # zero_is_state outputs that are NaN (present, unmeasured) on a degenerate input row, never a
+    # measured 0.0: a detection tolerance that scales by an invalid ATR (a count over an empty
+    # set would read as measured, 186-31 review round 6), or a ratio over a zero bar range or an
+    # invalid ATR. The single declaration the contract tests and the kernels'
+    # `invalid_input_fallback(nan_state_keys=...)` both read.
+    degenerate_input_state: frozenset[str] = frozenset()
 
 
 class Alignment(enum.Enum):
@@ -300,7 +301,7 @@ class KernelRegistry:
                 "not_applicable",
                 "zero_is_state",
                 "object_dependent",
-                "atr_gated_state",
+                "degenerate_input_state",
             ):
                 stray = set(getattr(kernel, field_name)) - set(kernel.outputs)
                 if stray:
@@ -308,10 +309,10 @@ class KernelRegistry:
                         f"kernel {_where(kernel)} declares {field_name} {sorted(stray)}, which "
                         "are not among its outputs"
                     )
-            ungated = kernel.atr_gated_state - kernel.zero_is_state
+            ungated = kernel.degenerate_input_state - kernel.zero_is_state
             if ungated:
                 raise KernelRegistryError(
-                    f"kernel {_where(kernel)} declares atr_gated_state {sorted(ungated)} outside "
+                    f"kernel {_where(kernel)} declares degenerate_input_state {sorted(ungated)} outside "
                     "zero_is_state (the contract tests' exemption and the G3 fill audit's skip "
                     "both key on zero_is_state membership)"
                 )

@@ -425,6 +425,9 @@ KERNELS = (
         inputs=("ts_dt",),
         memory=lambda config: 0,
         compute=_compute_events,
+        # pure functions of the bar timestamp: 0.0 is "not an option-expiry day, not a
+        # quad-witching day, not inside an earnings window", measured on every row
+        zero_is_state=frozenset({"opex_flag", "quad_witching_flag", "earnings_season_flag"}),
     ),
     Kernel(
         name="calendar_above_wk_vwap",
@@ -432,6 +435,9 @@ KERNELS = (
         inputs=("ts_dt", "high", "low", "close", "volume"),
         memory=lambda config: 0,
         compute=_compute_above_wk_vwap,
+        # float(close > weekly VWAP): 0.0 is "close at or below it". Rows 0 and 1 hold the cache's
+        # initial 0.0 (it first advances at row 1); two rows per name, disclosed, not masked
+        zero_is_state=frozenset({"above_wk_vwap"}),
         path_dependent=True,
         path_dependent_reason=(
             "weekly accumulator state and row-0 exclusion depend on the series start; the weekly "

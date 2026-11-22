@@ -31,6 +31,7 @@ from src.intelligence.features.kernels._primitives import (
     _trailing_window_sums,
     bounded_window_bars,
     none_mask_name,
+    undefined_on,
     wilder_memory_bars,
     wilder_rsi_series,
 )
@@ -1517,6 +1518,11 @@ def _recency_kernels() -> tuple[Kernel, ...]:
 # --- per-bar scalars -----------------------------------------------------------------------
 
 
+_BAR_RATIO_STATE = frozenset(
+    {"bar_close_pos", "body_ratio", "upper_wick_ratio", "lower_wick_ratio"}
+)
+
+
 def _compute_bar_shape(x, config):
     o, h, lo, c = (x[f].tolist() for f in ("open", "high", "low", "close"))
     n = len(c)
@@ -2042,7 +2048,10 @@ KERNELS = (
         ("open", "high", "low", "close"),
         lambda c: 0,
         _compute_bar_shape,
-        zero_is_state=frozenset({"close_vs_open_direction"}),
+        # a ratio over the bar range is NaN on a zero-range bar (undefined, never 0.0); on a bar
+        # with a range, 0.0 is measured (a close at the low, a doji body, a wick-free side)
+        zero_is_state=frozenset(_BAR_RATIO_STATE | {"close_vs_open_direction"}),
+        degenerate_input_state=_BAR_RATIO_STATE,
     ),
     _k(
         "range_vs_atr",
@@ -2097,6 +2106,10 @@ KERNELS = (
         memory_anchor=ANCHOR_SERIES_START,
         definition=lambda c, tf: _bar_statistics_warmup(c),
         zero_is_state=frozenset({"shannon"}),
+        # the slope z-score needs momentum_zscore_window slopes, one per regime cache refresh: 7,560
+        # rows at the seeds (252 x 30), more history than any name has at 1d, so it never exists
+        # there (todo 652). Intraday timeframes reach it.
+        not_applicable=undefined_on("1d", ("hma_slope_z",)),
     ),
     _k(
         "price_only_products",

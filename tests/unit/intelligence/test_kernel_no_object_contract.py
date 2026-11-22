@@ -134,7 +134,7 @@ def test_no_object_columns_are_nan_or_declared_state(flat_and_short, scenario, n
         values = np.asarray(out[column], dtype=float)
         stored = _warmup_slice(registry, config, kernel, values)
         checked += 1
-        if column in kernel.zero_is_state and column not in kernel.atr_gated_state:
+        if column in kernel.zero_is_state and column not in kernel.degenerate_input_state:
             if np.isinf(stored).any():
                 offenders_bad_state.append((column, kernel.name, "inf"))
             elif (

@@ -59,11 +59,11 @@ def _atr_wilder(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period:
 # Counts whose detection tolerance scales by atr_val (the S/R cluster mult, the pool
 # equal-level mult, the zone thresholds): on an invalid ATR the detection never runs, so the
 # count is NaN (present, unmeasured), not a measured empty set (186-31 review round 6).
-# Derived from the registry's atr_gated_state declarations (the single source, round 7); the
+# Derived from the registry's degenerate_input_state declarations (the single source, round 7); the
 # compute side names the same keys in invalid_input_fallback's nan_state_keys.
 # default_registry() (lru_cached) keeps the test constant the same instance production uses.
 from src.intelligence.features.contract.registry import default_registry
 
 ATR_GATED_COUNT_COLUMNS = frozenset().union(
-    *(kernel.atr_gated_state for kernel in default_registry().kernels)
+    *(kernel.degenerate_input_state for kernel in default_registry().kernels)
 )

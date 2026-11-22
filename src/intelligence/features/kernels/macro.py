@@ -641,6 +641,19 @@ KERNELS = (
         # first close, the z-scores accumulate) belongs to the builder kernels 186-15 creates.
         memory=lambda config: 0,
         compute=_compute_pass_through,
+        # The beta builder's first row in daily rows (1d only: intraday rows repeat each daily record,
+        # so the first row there is later and the screen's G2 is not calibrated for it): the first beta needs `factor_beta_window` returns (close
+        # row factor_beta_window), the z-score `factor_beta_zscore_window` betas. The eight
+        # cross-asset record columns are symbol-independent date functions whose first row is
+        # where their input series begin (data, not code): the screen starts their clock there.
+        definition=lambda config, tf: {
+            name: (
+                config.factor_beta_window + config.factor_beta_zscore_window - 1
+                if name in {"equity_beta_z", "rate_beta_z"}
+                else 0
+            )
+            for name in MACRO_COLUMNS
+        },
     ),
     Kernel(
         name="cross_asset_daily",

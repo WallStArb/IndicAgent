@@ -5,16 +5,20 @@ from psycopg import sql
 
 from scripts.ops.ops_feature_column_screen import (
     APR_KEYS,
+    _clock_query,
     _query,
     applicable_columns,
     apr_value,
     classify,
+    context_columns,
     declared_memory,
+    fill_audit_exempt,
     gate_failures,
     judge,
     null_share_gate,
     registry_declarations,
     screen_rows,
+    uncovered_dividend_clock,
     zero_is_state,
 )
 
@@ -103,14 +107,14 @@ ZEROY = (1100, 1100, 11, 0.0, 1.0, 500, 1090)  # 46% exact zeros after warmup
 EMPTY = (0, 0, None, None, None, 0, 0)
 
 
-def _screen(rows, columns=("live", "x"), memory=None, applicable=None, zero_state=frozenset()):
+def _screen(rows, columns=("live", "x"), memory=None, applicable=None, fill_exempt=frozenset()):
     memory = {"1d": memory or dict.fromkeys(columns, 10)}
     return screen_rows(
         columns,
         rows,
         memory=memory,
         applicable={"1d": frozenset(columns) if applicable is None else applicable},
-        zero_state=zero_state,
+        fill_exempt=fill_exempt,
         min_rows=1000,
         min_name_rows=252,
         warmup_gap_max=5,
@@ -141,7 +145,7 @@ def test_g2_flags_a_late_first_finite_row_against_the_declared_warmup():
 def test_g3_flags_a_zero_fill_unless_zero_is_state():
     rows = [_row("1d", "A", 1200, LIVE, ZEROY)]
     assert list(_screen(rows)[0]["1d"]["G3"]) == ["x"]
-    assert _screen(rows, zero_state=frozenset({"x"}))[0]["1d"]["G3"] == {}
+    assert _screen(rows, fill_exempt=frozenset({"x"}))[0]["1d"]["G3"] == {}
 
 
 def test_dead_uses_the_names_a_column_was_judged_on_and_unjudged_names_are_listed():
@@ -270,3 +274,119 @@ def test_g6_object_dependent_columns_fail_only_when_entirely_null():
 def test_the_screen_lists_its_apr_keys():
     assert "infra.corpus_rerun.max_null_fraction" in APR_KEYS
     assert "threshold.pilot_gate.warmup_gap_bars" in APR_KEYS
+
+
+# ---------------------------------------------------------------------------
+# G3 skips by declared kernel property, never by column name (todo 652)
+# ---------------------------------------------------------------------------
+
+
+def _kernel(outputs, **flags):
+    base = {"zero_is_state": frozenset(), "acausal_control": False}
+    return SimpleNamespace(outputs=tuple(outputs), **{**base, **flags})
+
+
+def test_fill_audit_exempt_follows_the_declared_kernel_properties():
+    kernels = (
+        _kernel(("a_state", "a_other"), zero_is_state=frozenset({"a_state"})),
+        _kernel(("a_control",), acausal_control=True),
+        _kernel(("an_object", "a_plain")),
+    )
+    registry = SimpleNamespace(kernels=kernels, object_dependent_outputs=lambda: ("an_object",))
+    # an object-dependent column is still audited: a 0.0 can stand in for an absent object
+    assert fill_audit_exempt(registry) == {"a_state", "a_control"}
+    bare = SimpleNamespace(
+        kernels=(_kernel(("a_state", "a_control")),), object_dependent_outputs=lambda: ()
+    )
+    assert fill_audit_exempt(bare) == frozenset()
+
+
+def test_fill_audit_exempt_on_the_real_registry():
+    from src.intelligence.features.contract.registry import default_registry
+
+    exempt = fill_audit_exempt(default_registry())
+    assert {"opex_flag", "canary_acausal_placebo", "body_ratio"} <= exempt
+    assert {"swing_pattern", "struct_accel_bias", "reclaim_velocity"}.isdisjoint(exempt)
+    assert "hmm_churn" not in exempt  # parked until its segment status is verifiable
+
+
+# ---------------------------------------------------------------------------
+# The context clock: an input that does not exist yet is not a warmup gap or a null (todo 652)
+# ---------------------------------------------------------------------------
+
+
+def test_the_context_clock_moves_a_late_first_row_inside_the_warmup():
+    rows = [_row("1d", "A", 1200, LIVE, LATE)]
+    assert _screen(rows)[0]["1d"]["G2"] != {}
+    memory = {"1d": dict.fromkeys(("live", "x"), 10)}
+    base = {
+        "columns": ("live", "x"),
+        "memory": memory,
+        "applicable": {"1d": frozenset(("live", "x"))},
+        "fill_exempt": frozenset(),
+        "min_rows": 1000,
+        "min_name_rows": 252,
+        "warmup_gap_max": 5,
+        "zero_share_max": 0.25,
+    }
+    # the input begins 298 rows in: LATE (first finite at index 300) is then 2 rows after it
+    report, _ = screen_rows(rows=rows, clock={("1d", "A"): {"x": 298}}, **base)
+    assert report["1d"]["G2"] == {}
+    # another name that is NaN well after the clock still fails
+    late_again = (1100, 1100, 700, -1.0, 1.0, 5, 800)
+    rows = [_row("1d", "A", 1200, LIVE, LATE), _row("1d", "B", 1200, LIVE, late_again)]
+    clock = {("1d", "A"): {"x": 298}, ("1d", "B"): {"x": 0}}
+    report, _ = screen_rows(rows=rows, clock=clock, **base)
+    assert report["1d"]["G2"]["x"]["examples"] == ["B"]
+
+
+def test_the_context_clock_counts_only_rows_after_the_input_begins_in_g6():
+    n = 10 + 252 * 10
+    # 901 rows of a 2,530-row name are before the input; every later row is finite
+    cell = (n, (n, n - 901, 902, -1.0, 1.0, 0, n - 901))
+    rows = [("1d", "A", cell[0], *cell[1])]
+    memory = {"1d": {"x": 10}}
+    kw = {
+        "memory": memory,
+        "applicable": {"1d": frozenset({"x"})},
+        "object_columns": frozenset(),
+        "max_null_fraction": 0.05,
+        "min_name_rows": 252,
+    }
+    assert null_share_gate(("x",), rows, **kw)["1d"]["failing"] != {}
+    clocked = null_share_gate(("x",), rows, clock={("1d", "A"): {"x": 901}}, **kw)
+    assert clocked["1d"]["failing"] == {}
+
+
+def test_the_clock_query_reads_the_first_finite_date_from_the_screened_rows():
+    text = _clock_query(("vix_z",), sql.SQL(" WHERE symbol = ANY(%s)")).as_string(None)
+    assert "AS NOT MATERIALIZED" in text
+    assert "min(bar_ts) FILTER (WHERE \"vix_z\" > '-Infinity' AND \"vix_z\" < 'Infinity')" in text
+    assert 'count(*) FILTER (WHERE f.bar_ts < avail."first_vix_z")' in text
+    assert "WHERE symbol = ANY(%s)" in text
+
+
+def test_only_the_symbol_independent_record_columns_get_a_clock():
+    assert context_columns(("vix_z", "equity_beta_z", "rsi", "hyg_lqd_ret_z")) == (
+        "vix_z",
+        "hyg_lqd_ret_z",
+    )
+
+
+def test_a_name_without_dividend_coverage_is_not_judged_on_the_dividend_column():
+    rows = [_row("1d", "A", 1200, LIVE, DEAD), _row("1d", "B", 1200, LIVE, DEAD)]
+    clock = uncovered_dividend_clock(rows, covered={"A"})
+    assert clock == {("1d", "B"): {"dividend_yield": 1200}}
+    base = {
+        "columns": ("live", "dividend_yield"),
+        "memory": {"1d": {"live": 10, "dividend_yield": 0}},
+        "applicable": {"1d": frozenset(("live", "dividend_yield"))},
+        "fill_exempt": frozenset(),
+        "min_rows": 1000,
+        "min_name_rows": 252,
+        "warmup_gap_max": 5,
+        "zero_share_max": 0.25,
+    }
+    # both names are constant (a 0.0 column) on the dividend column; only the covered one fails
+    report, _ = screen_rows(rows=rows, clock=clock, **base)
+    assert report["1d"]["G1"]["dividend_yield"]["examples"] == ["A"]

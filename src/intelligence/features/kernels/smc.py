@@ -1198,7 +1198,13 @@ def _compute_bos_columns(x, config):
 
 
 def _stateless(
-    name, group, inputs, lookback, compute, zero_is_state=frozenset(), atr_gated_state=frozenset()
+    name,
+    group,
+    inputs,
+    lookback,
+    compute,
+    zero_is_state=frozenset(),
+    degenerate_input_state=frozenset(),
 ):
     return Kernel(
         name=name,
@@ -1207,7 +1213,7 @@ def _stateless(
         memory=lambda config: lookback(config) - 1,
         compute=compute,
         zero_is_state=zero_is_state,
-        atr_gated_state=atr_gated_state,
+        degenerate_input_state=degenerate_input_state,
         # every None in the group's fallback dict is an object that does not exist (module doc)
         object_dependent=(group.nullable & frozenset(group.outputs)) - zero_is_state,
     )
@@ -1252,7 +1258,7 @@ KERNELS = (
         # the two sets coincide (round 8): every count is 0.0-measured where detection ran
         # and NaN when its ATR-scaled tolerance could not run
         zero_is_state=_POOLS_ATR_GATED_STATE,
-        atr_gated_state=_POOLS_ATR_GATED_STATE,
+        degenerate_input_state=_POOLS_ATR_GATED_STATE,
     ),
     _stateless(
         "supply_demand_zones",
@@ -1261,7 +1267,7 @@ KERNELS = (
         _ZONE_LOOKBACK,
         _compute_zones_columns,
         zero_is_state=_ZONES_ATR_GATED_STATE,
-        atr_gated_state=_ZONES_ATR_GATED_STATE,
+        degenerate_input_state=_ZONES_ATR_GATED_STATE,
     ),
     _stateless(
         "bos_choch",

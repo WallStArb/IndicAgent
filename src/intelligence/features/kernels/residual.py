@@ -252,5 +252,20 @@ KERNELS = (
         # builder and its grid kernel; warmup is the builder's own NaN-until-full discipline.
         memory=lambda config: 0,
         compute=_compute_residual_pass_through,
+        # The builder's first rows in daily rows (1d only; intraday rows are later): the first residual needs a full beta window of returns (close
+        # row factor_beta_window), each statistic then needs its own window of residuals.
+        definition=lambda config, tf: {
+            "market_residual_return": config.factor_beta_window,
+            "idiosyncratic_volatility": config.factor_beta_window
+            + config.idiosyncratic_volatility_window
+            - 1,
+            "market_residual_z": config.factor_beta_window + config.market_residual_z_window - 1,
+            "market_residual_lag1_acf": config.factor_beta_window
+            + config.market_residual_lag1_acf_window
+            - 1,
+            "residual_beta_stability": config.factor_beta_window
+            + config.residual_beta_stability_window
+            - 1,
+        },
     ),
 )
