@@ -1585,3 +1585,5 @@ Grounds. The scope-1d data gate passes with a pinned held list (ledger 2026-11-2
 What it permits. `scripts/research/run_spec.py` on `research/specs/daily_residual_h5.yaml` and then `daily_residual_h5_core.yaml`, each counted through the ledger at the moment it starts, six looks under A4, then the `reversal_21` pooled replication. It changes no spec hash, statistic or gate.
 
 Pre-registered? Yes: the rule, the scope and the exclusions are stated here before any real-data number exists.
+
+Lead ruling under the 2026-11-22 E21 lift, same day: the H-C seasonality family (4 looks, E17 pass bound in `research/battery_passes/seasonality_2026-11-21.json`) is a price-derived 1d family of the same kind and is covered by the lift; it runs after the daily residual run frees the heavy slot. Any later family is covered only if it reads canonical 1d and `universe_membership` through the panel and nothing from `feature_vectors` or intraday bars; a family that does not fits that test needs its own ruling. Owner veto reserved.
