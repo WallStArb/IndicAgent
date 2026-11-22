@@ -188,6 +188,12 @@ jobs:
       - name: Run unit tests
         run: pytest tests/unit/ -n auto --tb=short --junit-xml=test-results.xml --durations=20
 
+      # The reporter below trims its summary past a size limit and logs need a login, so name the
+      # failed tests as annotations (readable from the checks API) when the run is red.
+      - name: Annotate failed tests
+        if: always()
+        run: python tools/annotate_junit_failures.py test-results.xml
+
       - name: Publish test results
         uses: dorny/test-reporter@v1
         if: always()
