@@ -17,6 +17,7 @@ from scripts.ops.ops_feature_column_screen import (
     fill_audit_exempt,
     gate_failures,
     judge,
+    judged_shortfall,
     null_share_gate,
     registry_declarations,
     screen_rows,
@@ -432,3 +433,9 @@ def test_a_name_without_dividend_coverage_is_not_judged_on_the_dividend_column()
     # both names are constant (a 0.0 column) on the dividend column; only the covered one fails
     report, _ = screen_rows(rows=rows, clock=clock, **base)
     assert report["1d"]["G1"]["dividend_yield"]["examples"] == ["A"]
+
+
+def test_judged_shortfall_names_each_timeframe_below_the_minimum():
+    report = {"1d": {"n_names_judged": 64}, "1h": {"n_names_judged": 65}}
+    assert judged_shortfall(report, 65) == {"1d": 64}
+    assert judged_shortfall(report, 0) == {}  # the default floor never refuses

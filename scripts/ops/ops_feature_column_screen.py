@@ -46,9 +46,10 @@ list from the APR key `infra.pilot_gate.names` (JSON list).
 
 Run: .venv/bin/python scripts/ops/ops_feature_column_screen.py [--pilot | --symbol SPY ...]
      [--tf 1d ...] [--min-rows 1000] [--min-name-rows 252]
+     [--min-judged-names 65]
 Output: a JSON report under logs/ and the gate counts on stdout. Exit 0 when every gate passes,
-1 when any gate fails, 2 when nothing was screened or a requested --tf was missing or below
---min-rows, so the completion record can gate on it.
+1 when any gate fails, 2 when nothing was screened, a requested --tf was missing or below
+--min-rows, or a timeframe judged fewer than --min-judged-names names, so the completion record can gate on it.
 """
 
 from __future__ import annotations
@@ -404,6 +405,11 @@ def _clock_query(context: tuple[str, ...], where: sql.Composable) -> sql.Compose
     )
 
 
+def judged_shortfall(report: dict[str, dict], minimum: int) -> dict[str, int]:
+    """Per timeframe, the judged-name count of each one that judged fewer than `minimum` names."""
+    return {tf: r["n_names_judged"] for tf, r in report.items() if r["n_names_judged"] < minimum}
+
+
 def gate_failures(report: dict[str, dict]) -> dict[str, int]:
     """Failing (column, name) cells per gate over every timeframe."""
     return {
@@ -464,6 +470,13 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=252,
         help="do not judge a name with fewer rows on a timeframe",
+    )
+    parser.add_argument(
+        "--min-judged-names",
+        type=int,
+        default=0,
+        help="exit 2 (not screened) when a timeframe judges fewer names than this (the pilot's "
+        "sample floor, ledger 2026-11-22d)",
     )
     parser.add_argument("--tf", action="append", help="restrict to these timeframes")
     parser.add_argument("--symbol", action="append", help="restrict to these symbols")
@@ -565,6 +578,7 @@ def main(argv: list[str] | None = None) -> int:
     seen = {symbol for _, symbol in rows_by_key}
     missing_symbols = sorted(set(args.symbol or ()) - seen)
     missing_tf = sorted(set(args.tf or ()) - set(report))
+    short = judged_shortfall(report, args.min_judged_names)
     declared = registry_declarations(registry)
     if not all(declared.values()):
         print(
@@ -581,6 +595,8 @@ def main(argv: list[str] | None = None) -> int:
         "pilot": args.pilot,
         "min_rows": args.min_rows,
         "min_name_rows": args.min_name_rows,
+        "min_judged_names": args.min_judged_names,
+        "judged_shortfall": short,
         "warmup_gap_bars": warmup_gap_max,
         "zero_share_max": zero_share_max,
         "n_columns": len(columns),
@@ -598,6 +614,9 @@ def main(argv: list[str] | None = None) -> int:
     }
     path.write_text(json.dumps(payload, indent=1, sort_keys=True))
     print(f"gate failures {failures}; report: {path}")
+    if short:
+        print(f"too few judged names (need {args.min_judged_names}): {short}")
+        return 2
     if not report or missing_tf or missing_symbols:
         print(f"not screened: {missing_tf + missing_symbols or 'everything'}")
         return 2

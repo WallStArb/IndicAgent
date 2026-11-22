@@ -86,6 +86,7 @@ import psycopg
 import structlog
 from psycopg.types.json import Jsonb
 
+from services import corpus_pilot_sample as pilot_rule
 from services.batch_support.bulk_load import (
     RUN_ADOPTIONS_SQL,
     belongs_to_run,
@@ -132,6 +133,9 @@ _TARGET_TFS_KEY = "feature.factory.target_timeframes"
 _IC_HORIZONS_KEY = "alpha.ic_measure.horizons"
 _OOS_START_KEY = "alpha.validation.oos_start"
 _WORKERS_KEY = "infra.feature_factory.workers"
+_FIRST_ROW_KEY = (
+    "feature.momentum.zscore_window"  # the rows a series skips before its first stored row
+)
 INTRADAY_ORDER: tuple[str, ...] = ("1h", "15m", "5m")
 OUTPUT_TAIL_CHARS = 4000
 COMPRESSION_RATIO_MEASURED = "compression_ratio_measured"
@@ -944,6 +948,7 @@ class Deps:
         ..., tuple[list[Any], set[str]]
     ]  # (settings, conn, horizon, timeframes)
     symbol_chunks: Callable[[str], list[tuple[str, ...]]]  # by timeframe: the tier for intraday
+    history_bars: Callable[[datetime], Mapping[str, int]]  # symbol -> tradeable 1d bars before it
     run_command: Callable[[Sequence[str], Path], tuple[int, str]]
     git_head: Callable[[Path], str]
     toplevel: Callable[[], Path]
@@ -1425,14 +1430,31 @@ class CorpusRerun:
         d = self.deps
         load_before = d.db_load()
         t0 = d.monotonic()
-        daily = self._stage(timeframes=[self.PILOT_DAILY_TF], chunk_indices=[0])
+        # The 1d pilot sample is a rule (ledger 2026-11-22d, services/corpus_pilot_sample.py): the
+        # names are computed as whole chunks, so the unit identities stay the full run's and
+        # stage_1d adopts them. Refused here, before any compute, when too few members qualify.
+        try:
+            chunks = d.symbol_chunks(self.PILOT_DAILY_TF)
+            universe = {symbol for chunk in chunks for symbol in chunk}
+            bars = {s: n for s, n in d.history_bars(self.run.horizon).items() if s in universe}
+            sample = pilot_rule.pilot_sample(bars, self.run.run_id)
+            sample_chunks = pilot_rule.sample_chunk_indices(sample, chunks)
+        except (pilot_rule.PilotSampleShort, ValueError) as error:
+            raise StepFailed(f"pilot sample: {error}", {"pin_checks": pins}) from error
+        daily = self._stage(timeframes=[self.PILOT_DAILY_TF], chunk_indices=sample_chunks)
         t1 = d.monotonic()
         hourly = self._pilot_hourly_unit() if self.scope == SCOPE_ALL else None
         t2 = d.monotonic()
         load_after = d.db_load()
         summary: dict[str, Any] = {
             "pin_checks": pins,
-            "stage_1d_chunk0": daily,
+            "stage_1d_sample": daily,
+            "pilot_sample": {
+                "names": len(sample),
+                "chunks": sample_chunks,
+                "min_bars": pilot_rule.PILOT_MIN_BARS,
+                "min_judged_names": pilot_rule.PILOT_MIN_JUDGED_NAMES,
+            },
             "proven_start_disclosure": self._proven_start_disclosure(),
         }
         problems = self.stage_problems(daily)
@@ -1443,17 +1465,28 @@ class CorpusRerun:
             else:
                 problems += self.stage_problems(hourly)
         if not daily["units_total"]:
-            problems.append("symbol chunk 0 has no 1d unit")
+            problems.append("the pilot sample's chunks have no 1d unit")
         if problems:
             raise StepFailed("pilot units: " + "; ".join(problems), summary)
 
-        # 1d runs the whole chunk 0; an intraday timeframe only its 5m-tier names, so the screen
+        # 1d screens the sample; an intraday timeframe the 5m-tier names of chunk 0, so the screen
         # and the compute gate never name a (symbol, tf) the stage did not compute.
-        chunk0_by_tf = {tf: d.symbol_chunks(tf)[0] for tf in self.pilot_tfs}
+        chunk0_by_tf = {
+            tf: tuple(sample) if tf == self.PILOT_DAILY_TF else d.symbol_chunks(tf)[0]
+            for tf in self.pilot_tfs
+        }
+        # the screen counts stored rows: the sample floor in bars less the rows the rebuild skips
+        daily_floor = [
+            "--min-name-rows",
+            str(pilot_rule.min_stored_rows(int(d.apr_value(_FIRST_ROW_KEY)))),
+            "--min-judged-names",
+            str(pilot_rule.PILOT_MIN_JUDGED_NAMES),
+        ]
         # G6 in the pilot too: a NULL-share fault shows in the pilot hour, not after days
         # One screen per timeframe over the names that timeframe computed (all of chunk 0 for 1d).
         screens = [
             [d.python, str(COLUMN_SCREEN), "--null-gate", "--tf", tf]
+            + (daily_floor if tf == self.PILOT_DAILY_TF else [])
             + [arg for symbol in chunk0_by_tf[tf] for arg in ("--symbol", symbol)]
             for tf in self.pilot_tfs
         ]
@@ -1474,12 +1507,13 @@ class CorpusRerun:
         measured: dict[str, Any] = {
             "pilot_bytes_per_row_1d": daily["bytes_per_row_max"],
             "pilot_stored_per_spool": max(s["stored_per_spool_max"] for s in stages),
-            "pilot_seconds_1d_chunk": round(t1 - t0, 1),
+            "pilot_seconds_1d_chunk": round((t1 - t0) / len(sample_chunks), 1),
         }
         counts = self._counts()
         every = (datetime(1970, 1, 1, tzinfo=UTC), datetime(9999, 1, 1, tzinfo=UTC))
         n_chunks = len(counts.chunks()) or 1
-        measured["extrapolated_seconds"] = {"stage_1d": round((t1 - t0) * n_chunks, 0)}
+        per_chunk = (t1 - t0) / len(sample_chunks)
+        measured["extrapolated_seconds"] = {"stage_1d": round(per_chunk * n_chunks, 0)}
         if hourly is not None:
             hourly_rows = max(hourly["rows_loaded"], 1)
             measured["pilot_bytes_per_row_intraday"] = hourly["bytes_per_row_max"]
@@ -1584,7 +1618,7 @@ class CorpusRerun:
         open_rows = [{"batch_key": k, "status": s} for k, s in self.store.open_rows(run_id)]
         for summary in self.store.completed_summaries(run_id).values():
             blind |= set(summary.get("digest_blind_symbols") or ())
-            for part in ("stage_1d_chunk0", "s1_1h_unit"):
+            for part in ("stage_1d_sample", "s1_1h_unit"):
                 blind |= set((summary.get(part) or {}).get("digest_blind_symbols") or ())
         screens = {
             tf: d.run_command([d.python, str(COLUMN_SCREEN), "--null-gate", "--tf", tf], d.worktree)
@@ -1817,6 +1851,7 @@ def real_deps(settings: Settings, conn: Any, worktree: Path) -> Deps:
         planned_units=factory.planned_units,
         member_months=lambda: gate.fetch_member_months(conn),
         symbol_chunks=lambda tf: factory.symbol_chunks(settings, conn, tf),
+        history_bars=lambda horizon: pilot_rule.fetch_history_bars(conn, horizon),
         run_command=run_command,
         git_head=lambda path: _git(["rev-parse", "HEAD"], path),
         toplevel=lambda: Path(_git(["rev-parse", "--show-toplevel"], Path.cwd())).resolve(),

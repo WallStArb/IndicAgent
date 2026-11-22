@@ -261,6 +261,7 @@ def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
         ),
         member_months=lambda: state.get("member_months", {}),
         symbol_chunks=lambda tf="1d": state.get("chunks", {}).get(tf, [("AAA", "BBB")]),
+        history_bars=lambda horizon: state.get("bars", {"AAA": 2000, "BBB": 2000}),
         run_command=run_command,
         git_head=lambda path: state["head"],
         toplevel=lambda: state["toplevel"],
@@ -285,6 +286,7 @@ def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
         applicable=lambda tf: frozenset({"swing_high_dist_atr", "adx"}),
         apr_value=lambda key: {
             "infra.feature_factory.workers": 4,
+            "feature.momentum.zscore_window": 252,
             "feature.factory.target_timeframes": '["5m", "15m", "1h", "1d"]',
             "alpha.ic_measure.horizons": {"1h": [1], "1d": [1]},
             "alpha.validation.oos_start": "2025-12-24T05:15:00Z",
@@ -1228,3 +1230,55 @@ def test_stored_rows_of_an_adopted_intraday_unit_are_asked_for_the_tier_names_on
     cr.stored_row_counts(conn, object(), _jan1(2026), CHUNKS, frozenset({"AAA"}), planned=planned)
     (params,) = conn.unit_queries
     assert params[0] == ["AAA"] and params[2] == ["5m"]  # BBB's old 5m rows are not counted
+
+
+# ---------------------------------------------------------------------------
+# the pilot sample rule (ledger 2026-11-22d)
+# ---------------------------------------------------------------------------
+
+
+def _members(n: int, chunk: int = 25) -> list[tuple[str, ...]]:
+    names = [f"M{i:03d}" for i in range(n)]
+    return [tuple(names[i : i + chunk]) for i in range(0, n, chunk)]
+
+
+def test_the_pilot_samples_by_hash_runs_the_sample_chunks_and_screens_the_sample(monkeypatch):
+    monkeypatch.setattr(cr.pilot_rule, "PILOT_MIN_JUDGED_NAMES", 65)
+    chunks = _members(500)
+    bars = {s: 2000 for chunk in chunks for s in chunk}
+    world = _world(chunks={"1d": chunks, "1h": [("M000",)]}, bars=bars)
+    _through(world, "pilot")
+    summary = world.runner.execute("pilot")
+    sample = cr.pilot_rule.pilot_sample(bars, RUN)
+    daily = world.rebuild.calls[0]
+    assert daily["chunk_indices"] == cr.pilot_rule.sample_chunk_indices(sample, chunks)
+    assert daily["chunk_indices"] != [0]  # hash order, not the first alphabetical chunk
+    assert summary["pilot_sample"]["names"] == 65
+    argvs = [argv for argv, _ in world.commands]
+    screen = next(a for a in argvs if "ops_feature_column_screen.py" in a[1] and "1d" in a)
+    assert screen[screen.index("--min-name-rows") + 1] == "748"  # 1,000 bars less 252
+    assert screen[screen.index("--min-judged-names") + 1] == "65"
+    named = {screen[i + 1] for i, a in enumerate(screen) if a == "--symbol"}
+    assert named == set(sample)
+    hourly = next(a for a in argvs if "ops_feature_column_screen.py" in a[1] and "1h" in a)
+    assert "--min-judged-names" not in hourly  # the floor is the 1d sample's, not the 1h tier's
+    units = next(a for a in argvs if "--units" in a)
+    assert {u.removesuffix(":1d") for u in units if u.endswith(":1d")} == set(sample)
+
+
+def test_the_pilot_refuses_before_any_compute_when_too_few_members_have_1000_bars(monkeypatch):
+    monkeypatch.setattr(cr.pilot_rule, "PILOT_MIN_JUDGED_NAMES", 65)
+    chunks = _members(500)
+    bars = {s: (2000 if i < 64 else 999) for i, s in enumerate(s for c in chunks for s in c)}
+    world = _world(chunks={"1d": chunks}, bars=bars)
+    _through(world, "pilot")
+    with pytest.raises(cr.StepFailed, match=r"pilot sample: 64 members .* needs 65"):
+        world.runner.execute("pilot")
+    assert world.rebuild.calls == [] and world.commands == []
+
+
+def test_a_short_judged_count_from_the_screen_fails_the_pilot():
+    world = _world(returncodes={"ops_feature_column_screen.py": 2})
+    _through(world, "pilot")
+    with pytest.raises(cr.StepFailed, match="G1-G3"):
+        world.runner.execute("pilot")
