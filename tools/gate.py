@@ -33,17 +33,20 @@ from __future__ import annotations
 import argparse
 import contextlib
 import dataclasses
-import fcntl
 import json
-import os
 import re
 import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+from src.core.file_lock import exclusive_file_lock  # noqa: E402
 
 # Paths whose edits can move a recorded research verdict (CLAUDE.md, Frozen verdicts).
 REPRO_PREFIXES = (
@@ -159,41 +162,11 @@ def build_steps(
     return steps
 
 
-@contextlib.contextmanager
 def parity_lock(
     path: Path, who: str, *, timeout: float, poll: float = LOCK_POLL_SECONDS
-) -> Iterator[None]:
-    """Hold an exclusive cross-process lock on `path`, waiting up to `timeout` seconds and saying
-    who holds it. The holder's note is advisory; the flock is the lock."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
-    deadline = time.monotonic() + timeout
-    waited = False
-    try:
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError as error:
-                if time.monotonic() >= deadline:
-                    holder = os.pread(fd, 400, 0).decode(errors="replace").strip()
-                    raise TimeoutError(
-                        f"parity lock still held after {timeout:.0f}s by: {holder}"
-                    ) from error
-                if not waited:
-                    holder = os.pread(fd, 400, 0).decode(errors="replace").strip()
-                    print(
-                        f"  waiting for the parity lock, held by: {holder or 'unknown'}", flush=True
-                    )
-                    waited = True
-                time.sleep(poll)
-        os.ftruncate(fd, 0)
-        os.pwrite(fd, f"{who} pid {os.getpid()} since {datetime.now(UTC).isoformat()}".encode(), 0)
-        yield
-    finally:
-        with contextlib.suppress(OSError):
-            os.ftruncate(fd, 0)
-        os.close(fd)  # closing releases the flock
+) -> contextlib.AbstractContextManager[None]:
+    """The cross-session lock around the frozen-verdict replays (see src/core/file_lock.py)."""
+    return exclusive_file_lock(path, who, timeout=timeout, poll=poll, label="parity lock")
 
 
 def run_step(step: Step, cwd: Path, log: Path) -> dict:

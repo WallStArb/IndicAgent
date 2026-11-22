@@ -1083,3 +1083,5 @@ bar_close_ts  # unused variable (src/intelligence/schemas.py:899)
 constant_volume_basis  # unused function (src/intelligence/features/contract/registry.py:60)
 bar_close_ts  # unused function (src/core/service_utils.py:69)
 get_active_symbols  # FastAPI route registered by @router.get('/symbols') in src/api/routes/market_data.py: read by the framework, not by name (the settings.get_active_symbols of the same name was deleted)
+exclusive_file_lock  # used by tools/gate.py and tests/integration/conftest.py
+high_distance_member  # family 9 member, resolved by its dotted spec path once the close input lands (todo 653): src/intelligence/research/families/high_anchor.py

@@ -54,11 +54,14 @@ import asyncio
 import os
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import asyncpg
 import psycopg
 import pytest
+
+from src.core.file_lock import exclusive_file_lock
 
 _MAINTENANCE_DB_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
 TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
@@ -282,15 +285,42 @@ def _replay_post_baseline_migrations() -> None:
         asyncio.run(_run_sql(stub))
 
 
+# Interim cross-session lock (todo 656, task 2): every session rebuilds the one shared
+# indicagent_test, and a rebuild kills the sessions already running on it. The lock is held for the
+# whole session, not only the rebuild. Removed when the per-session databases land (task 3).
+_SESSION_LOCK_TIMEOUT_SECONDS = 2 * 3600
+
+
+def _session_lock_path() -> Path:
+    """logs/integration/test_db.lock in the main checkout, one file for every worktree."""
+    common = subprocess.run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=Path(__file__).parent,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    return Path(common).parent / "logs" / "integration" / "test_db.lock"
+
+
 @pytest.fixture(scope="session", autouse=True)
-def migrated_test_database() -> None:
-    """Rebuild indicagent_test from the pinned baseline + any post-baseline migrations."""
+def migrated_test_database() -> Iterator[None]:
+    """Rebuild indicagent_test from the pinned baseline + any post-baseline migrations, holding
+    the cross-session lock until the last test of this session has run."""
     if sys.platform not in ("linux", "darwin"):
         pytest.skip("schema rebuild fixture requires a local psql client")
 
-    asyncio.run(_recreate_test_database())
-    _apply_baseline()
-    _replay_post_baseline_migrations()
-    # After the rebuild (a large restore or a long migration is not a test): no test may hold a
-    # backend for more than a minute. New sessions of the test database inherit it.
-    asyncio.run(_run_sql(f"ALTER DATABASE {_TEST_DB_NAME} SET statement_timeout = '60s'"))
+    with exclusive_file_lock(
+        _session_lock_path(),
+        f"integration tests in {Path.cwd()}",
+        timeout=_SESSION_LOCK_TIMEOUT_SECONDS,
+        poll=5.0,
+        label="integration test database lock",
+    ):
+        asyncio.run(_recreate_test_database())
+        _apply_baseline()
+        _replay_post_baseline_migrations()
+        # After the rebuild (a large restore or a long migration is not a test): no test may hold a
+        # backend for more than a minute. New sessions of the test database inherit it.
+        asyncio.run(_run_sql(f"ALTER DATABASE {_TEST_DB_NAME} SET statement_timeout = '60s'"))
+        yield
