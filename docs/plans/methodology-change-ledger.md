@@ -1587,3 +1587,15 @@ What it permits. `scripts/research/run_spec.py` on `research/specs/daily_residua
 Pre-registered? Yes: the rule, the scope and the exclusions are stated here before any real-data number exists.
 
 Lead ruling under the 2026-11-22 E21 lift, same day: the H-C seasonality family (4 looks, E17 pass bound in `research/battery_passes/seasonality_2026-11-21.json`) is a price-derived 1d family of the same kind and is covered by the lift; it runs after the daily residual run frees the heavy slot. Any later family is covered only if it reads canonical 1d and `universe_membership` through the panel and nothing from `feature_vectors` or intraday bars; a family that does not fits that test needs its own ruling. Owner veto reserved.
+
+## 2026-11-22b: the first daily residual launch died and is counted as failed (lead ruling, owner confirmed in the lead's session)
+
+Recorded before any real-data number for the daily residual family exists.
+
+What happened. The first launch of `research/specs/daily_residual_h5.yaml` (run group 0e5c5066, code commit ae309c4cf, vintage_1, three `research_run` rows inserted 2026-11-22 14:36:50Z) was killed when the launching SSH session dropped: the process was not detached. It had run about 25 minutes with no log output; the rows kept `snapshot_hash` empty and no result was written. Whether it reached the statistic stage cannot be shown.
+
+Ruling. The owner confirmed on 2026-11-22: close the three rows as `failed` (a charged status) through `finish_run`, not `refused`. A look that cannot be shown to have computed nothing is counted. The rows carry no series, so the StepM selection universe is unchanged. Closed 2026-11-22 15:57Z.
+
+Effect on the count. The 2026-11-22 E21 lift permitted six looks for the two daily residual specs (three each). The dead attempt spends three of the h5 spec's looks, so the family now stands at nine charged looks if h5 reruns and h5_core then runs, against `alpha.research.budget_m` 30. The rerun uses the same spec, spec hash and code commit family; no spec, statistic or gate changes. Every later real run launches detached under `setsid`.
+
+Pre-registered? Yes: the counting rule is stated before any real-data number exists, and it errs toward counting.
