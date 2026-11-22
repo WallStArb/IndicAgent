@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-11-17
 source: A3 sweep run 2026-11-17 (ops_split_calendar_audit --sweep --strict --witness yahoo, exit 3: 1,529 active names, 634 lone breaks, 72 unresolved, 0 recorded_unapplied, 0 double adjusted, 0 witness errors; the unresolved list is the run's _unresolved.csv)
@@ -87,3 +87,7 @@ Rows and dispositions are not prepared here: the split rows wait on todo 630, th
   and Massive agree on the move (18.45 to 31.2 to 36.0), so the row manufactures a step in Alpaca's own series;
   canonical is Massive in 2021 and unaffected. Void it with the next batch of operator-row reviews.
 - HLT, ENOV, SVRA: todo 624 (seam and identity cases).
+
+## Closed 2026-11-22
+
+The eleven real splits went through todo 630 (rows recorded), the five distributions have dispositions (ABT, DELL, HPQ, POST, XPO), the GSAT row is todo 631, HLT, ENOV and SVRA went to todo 624. Nothing from this todo is left open.

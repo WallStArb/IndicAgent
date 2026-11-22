@@ -94,3 +94,7 @@ XHS, XSW, XTN 2:1 at 2015-09-10; ALK 2:1 at 2014-07-09; PENG 2:1 at 2022-02-01; 
 migration 603, `--apply-market <file>` dry run then `--commit`, `services.bar_derivation --stage daily --symbols
 ...`, 5m reselect per name (`ops_source_policy --reselect-only --timeframe 5m --valid-from <first bar>`), grid,
 then `ops_selection_gate --compare` on the nine names (real differences only there) and the A3 sweep once.
+
+## Closed 2026-11-22
+
+Built and applied 2026-11-17: `calendar_market` rows are in `corporate_action` for XHE, XHS, XSW, XTN, ALK, PENG, AAON, MGEE and ROL (58 `calendar_market` rows in all, MDU and the other route splits through todo 633). Closed on the existence of the rows; the sweep and selection-compare gates were not re-run for this closure.

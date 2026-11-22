@@ -61,3 +61,7 @@ differs only on the seven names. The audit is imported by timers: quiet window.
 ## Applied 2026-11-17
 
 HON typo fixed (-0.7123). `--apply-rows ... --commit` wrote 6 of 6 rows. Reselected ENOV MSI HON HLT MDU: 1d (exit 0), 5m `--reselect-only --valid-from 2003-09-01` (59,365 bars replaced; its gate: 0 real differences, exit 3 only from unreviewed basis flags on other series), grid (exit 0). The four pending dispositions moved into `sweep_dispositions.csv`. Sweep after: 12 undecided breaks (see 629).
+
+## Closed 2026-11-22
+
+Applied 2026-11-17 (section above): six of six rows written, ENOV, MSI, HON, HLT and MDU reselected; the residue went to todo 629.
