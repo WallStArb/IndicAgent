@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-11-20
 source: lane B3 and B3b of the 584 pin readiness (indicagent-47), owner request through the lead
@@ -22,17 +22,10 @@ One type per security in a table `security_type` (symbol, rule_id, security_type
 - Name fallback, frozen before looking, bar precision 0.99 on typed securities: A (not excluded by a warrant, unit, right, preferred or note pattern) precision 0.925, fails. B (A plus a common-stock word: COM, COMMON, ORD, SHS, ADS, ADR, ETF) precision 0.9944, recall 0.575, passes in sample, but 0.9721 on 501 typed names whose last list is before 2013, and the untyped residual is earlier-era and dead, so B is not adopted without a decision: it would type 1,357 of the 6,026 untyped.
 - Reach of a capture: of the 6,026 untyped, 259 have a composite FIGI (OpenFIGI approved by the lead, about 260 requests, report hit rate), 0 have an ISIN, 5,971 have a cik, 4,870 have an overview with no type (the vendor's answer, no Massive sample).
 
-## Built 2026-11-21 (nothing applied)
+## Built and applied 2026-11-21
 
-1. Amendment 2026-11-21 appended to `docs/plans/2026-11-13-stage2-universe-preregistration.md`, adopted 2026-11-21 (e93b62f15; class mapping, once per security, the 2025 rebuild fact, carry disagreements, per-year untyped remainder disclosed, B not adopted, re-pin).
-2. Migration 606 `security_type` with `tests/unit/test_security_type_migration_contract.py`; `services/security_type_writer.py` (BaseBatch, one transaction, advisory lock, rehearsal rolls back, labels read one list date at a time); `UniverseMembershipWriter` reads the table (one read for every month-end, refuses an empty table, snapshot completeness check kept, tie-break removed); `RULE_ID` is `stage2-2026-11-21`. Runbook step 6b added.
-3. `CLOSED_LIST_CANDIDATES_SHA256` re-pinned to `730622aeeafca7eb60329980a979df1cfda8d334428aab0cde9a4913f1c2586b` (13,103 lines: the securities the list at L places with their resolved type; the full table is 29,204 securities, rehearsal). It moves again after the placement install (runbook step 7).
-4. Rehearsal in a rolled-back transaction (typed 29,204, CS 12,615, ETF 8,145, ADRC 532, 823 class conflicts, all as measured). Members with hysteresis from 2003-09 on the current spans: 3,007 (2008-06-30), 3,129 (2012-06-29), 3,824 (2016-09-30), against the estimates of about 2,900 and 2,760 (the 2012 estimate was low: carrying a name's type through its gaps keeps hysteresis that a per-date estimate reset). Highest count by year 1,988 (2003) to 3,913 (2015); 2003 to 2006 and 2009 stay under 2,950 and are disclosed, not chased.
+Amendment adopted (e93b62f15); migration 606 and `services/security_type_writer.py` applied (`security_type` holds 29,325 securities); `UniverseMembershipWriter` reads the table, rule `stage2-2026-11-21`; membership rebuilt (1,042,561 rows, 12,857 securities) and the closed-list pin set to `af96da67...` in 22be5378a. Month-end members after the rebuild were rehearsed at 3,007 (2008-06-30), 3,129 (2012-06-29) and 3,824 (2016-09-30); 2003 to 2006 and 2009 stay under the 2,950 floor, disclosed and not chased. The non-strict delta sweep over the new members is done (todo 629).
 
 ## Dropped
 
 Item 5, the OpenFIGI capture (lead ruling 2026-11-21): it reaches 259 of the 6,026 untyped securities, all inactive and early-era, so by the materiality cost-benefit rule (owner 2026-11-20) the effort does not match the outcome. Name fallback B stays not adopted; the 2004 to 2015 shortfall against the 2,950 floor is disclosed, not gated.
-
-## Remaining
-
-- Amendment adopted 2026-11-21 (e93b62f15) and the placement install applied (install id 6195ae11abff-20261121T094558Z); now runbook step 6b (apply migration 606, run the writer, after the placement install) and the repin after step 7; f3 runs a non-strict `--sweep --symbols` delta over the new members once the table exists; the apply precedes the 584 pin.
