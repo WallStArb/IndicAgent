@@ -43,3 +43,7 @@ Source: the 32,194 stored 1d `feature_vectors` rows of the pilot (19 names with 
 - Open (small): the context clock should come from the reference input series, not the screened rows (a defect on every name on the same dates is absorbed; the payload now lists the dates).
 - P3 notes: the beta and residual first rows are 1d only (intraday rows repeat the daily record, so an intraday screen still fails them); a covered name that never paid a dividend reads constant 0.0 and fails G1.
 - Still owed: the pilot-sample numbers (1,000-row rule). History across 34,063 symbols: p10 87, p25 271, median 777, p75 1,868, p90 3,839 rows; 24% under 252, 56% under 1,000.
+
+## Lead ruling (2026-11-22)
+
+The declarations landed (5c8461d81, c409bc86c, 2aa04d1d4); the pilot sample rule (1,000 bars, 65 judged names, hash-ordered selection) is declared in ledger 2026-11-22d. Left before a new run: todos 659 and 660, then the sample reader in the pilot step with the refuse check on `n_names_judged`, then the run (not on the path of the price-derived families).
