@@ -1,6 +1,7 @@
 # Next counted family after the daily residual run
 
 **Status:** Recommendation, 2026-11-22, for the lead (indicagent-bd). Docs only; no corpus reads, no edits under `src/intelligence/research/` or `statistics/`. No real-data number exists for any family here.
+**Outcome (2026-11-22):** the lead accepted the order H-C, family 9, family 10 and confirmed H-C under the E21 lift (ledger). Todo 635 is closed. Family 9's kernel landed unregistered (42f20c330); its spec, battery and close member input are parked as todo 653 because a member receives only S1 residual returns, and the close input edits `runner.member_input` and `_member_fn`, which are inside every battery code key and imported by the live run.
 **Decision:** run H-C seasonality next (`research/specs/seasonality_h5.yaml`, then the core spec). It needs no build and its E17 pass is bound. After it, build family 9 (52-week high) as the next new family.
 
 ## Scope and rules applied
@@ -38,7 +39,7 @@ Run read-only on `origin/main` at ae309c4cf with `runner.static_gate(spec, requi
 - Cost: one pure kernel with unit tests (sign, window edge, 240-of-252 rule, split-rescale invariance, causality probe), one spec, one battery cell set with the B2 size check. The pooled replication on two seed bases is hours of heavy compute, as the daily residual family needed.
 - Open: todo 610, the 2003 to 2007 close convention, touches the first 252-session windows. The prereg allows reporting with and without those windows if the witness is unresolved.
 - Looks: 2. The smallest add of any new family, and StepM prices its overlap with residual momentum.
-- Effort to launch: build plus battery, no existing module edited if the battery is a new module. This is the work to start while the daily run occupies the heavy slot, in a detached worktree.
+- Effort to launch: correction after the build started: the kernel is a new module, but the member needs a close input, so the runner and spec change after the counted runs (todo 653). This is the work to start while the daily run occupies the heavy slot, in a detached worktree.
 
 ### 3. Family 10, volume shock
 
@@ -69,5 +70,5 @@ Order: (1) lead ledger line confirming H-C under the lift, (2) H-C primary then 
 
 ## Fixes this surfaced
 
-- Todo 635 looks stale (the battery landed and its pass is bound, no failures); close it against its done-when list with a PRIORITIES row update.
+- Todo 635 is closed (c360327c1).
 - Todo 634 (session dates in the book and power paths) does not gate H-C's family run, only a book containing an H-C member.
