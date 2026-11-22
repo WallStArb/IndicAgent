@@ -35,3 +35,11 @@ Source: the 32,194 stored 1d `feature_vectors` rows of the pilot (19 names with 
 - HMM family (`hmm_*`, 12 columns): first finite 291 for most names (negative gap, passes). AADR (73% post-warmup NaN), AACG (52%) and AAN (15%) are labelled late or not; consistent with the degenerate-occupation gate (`_check_occupation_gate`, segment status 2 to 4), but the segment status is not stored, so not verified. One-name recompute of AADR would confirm.
 - `dividend_yield`: all NULL for 13 of 19 names (outside `dividend_event_coverage`: unknown, never zero); pooled 38.9% null.
 - Sample: chunk 0 is the 25 first-alphabetical names; 6 had under 252 rows and were not judged, 19 of 25 stored. History across 34,063 symbols (1d tradeable bars before 2026-11-01): p10 87, p25 271, median 777, p75 1,868, p90 3,839 rows; 24% under 252, 56% under 1,000.
+
+## Follow-ups (f6, 2026-11-22)
+
+- Landed 5c8461d81 (declarations, degenerate_input_state, screen clock) and the seven per-column checked states (swing_pattern, in_fib_discount_zone, fib_cluster_strength, swing_amplitude_expanding and _intensity, bars_since_last_sweep, bars_since_last_shift: genuine measured 0.0, declared zero_is_state while staying object dependent). Faults filed: 659 reclaim_velocity, 660 struct_accel_bias; 661 stores the HMM segment status.
+- hma_slope_z: the static not_applicable at 1d was replaced by the screen listing a column whose declared warmup exceeds every judged history as not judged (G6 output key not_judged_warmup_exceeds_history).
+- Open (small): the context clock should come from the reference input series, not the screened rows (a defect on every name on the same dates is absorbed; the payload now lists the dates).
+- P3 notes: the beta and residual first rows are 1d only (intraday rows repeat the daily record, so an intraday screen still fails them); a covered name that never paid a dividend reads constant 0.0 and fails G1.
+- Still owed: the pilot-sample numbers (1,000-row rule). History across 34,063 symbols: p10 87, p25 271, median 777, p75 1,868, p90 3,839 rows; 24% under 252, 56% under 1,000.

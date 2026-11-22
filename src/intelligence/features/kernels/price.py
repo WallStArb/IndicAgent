@@ -31,7 +31,6 @@ from src.intelligence.features.kernels._primitives import (
     _trailing_window_sums,
     bounded_window_bars,
     none_mask_name,
-    undefined_on,
     wilder_memory_bars,
     wilder_rsi_series,
 )
@@ -2106,10 +2105,6 @@ KERNELS = (
         memory_anchor=ANCHOR_SERIES_START,
         definition=lambda c, tf: _bar_statistics_warmup(c),
         zero_is_state=frozenset({"shannon"}),
-        # the slope z-score needs momentum_zscore_window slopes, one per regime cache refresh: 7,560
-        # rows at the seeds (252 x 30), more history than any name has at 1d, so it never exists
-        # there (todo 652). Intraday timeframes reach it.
-        not_applicable=undefined_on("1d", ("hma_slope_z",)),
     ),
     _k(
         "price_only_products",

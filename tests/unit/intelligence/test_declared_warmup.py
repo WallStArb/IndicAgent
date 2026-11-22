@@ -122,9 +122,21 @@ def test_object_dependence_is_declared_with_a_presence_mask(registry_and_config)
         assert column in declared, column
         assert f"_{column}_is_none" in registry.by_output(column).outputs, column
     # an object column may also hold a measured zero once its object exists (a zero Roll
-    # covariance, a zero opening gap, the gap flag); none other is both
+    # covariance, a zero opening gap, the gap flag, todo 652's seven per-column checked states);
+    # none other is both
     zero_state = {o for k in registry.kernels for o in k.zero_is_state}
-    assert declared & zero_state == {"roll_spread", "opening_gap_pct", "gap_filled"}
+    assert declared & zero_state == {
+        "roll_spread",
+        "opening_gap_pct",
+        "gap_filled",
+        "swing_pattern",
+        "in_fib_discount_zone",
+        "fib_cluster_strength",
+        "swing_amplitude_expanding",
+        "swing_amplitude_intensity",
+        "bars_since_last_sweep",
+        "bars_since_last_shift",
+    }
     for column in ("momentum_z_fast", "adx", "poc_rolling_dist_atr", "prior_session_high_dist_atr"):
         assert column not in declared, column
 

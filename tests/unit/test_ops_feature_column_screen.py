@@ -249,10 +249,11 @@ def test_g6_fails_a_path_dependent_column_null_in_a_block_inside_its_span():
     assert full["failing"] == {}
 
 
-def test_g6_an_applicable_column_that_cannot_be_measured_fails():
+def test_g6_a_column_whose_warmup_exceeds_every_history_is_listed_not_failed():
     n, cell = _years(1, 0)  # 262 rows, warmup 300: no name has a row past it
     gate = _null_gate([_row("1h", "A", n, cell)], memory={"x": 300})["1h"]
-    assert gate["failing"]["x"].startswith("cannot be measured")
+    assert gate["failing"] == {}
+    assert gate["not_judged_warmup_exceeds_history"] == {"x": 300}
 
 
 def test_g6_object_dependent_columns_fail_only_when_entirely_null():
@@ -306,7 +307,8 @@ def test_fill_audit_exempt_on_the_real_registry():
 
     exempt = fill_audit_exempt(default_registry())
     assert {"opex_flag", "canary_acausal_placebo", "body_ratio"} <= exempt
-    assert {"swing_pattern", "struct_accel_bias", "reclaim_velocity"}.isdisjoint(exempt)
+    assert {"swing_pattern", "bars_since_last_sweep"} <= exempt  # checked genuine states
+    assert {"struct_accel_bias", "reclaim_velocity"}.isdisjoint(exempt)  # todos 659, 660
     assert "hmm_churn" not in exempt  # parked until its segment status is verifiable
 
 

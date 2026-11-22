@@ -1215,7 +1215,7 @@ def _stateless(
         zero_is_state=zero_is_state,
         degenerate_input_state=degenerate_input_state,
         # every None in the group's fallback dict is an object that does not exist (module doc)
-        object_dependent=(group.nullable & frozenset(group.outputs)) - zero_is_state,
+        object_dependent=group.nullable & frozenset(group.outputs),
     )
 
 
@@ -1248,6 +1248,10 @@ KERNELS = (
         ("high", "low", "close"),
         _SWEEP_LOOKBACK,
         _compute_sweeps_columns,
+        # bars since the latest sweep: 0.0 is a sweep on the current bar, a measured count; NaN
+        # (object absent) when no sweep is in the window. reclaim_velocity is NOT declared: it
+        # reads 0.0 for a sweep too recent to observe (todo 659)
+        zero_is_state=frozenset({"bars_since_last_sweep"}),
     ),
     _stateless(
         "liquidity_pools",
@@ -1275,6 +1279,9 @@ KERNELS = (
         ("high", "low", "close", ATR_RAW_PADDED),
         _BOS_LOOKBACK,
         _compute_bos_columns,
-        zero_is_state=frozenset({"bos_direction", "choch_direction", "smc_trend_direction"}),
+        # bars_since_last_shift: 0.0 is a break on the current bar; NaN when no break is in the window
+        zero_is_state=frozenset(
+            {"bos_direction", "choch_direction", "smc_trend_direction", "bars_since_last_shift"}
+        ),
     ),
 )

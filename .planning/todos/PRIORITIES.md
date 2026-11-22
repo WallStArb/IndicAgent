@@ -72,6 +72,8 @@ Unverified against live state as of 2026-11-22 (checked only the P0 and P1 rows 
 
 | Todo | Why now |
 |---|---|
+| [660](pending/660-struct-accel-bias-reads-zero-with-too-few-extremes.md) | New 2026-11-22, P1. `struct_accel_bias` reads 0.0 when fewer than two highs or lows were retained (unmeasured, not a state); fix to NaN in `vp_sr.py` before the 1d-first corpus run, since it moves stored values and the rebuild code key. |
+| [659](pending/659-reclaim-velocity-reads-zero-for-an-unobservable-sweep.md) | New 2026-11-22, P1. `reclaim_velocity` reads 0.0 for a sweep too recent to observe its reclaim; fix to NaN in `smc.py` (550-581) before the 1d-first corpus run, same code-key move as 660. |
 | [649](pending/649-splits-after-the-massive-seam-need-a-detector.md) | P1. SNDK 8:1 split (ex-date 2026-11-20) failed the nightly on a basis-change flag; second post-seam split in two days after VIXM. The SNDK row is applied (91c77af37); measure the base rate, then decide a proposal-only detector from the Alpaca corporate-actions feed. |
 | [608](pending/608-massive-step4-split-findings-for-review.md) | P1, from todo 600 step 4. Held for review: 130 canonical-flat seam candidates (split or spin-off, a filing decides), 129 off-level canonical names, 40 identity-suspect steps. Known-accepted: D7 `split_continuity` reds CENT, RJF, SNEX. CTVA and SCCO are held by the daily stage (`unclassified_rescale`) and disclosed under the todo 512 rule; their release is this todo's decision. |
 | [609](pending/609-stage2-universe-from-massive-pit-liquidity-rule.md) | P1. Stage 2 point-in-time universe (preregistered). s0 to s8 are done, membership rebuilt (1,042,561 rows, 12,857 securities) and pinned (22be5378a, todo 648 closed); the 2004-2015 shortfall against the 2,950 floor is disclosed, not gated. Left: the corpus rerun on the pin (todo 584). |
@@ -125,6 +127,7 @@ Unverified against live state as of 2026-11-22 (checked only the P0 and P1 rows 
 
 | Todo | Why now |
 |---|---|
+| [661](pending/661-store-the-hmm-segment-status.md) | New 2026-11-22, P2. Store the HMM segment status so a NaN `hmm_*` column (degenerate-occupation gate) is verifiable and `hmm_churn` can leave the parked state. |
 | [657](pending/657-d7-audit-follow-ups-from-the-live-test-deletion.md) | New 2026-11-22, P2. Follow-ups of 656 task 1: wire the `grid_recompute` verdict (stored 15m/1h rows against the 5m derivation; the pure check exists, nothing runs it), drop the IBKR 1d pairs from `CANONICAL_1D_SOURCES` after Part F, and decide the successor of the IBKR-based daily vs intraday check. |
 | [656](pending/656-integration-test-harness-redesign.md) | New 2026-11-22, P2, blocked on the residual run being counted. Integration harness redesign: a capped disposable test cluster on the production image (port 5433), a database per session copied from a hashed template, the six live-data tests deleted (monitoring belongs to the D7 audit), the schema sync kept behind `--live-catalog`, an interim session lock, a baseline bump that closes 655, CI after 654. |
 | [655](pending/655-integration-baseline-lacks-the-classification-seed-data.md) | New 2026-11-22, P2. 16 classification integration tests fail on a fresh `indicagent_test`: the baseline carries no classification seed rows (migrations 364 to 372 sit below the cutoff). Part of the harness redesign; todo 495 stays closed. |

@@ -280,8 +280,10 @@ def null_share_gate(
     """G6 per tf: the NULL or non-finite share of each applicable column over the rows past its
     declared warmup (`declared_memory`), pooled over the judged names. A column the registry
     declares object dependent fails only when entirely NULL there (its object may not exist).
-    No applicable column goes unmeasured: one with judged names but no row past its warmup
-    fails. Returns, per tf, the failing columns with their reason and the worst shares."""
+    An applicable column with judged names but no row past its declared warmup is listed in
+    `not_judged_warmup_exceeds_history` with that warmup (never silent, never a failure).
+    Returns, per tf, the failing columns with their reason and the worst shares.
+    """
     measured: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])  # [rows, finite]
     judged_tfs: set[str] = set()
     for tf, symbol, n, *stats in rows:
@@ -297,13 +299,16 @@ def null_share_gate(
     for tf in sorted({tf for tf, *_ in rows}):
         shares: dict[str, float] = {}
         failing: dict[str, str] = {}
+        not_judged: dict[str, int] = {}
         for column in columns:
             if column not in applicable[tf]:
                 continue
             total, finite = measured.get((tf, column), (0, 0))
             if not total:
                 if tf in judged_tfs:
-                    failing[column] = "cannot be measured: no judged name has a row past its warmup"
+                    # the declared warmup exceeds every judged name's history (hma_slope_z at 1d:
+                    # 7,560 rows): not judged, listed with its warmup so it is never silent
+                    not_judged[column] = memory[tf][column]
                 continue
             share = 1 - finite / total
             shares[column] = round(share, 6)
@@ -315,6 +320,7 @@ def null_share_gate(
         out[tf] = {
             "max_null_fraction": max_null_fraction,
             "failing": failing,
+            "not_judged_warmup_exceeds_history": not_judged,
             "worst": dict(sorted(shares.items(), key=lambda kv: -kv[1])[:worst]),
         }
     return out

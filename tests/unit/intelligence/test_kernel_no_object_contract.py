@@ -141,6 +141,9 @@ def test_no_object_columns_are_nan_or_declared_state(flat_and_short, scenario, n
                 scenario == "flat"
                 and len(stored)
                 and np.isnan(stored).all()
+                # an object-dependent state column is NaN while its object is absent, which is
+                # the flat series
+                and column not in kernel.object_dependent
                 # an externally fed pass-through reads this test's all-NaN externals, so its
                 # NaN says nothing about the declaration
                 and not any(name.startswith("ext_") for name in kernel.inputs)

@@ -1434,6 +1434,10 @@ KERNELS = (
         memory=lambda config: config.swing_lookback_bars - 1,
         compute=_compute_swing_structure_columns,
         object_dependent=SWING_STRUCTURE.nullable,  # no confirmed swing pivot in the lookback
+        # measured once the object exists: swing_pattern 0.0 = the last high and low types
+        # disagree (needs two of each); in_fib_discount_zone 0.0 = close outside the zone;
+        # fib_cluster_strength 0.0 = no fib levels within the ATR-scaled threshold
+        zero_is_state=frozenset({"swing_pattern", "in_fib_discount_zone", "fib_cluster_strength"}),
     ),
     Kernel(
         name="swing_momentum",
@@ -1442,6 +1446,10 @@ KERNELS = (
         memory=lambda config: config.swing_momentum_lookback_bars - 1,
         compute=_compute_swing_momentum_columns,
         object_dependent=SWING_MOMENTUM.nullable,  # fewer swings than a measure needs
+        # measured once enough extremes exist: expanding 0.0 = not three growing legs, intensity
+        # 0.0 = no expansion. struct_accel_bias is NOT declared: it reads 0.0 when under two
+        # highs or lows were retained (todo 660)
+        zero_is_state=frozenset({"swing_amplitude_expanding", "swing_amplitude_intensity"}),
     ),
     Kernel(
         name="session_levels",
