@@ -1090,3 +1090,8 @@ misstamped_rows  # per-year load report counter, set by attribute and printed in
 OPERATOR_ROWS_OPTIONAL  # optional operator-row columns, read by tests/unit/scripts/test_ops_split_calendar_audit.py: scripts/ops/bars/ops_split_calendar_audit.py
 ruling  # field of the archive end pin record, checked by tests/unit/test_archive_end.py: src/intelligence/bars/archive_end.py
 manifest_sha256_at_record  # field of the archive end pin record, checked by tests/unit/test_archive_end.py: src/intelligence/bars/archive_end.py
+importlib_diagnostic  # read by tests/unit/research/test_battery_pass.py: src/intelligence/research/battery_pass.py
+_exclusion_needs_membership  # pydantic model_validator, called by the framework: src/intelligence/research/spec.py
+_membership_matches_the_clock  # pydantic model_validator, called by the framework: src/intelligence/research/spec.py
+seasonal_same_month  # family member resolved by its dotted spec path (research/specs/seasonality_h5*.yaml): src/intelligence/research/families/seasonality.py
+seasonal_other_months  # family member resolved by its dotted spec path (research/specs/seasonality_h5*.yaml): src/intelligence/research/families/seasonality.py

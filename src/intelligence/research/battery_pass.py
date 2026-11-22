@@ -208,7 +208,7 @@ def sources_at(commit: str, repo_root: Path):
             cache[path] = copy
             return copy
 
-        at_commit._battery_pass_at_commit = True
+        at_commit._battery_pass_at_commit = True  # type: ignore[attr-defined]  # a marker attribute on the local function, read by the nesting guard above
         code_identity.source_path = at_commit
         try:
             yield

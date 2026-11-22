@@ -307,7 +307,6 @@ src/intelligence/research/runner.py:0: error: Argument 1 to "dict" has
 src/intelligence/research/runner.py:0: error: Argument 1 to "int" has
 src/intelligence/research/runner.py:0: error: Argument 1 to "kernel_registry"
 src/intelligence/research/runner.py:0: error: Argument 1 to "kernel_registry"
-src/intelligence/research/runner.py:0: error: Argument 1 to "kernel_registry"
 src/intelligence/research/runner.py:0: error: Argument 1 to "no_dividends"
 src/intelligence/research/runner.py:0: error: Argument 1 to "static_gate"
 src/intelligence/research/runner.py:0: error: Argument 2 to
@@ -321,7 +320,6 @@ src/intelligence/research/runner.py:0: error: Argument 2 to "replace" of
 src/intelligence/research/runner.py:0: error: Argument 2 to "replace" of
 src/intelligence/research/runner.py:0: error: Argument 2 to "replace" of
 src/intelligence/research/runner.py:0: error: Argument 3 to
-src/intelligence/research/runner.py:0: error: Argument 3 to "align_index" has
 src/intelligence/research/runner.py:0: error: Argument 3 to "member_index"
 src/intelligence/research/runner.py:0: error: Argument 5 to "evaluate" has
 src/intelligence/research/runner.py:0: error: Argument 7 to "replace" of
@@ -442,7 +440,6 @@ src/intelligence/research/runner.py:0: error: Item "None" of
 src/intelligence/research/runner.py:0: error: Item "None" of
 src/intelligence/research/runner.py:0: error: Item "None" of
 src/intelligence/research/runner.py:0: error: Item "None" of
-src/intelligence/research/runner.py:0: error: Item "None" of
 src/intelligence/research/runner.py:0: error: Item "None" of "Panel | None"
 src/intelligence/research/runner.py:0: error: Item "None" of "Panel | None"
 src/intelligence/research/runner.py:0: error: Item "PodBookSpec" of
@@ -484,7 +481,6 @@ src/intelligence/research/runner.py:0: error: Returning Any from function
 src/intelligence/research/runner.py:0: error: Returning Any from function
 src/intelligence/research/runner.py:0: error: Returning Any from function
 src/intelligence/research/runner.py:0: error: Returning Any from function
-src/intelligence/research/runner.py:0: error: Unexpected keyword argument
 src/intelligence/research/runner.py:0: error: Unsupported operand types for
 src/intelligence/research/runner.py:0: error: Unsupported operand types for
 src/intelligence/research/runner.py:0: error: Value of type

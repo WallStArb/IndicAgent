@@ -100,7 +100,7 @@ def _arms(sc: DailyScenario, seed: int):
     registered = members()
     alphas = []
     for name, fn, params, memory in registered:
-        alpha = fn(
+        alpha = fn(  # type: ignore[operator]  # fn is the member callable resolved from the spec
             resid,
             bars_per_session=1,
             coverage_floor=spec.construction.coverage_floor,
@@ -109,7 +109,7 @@ def _arms(sc: DailyScenario, seed: int):
         )
         alphas.append(alpha)
         yield name, _score(alpha, vol, target, trade, memory)
-    book = EqualWeight((1.0,) * len(registered)).combine(np.stack(alphas, axis=2), None)
+    book = EqualWeight((1.0,) * len(registered)).combine(np.stack(alphas, axis=2), None)  # type: ignore[arg-type]  # target is unread: fixed signs, no fold
     yield "book_equal", _score(book, vol, target, trade, max(m[3] for m in registered))
 
 
@@ -134,13 +134,13 @@ def scenarios() -> tuple[DailyScenario, ...]:
         DailyScenario("seasonal_gaussian", **base),
         DailyScenario("seasonal_static_means", static_sd=GATE_STATIC_SD, **base),
         DailyScenario("seasonal_late_listings", late_fraction=0.4, late_name=True, **base),
-        DailyScenario("seasonal_hostile", static_sd=GATE_STATIC_SD, **base, **other),
-        DailyScenario("seasonal_hostile_no_static", **base, **other),
-        DailyScenario("seasonal_s1_hostile", static_sd=GATE_STATIC_SD, s1=True, **base, **other),
+        DailyScenario("seasonal_hostile", static_sd=GATE_STATIC_SD, **base, **other),  # type: ignore[arg-type]  # mypy cannot type ** of a float-valued dict into DailyScenario fields
+        DailyScenario("seasonal_hostile_no_static", **base, **other),  # type: ignore[arg-type]  # mypy cannot type ** of a float-valued dict into DailyScenario fields
+        DailyScenario("seasonal_s1_hostile", static_sd=GATE_STATIC_SD, s1=True, **base, **other),  # type: ignore[arg-type]  # mypy cannot type ** of a float-valued dict into DailyScenario fields
         DailyScenario(
             "seasonal_static_vol_stress", static_sd=_STRESS_STATIC_SD, vol_clustering=True, **base
         ),
-        DailyScenario("seasonal_hostile_stress", static_sd=_STRESS_STATIC_SD, **base, **other),
+        DailyScenario("seasonal_hostile_stress", static_sd=_STRESS_STATIC_SD, **base, **other),  # type: ignore[arg-type]  # mypy cannot type ** of a float-valued dict into DailyScenario fields
     )
 
 

@@ -319,7 +319,7 @@ def total_return(panel: Panel, grid: DividendGrid, suspect_yield: float) -> Pane
         symbols=tuple(names),
         **out,
         **({} if sector_pit is None else {"sector_pit": sector_pit}),
-        **({} if panel.member is None else {"member": panel.member[:, cols]}),
+        **({} if panel.member is None else {"member": panel.member[:, cols]}),  # type: ignore[arg-type]  # mypy cannot type a ** dict of optional Panel fields
         sectors=tuple(panel.sectors[j] for j, _ in take) if panel.sectors else (),
         valid=np.isfinite(out["close"]).any(axis=1),
         manifest={

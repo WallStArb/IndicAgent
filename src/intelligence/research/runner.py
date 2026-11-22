@@ -1006,7 +1006,7 @@ def _kernel_probe(
 
     def aligned_column(p1: Panel) -> tuple[np.ndarray, np.ndarray]:
         col = _kernel_column(p1, m, config, need_hl)[:, None]
-        idx = align.align_index(np.isfinite(col), index.src_closes, dst, inp.max_age_rows)
+        idx = align.align_index(np.isfinite(col), index.src_closes, dst, inp.max_age_rows)  # type: ignore[arg-type,union-attr]  # the closure loses the narrowing: inp and dst exist for an input member (member_index raises without closes_at)
         return idx[:, 0], align.gather(col, idx)[:, 0]
 
     registry = kernel_source.kernel_registry(inp.windows, config)
@@ -2222,7 +2222,7 @@ async def run_book(
         )
         if book.combiner.min_members is not None:
             record["member_coverage"] = _member_coverage(
-                stack_present, np.isfinite(booked.combined) & trade[:, None]
+                stack_present, np.isfinite(booked.combined) & trade[:, None]  # type: ignore[arg-type]  # stack_present is set exactly when min_members is not None, this branch's condition
             )
         # Design 4.5's parts of the book's L, in sessions (books only; member records unchanged).
         record["memory"] = {
