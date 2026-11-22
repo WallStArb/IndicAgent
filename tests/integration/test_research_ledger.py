@@ -850,3 +850,141 @@ async def test_a_second_headline_write_and_an_insert_with_headline_are_refused(l
             _commit(),
             parent["vintage"],
         )
+
+
+async def _rerun_blocked(ledger, scope, request) -> bool:
+    ids, members = scope.identities()
+    try:
+        await ledger.start_runs(request, ids, [members[0]])
+    except LedgerRefusal:
+        return True
+    return False
+
+
+async def _close(ledger, scope, request, **finish):
+    ids, members = scope.identities()
+    runs = await ledger.start_runs(request, ids, [members[0]])
+    await ledger.finish_run(runs[members[0]], **finish)
+    return runs[members[0]]
+
+
+async def test_a_resultless_failed_run_does_not_block_its_rerun(ledger, scope):
+    """The killed-process case: failed, no snapshot, no statistic. It leaves the spec-once
+    guard (Python and index) but the rerun is then blocked by its own started row."""
+    request = scope.request()
+    await _close(ledger, scope, request, status="failed", snapshot_hash=None, evidence={})
+    assert not await ledger.has_real_run(request.spec_hash)
+    ids, members = scope.identities()
+    rerun = await ledger.start_runs(request, ids, [members[0]])
+    assert await ledger.has_real_run(request.spec_hash)
+    assert await _rerun_blocked(ledger, scope, request)
+    await ledger.finish_run(
+        rerun[members[0]], status="completed", snapshot_hash="abc", evidence={"e": 1.0}
+    )
+    assert await _rerun_blocked(ledger, scope, request)
+
+
+async def test_a_second_resultless_failure_may_be_rerun_again(ledger, scope):
+    request = scope.request()
+    for _ in range(2):
+        await _close(ledger, scope, request, status="failed", snapshot_hash=None, evidence={})
+    assert not await ledger.has_real_run(request.spec_hash)
+    assert not await _rerun_blocked(ledger, scope, request)
+
+
+async def test_a_failed_run_with_a_snapshot_still_blocks(ledger, scope):
+    request = scope.request()
+    await _close(ledger, scope, request, status="failed", snapshot_hash="abc", evidence={})
+    assert await ledger.has_real_run(request.spec_hash)
+    assert await _rerun_blocked(ledger, scope, request)
+
+
+async def test_a_failed_run_with_a_statistic_still_blocks(ledger, scope):
+    request = scope.request()
+    await _close(
+        ledger,
+        scope,
+        request,
+        status="failed",
+        snapshot_hash=None,
+        evidence={"decision": {"t": 1.5, "p": 0.07, "annualized_sharpe": 0.4}},
+    )
+    assert await ledger.has_real_run(request.spec_hash)
+    assert await _rerun_blocked(ledger, scope, request)
+
+
+async def test_completed_started_refused_and_guard_failed_runs_still_block(ledger, scope):
+    for final in ("completed", "refused", "guard_failed", None):
+        request = scope.request()
+        if final is None:
+            ids, members = scope.identities()
+            await ledger.start_runs(request, ids, [members[0]])  # left started
+        else:
+            await _close(ledger, scope, request, status=final, snapshot_hash=None, evidence={})
+        assert await ledger.has_real_run(request.spec_hash), final
+        assert await _rerun_blocked(ledger, scope, request), final
+
+
+async def test_the_index_alone_lets_a_resultless_failure_be_followed_but_not_a_second_live_row(
+    ledger, scope
+):
+    request = scope.request()
+    run_id = await _close(ledger, scope, request, status="failed", snapshot_hash=None, evidence={})
+    row = await _row(run_id)
+    insert = (
+        "INSERT INTO research_run (run_group, concept_id, kind, mode, spec_path, spec_hash, "
+        "spec_blob, code_commit, vintage) VALUES ($1, $2, 'evidence', 'real', 'x', $3, 'x', $4, $5)"
+    )
+    args = (uuid4(), row["concept_id"], row["spec_hash"], row["code_commit"], row["vintage"])
+    await _execute(insert, *args)  # the failed row is outside the index
+    with pytest.raises(asyncpg.UniqueViolationError):
+        await _execute(insert, uuid4(), *args[1:])  # a second live row is refused
+
+
+async def test_a_failed_run_with_a_stored_series_still_blocks(ledger, scope):
+    """A pod whose completed write failed lands failed with no snapshot but its series."""
+    request = scope.request()
+    await _close(
+        ledger,
+        scope,
+        request,
+        status="failed",
+        snapshot_hash=None,
+        evidence={"error": "write"},
+        series=AttemptSeries(
+            np.array(["2020-01-02", "2020-01-03"], dtype="datetime64[D]"), np.array([0.1, 0.2])
+        ),
+    )
+    assert await ledger.has_real_run(request.spec_hash)
+    assert await _rerun_blocked(ledger, scope, request)
+
+
+async def test_a_book_killed_after_its_subset_refits_completed_still_blocks(ledger, scope):
+    from src.intelligence.research.ledger import SubsetRefit
+
+    book_run, book_name = await _book(ledger, scope)
+    spec_hash = (await _row(book_run))["spec_hash"]
+    run_ids = await ledger.start_subset_refits(
+        book_run, [SubsetRefit(("a",), _subset_recipe(book_name, ("a",)))], "tester"
+    )
+    await ledger.finish_run(
+        run_ids[("a",)],
+        status="completed",
+        snapshot_hash=None,
+        evidence={"decision": {"t": 1.0, "p": 0.1, "n_sessions": 3}},
+    )
+    await ledger.finish_run(book_run, status="failed", snapshot_hash=None, evidence={})
+    assert await ledger.has_real_run(spec_hash)
+
+
+async def test_a_book_killed_with_its_subset_refits_still_started_still_blocks(ledger, scope):
+    """Refits start only after the book statistic exists, so any refit sibling means a result."""
+    from src.intelligence.research.ledger import SubsetRefit
+
+    book_run, book_name = await _book(ledger, scope)
+    spec_hash = (await _row(book_run))["spec_hash"]
+    await ledger.start_subset_refits(
+        book_run, [SubsetRefit(("a",), _subset_recipe(book_name, ("a",)))], "tester"
+    )
+    await ledger.finish_run(book_run, status="failed", snapshot_hash=None, evidence={})
+    assert await ledger.has_real_run(spec_hash)

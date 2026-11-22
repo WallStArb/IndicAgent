@@ -48,6 +48,31 @@ UNCHARGED_STATUSES: tuple[str, ...] = ("refused", "guard_failed")
 # A run that computed a statistic counts even when it then failed (design 7.1).
 SERIES_STATUSES: tuple[str, ...] = ("completed", "failed")
 
+# A killed run (an OOM kill, a dropped session) that was closed `failed` with no snapshot, no
+# statistic and no series recorded no result, so no retry of it can be conditioned on one; it does
+# not use up its spec hash. (A killed process cannot say how far it got: the exemption rests on
+# nothing having been recorded.) A failed run with a snapshot, a statistic or a stored series, and
+# any completed run, still counts. Spec-once is enforced twice: by the guard query below under the
+# ledger lock, and by the partial unique index research_run_real_spec_once (migration 611), which
+# repeats RESULTLESS_FAILURE_SQL exactly (a test ties the two). The index sees one row only, so the
+# guard also keeps a failed row that has a series row or whose run_group holds a subset refit, or a
+# sibling with a snapshot or a statistic (a book test killed in contribution accounting has already
+# computed its statistic); the guard runs first, so it is the authority and the index a backstop.
+# The run stays charged to the vintage budget (UNCHARGED_STATUSES is unchanged).
+RESULTLESS_FAILURE_SQL = (
+    "(status = 'failed' AND snapshot_hash IS NULL AND decision_t IS NULL AND decision_p IS NULL "
+    "AND gross_sharpe IS NULL AND span_start IS NULL)"
+)
+PRIOR_REAL_RUN_SQL = (
+    "SELECT EXISTS (SELECT 1 FROM research_run "
+    "WHERE spec_hash = $1 AND kind <> 'subset_refit' AND NOT ("
+    f"{RESULTLESS_FAILURE_SQL} "
+    "AND NOT EXISTS (SELECT 1 FROM research_run_series s WHERE s.run_id = research_run.run_id) "
+    "AND NOT EXISTS (SELECT 1 FROM research_run g WHERE g.run_group = research_run.run_group "
+    "AND g.run_id <> research_run.run_id "
+    "AND (g.kind = 'subset_refit' OR g.snapshot_hash IS NOT NULL OR g.decision_t IS NOT NULL))))"
+)
+
 # Typed research domains (migration 530). A pod is a book; its metadata kind says pod.
 _RESEARCH_DOMAINS = ("family", "member", "combiner", "construction_rule", "book")
 _ADDED_PHASE = "183"
@@ -209,17 +234,12 @@ class PostgresLedger:
         self._dsn = dsn
 
     async def has_real_run(self, spec_hash: str) -> bool:
-        """Whether the spec has any real-data run, real or exploration: a spec searched in
-        exploration cannot then take its one real run as if it were unlooked."""
+        """Whether the spec has any real-data run that could have recorded an outcome, real or
+        exploration: a spec searched in exploration cannot then take its one real run as if it
+        were unlooked. A result-less failed run (RESULTLESS_FAILURE_SQL) does not count."""
         conn = await connect_with_codecs(self._dsn)
         try:
-            return bool(
-                await conn.fetchval(
-                    "SELECT EXISTS (SELECT 1 FROM research_run "
-                    "WHERE spec_hash = $1 AND kind <> 'subset_refit')",
-                    spec_hash,
-                )
-            )
+            return bool(await conn.fetchval(PRIOR_REAL_RUN_SQL, spec_hash))
         finally:
             await conn.close()
 
@@ -293,11 +313,7 @@ class PostgresLedger:
                 await self._check_recipes(conn, request, identities, run_concepts)
 
                 if request.mode == "real":
-                    prior = await conn.fetchval(
-                        "SELECT EXISTS (SELECT 1 FROM research_run "
-                        "WHERE spec_hash = $1 AND kind <> 'subset_refit')",
-                        request.spec_hash,
-                    )
+                    prior = await conn.fetchval(PRIOR_REAL_RUN_SQL, request.spec_hash)
                     if prior:
                         raise LedgerRefusal(f"spec already run: {request.spec_hash}")
 
