@@ -23,3 +23,15 @@ Do the pilot sample rule (first alphabetical names, several under 600 rows) and 
 ## Done when
 
 A short note settles the question: either the sample rule and null gate are corrected for 1d (longer-history sample, null share judged after warm-up) under a ledger entry, or the NaNs are traced to a compute fault and fixed. Rerun the 1d-first run under a new run id only if the feature layer becomes a counted input.
+
+## Findings (f6, read-only trace, 2026-11-22)
+
+Source: the 32,194 stored 1d `feature_vectors` rows of the pilot (19 names with rows) and `logs/feature_column_screen_20261121T231639Z.json`. No compute fault found. Distinct failing columns: G1 5, G2 20, G3 24, G6 10 (the 23, 84, 221 counts are column-name pairs). The structure and zone columns named above as G6 failures are registry-declared object-dependent; they appear only under `worst` and do not fail G6 (judged by unit_stats at `feature_complete`).
+
+- G3 (24 columns): measured 0/1 flags, ternary states and sparse magnitudes, not fills: `earnings_season_flag` 0.675 zero with values {0,1}, `opex_flag` 0.954, `quad_witching_flag` 0.984, `above_wk_vwap` 0.489, `in_fib_discount_zone` 0.806, `swing_pattern` and `struct_accel_bias` {-1,0,1}, `reclaim_velocity` {0, 0.6667}, `swing_amplitude_expanding` {0,1}. All lack a `zero_is_state` declaration. Fix is a registry declaration, no threshold change.
+- G2 beta trio (`equity_beta_z`, `market_residual_z`, `rate_beta_z`): first finite row is 59 or 60 for all 19 names, declared memory 0. A 60-row window warmup is undeclared. Fix is the declaration.
+- G2 and G6 context columns (`vix_z` first finite 19, `sb_corr_z` 29, `tip_tlt_ret_z` 61, `hyg_lqd_ret_z` 901, only for names whose stored start is the first date, 2004-09-10): the context input does not exist yet; every pooled NaN share equals first_finite / n (A 901/5570 = 0.162, AAI 901/1673 = 0.539). Expected, never filled. The gate should start the clock at the input's first availability.
+- `hma_slope_z`: declared memory 7,560 rows (252 slopes, one per 30-bar refresh), above every name's history (max 5,571), so it is all NULL for every name at 1d. A calibration fact of `feature.regime.cache_refresh_bars` and `feature.momentum.zscore_window`, not a bug; at 1d the column never exists.
+- HMM family (`hmm_*`, 12 columns): first finite 291 for most names (negative gap, passes). AADR (73% post-warmup NaN), AACG (52%) and AAN (15%) are labelled late or not; consistent with the degenerate-occupation gate (`_check_occupation_gate`, segment status 2 to 4), but the segment status is not stored, so not verified. One-name recompute of AADR would confirm.
+- `dividend_yield`: all NULL for 13 of 19 names (outside `dividend_event_coverage`: unknown, never zero); pooled 38.9% null.
+- Sample: chunk 0 is the 25 first-alphabetical names; 6 had under 252 rows and were not judged, 19 of 25 stored. History across 34,063 symbols (1d tradeable bars before 2026-11-01): p10 87, p25 271, median 777, p75 1,868, p90 3,839 rows; 24% under 252, 56% under 1,000.
