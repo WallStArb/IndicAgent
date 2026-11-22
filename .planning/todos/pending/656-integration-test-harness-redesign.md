@@ -146,3 +146,13 @@ Scope:
 - [ ] The image tag appears in the compose file and the workflow; a unit test asserts the two are equal, so the CI image cannot drift from the one sessions use.
 
 Gates: the CI job green on a push; a deliberately broken migration on a scratch branch fails it. Rollback: `git revert` of the workflow change.
+
+## Lead rulings (2026-11-22, indicagent-12)
+
+Plan confirmed; execution waits for the daily residual run to be counted and the lead's ping.
+
+- (a) Disposable `indicagent-testdb`: yes. Cap its memory hard (4 GB container limit, small `shared_buffers`), because the first daily launch died to a system-wide OOM. Never co-schedule it with a counted run. The compose file follows the production log caps.
+- (b) Delete the six live-reading tests: yes, but each deleted assertion gets a one-line disposition in this todo's closure note before the deletion lands (mapped to a named D7 audit check, moved to the test database, or obsolete with the reason). Keep `test_migration_schema_sync` behind `--live-catalog`.
+- (c) Session-long `flock` in `src/core/file_lock.py` (Ring 0), removed when (a) lands.
+- (d) Baseline bump: yes, in a quiet window only (no fingerprinted run, no step 7 window); tell the lead before reading production.
+- Order change: fix the `test_pipeline_flow` `DATABASE_URL` import side effect first, by deleting it with its disposition note. That deletion is task 1 (highest hazard). CI integration only after todo 654.
