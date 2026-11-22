@@ -948,7 +948,8 @@ class Deps:
         ..., tuple[list[Any], set[str]]
     ]  # (settings, conn, horizon, timeframes)
     symbol_chunks: Callable[[str], list[tuple[str, ...]]]  # by timeframe: the tier for intraday
-    history_bars: Callable[[datetime], Mapping[str, int]]  # symbol -> tradeable 1d bars before it
+    # symbol -> the tradeable 1d bars the stage computes (from the proven start) before the horizon
+    history_bars: Callable[[datetime], Mapping[str, int]]
     run_command: Callable[[Sequence[str], Path], tuple[int, str]]
     git_head: Callable[[Path], str]
     toplevel: Callable[[], Path]
@@ -1435,9 +1436,7 @@ class CorpusRerun:
         # stage_1d adopts them. Refused here, before any compute, when too few members qualify.
         try:
             chunks = d.symbol_chunks(self.PILOT_DAILY_TF)
-            universe = {symbol for chunk in chunks for symbol in chunk}
-            bars = {s: n for s, n in d.history_bars(self.run.horizon).items() if s in universe}
-            sample = pilot_rule.pilot_sample(bars, self.run.run_id)
+            sample = pilot_rule.pilot_sample(d.history_bars(self.run.horizon), self.run.run_id)
             sample_chunks = pilot_rule.sample_chunk_indices(sample, chunks)
         except (pilot_rule.PilotSampleShort, ValueError) as error:
             raise StepFailed(f"pilot sample: {error}", {"pin_checks": pins}) from error
@@ -1471,7 +1470,7 @@ class CorpusRerun:
 
         # 1d screens the sample; an intraday timeframe the 5m-tier names of chunk 0, so the screen
         # and the compute gate never name a (symbol, tf) the stage did not compute.
-        chunk0_by_tf = {
+        pilot_names_by_tf = {
             tf: tuple(sample) if tf == self.PILOT_DAILY_TF else d.symbol_chunks(tf)[0]
             for tf in self.pilot_tfs
         }
@@ -1487,10 +1486,10 @@ class CorpusRerun:
         screens = [
             [d.python, str(COLUMN_SCREEN), "--null-gate", "--tf", tf]
             + (daily_floor if tf == self.PILOT_DAILY_TF else [])
-            + [arg for symbol in chunk0_by_tf[tf] for arg in ("--symbol", symbol)]
+            + [arg for symbol in pilot_names_by_tf[tf] for arg in ("--symbol", symbol)]
             for tf in self.pilot_tfs
         ]
-        units = [f"{s}:{tf}" for tf in self.pilot_tfs for s in chunk0_by_tf[tf]]
+        units = [f"{s}:{tf}" for tf in self.pilot_tfs for s in pilot_names_by_tf[tf]]
         gates = {
             "G1-G3": _combined(d.run_command(argv, d.worktree) for argv in screens),
             "G4-G5": d.run_command(
@@ -1525,7 +1524,9 @@ class CorpusRerun:
         # The real compressed-to-uncompressed ratio of the pilot's rows (the 6.0 seed is the
         # plan-only preview's fallback); the smaller of the 1d and 1h ratios is the conservative
         # one for every later projection.
-        compression = {tf: d.measure_compression(chunk0_by_tf[tf], tf) for tf in self.pilot_tfs}
+        compression = {
+            tf: d.measure_compression(pilot_names_by_tf[tf], tf) for tf in self.pilot_tfs
+        }
         measured["pilot_compression"] = compression
         ratios = [c["ratio"] for c in compression.values() if c.get("ratio")]
         if len(ratios) != len(compression):
@@ -1831,6 +1832,15 @@ def current_identity(conn: Any) -> dict[str, Any]:
     }
 
 
+def stage_history_bars(factory: Any, settings: Settings, conn: Any, horizon: datetime) -> dict:
+    """The pilot's qualifying history of every universe name: bars from its proven start (the
+    stage's floor, `NO_FLOOR` when it has none) before the horizon."""
+    universe = [symbol for chunk in factory.symbol_chunks(settings, conn, "1d") for symbol in chunk]
+    starts = factory.proven_starts(conn, universe)
+    floors = {symbol: starts.get(symbol, factory.NO_FLOOR) for symbol in universe}
+    return pilot_rule.fetch_history_bars(conn, horizon, floors)
+
+
 def real_deps(settings: Settings, conn: Any, worktree: Path) -> Deps:
     from services import backfill_feature_factory as factory
     from services import corpus_rerun_data_gate as gate
@@ -1851,7 +1861,7 @@ def real_deps(settings: Settings, conn: Any, worktree: Path) -> Deps:
         planned_units=factory.planned_units,
         member_months=lambda: gate.fetch_member_months(conn),
         symbol_chunks=lambda tf: factory.symbol_chunks(settings, conn, tf),
-        history_bars=lambda horizon: pilot_rule.fetch_history_bars(conn, horizon),
+        history_bars=lambda horizon: stage_history_bars(factory, settings, conn, horizon),
         run_command=run_command,
         git_head=lambda path: _git(["rev-parse", "HEAD"], path),
         toplevel=lambda: Path(_git(["rev-parse", "--show-toplevel"], Path.cwd())).resolve(),

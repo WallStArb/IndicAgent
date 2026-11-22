@@ -1282,3 +1282,24 @@ def test_a_short_judged_count_from_the_screen_fails_the_pilot():
     _through(world, "pilot")
     with pytest.raises(cr.StepFailed, match="G1-G3"):
         world.runner.execute("pilot")
+
+
+def test_stage_history_bars_floors_each_name_at_its_proven_start_or_the_epoch(monkeypatch):
+    """A name with 2,000 bars in all but 500 since its proven start counts the 500."""
+    start = datetime(2022, 12, 29, tzinfo=UTC)
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    factory = SimpleNamespace(
+        symbol_chunks=lambda settings, conn, tf: [("AAMC", "AAA"), ("ZZZ",)],
+        proven_starts=lambda conn, symbols: {"AAMC": start},
+        NO_FLOOR=epoch,
+    )
+    seen: dict = {}
+    monkeypatch.setattr(
+        cr.pilot_rule,
+        "fetch_history_bars",
+        lambda conn, horizon, floors: seen.update(floors=floors, horizon=horizon) or {"AAMC": 500},
+    )
+    horizon = datetime(2026, 11, 1, tzinfo=UTC)
+    assert cr.stage_history_bars(factory, object(), object(), horizon) == {"AAMC": 500}
+    assert seen["floors"] == {"AAMC": start, "AAA": epoch, "ZZZ": epoch}
+    assert seen["horizon"] == horizon

@@ -143,11 +143,16 @@ amendment through the methodology ledger, never a mask change.
   the run, the WAL and two group spools; the growth already holds the span's earlier tfs. A plan
   that fits passes every step's gate at its own numbers (tested). Each check is recorded in the
   step summary.
-- `pilot`: stage_1d's symbol chunk 0 and one 1h unit of span 1 (the first year of span 1 that
-  holds one), both ordinary units of the real stages, kept; later stages skip them as completed.
-  G1-G3 and G6 (`scripts/ops/ops_feature_column_screen.py --null-gate` on chunk 0, 1d and 1h)
+- `pilot`: the chunks of stage_1d that hold the pilot sample (1d) and one 1h unit of span 1 (the
+  first year of span 1 that holds one, symbol chunk 0), all ordinary units of the real stages,
+  kept; later stages skip them as completed. The 1d sample is the 65 members with at least 1,000
+  tradeable bars from their proven start before the horizon, in sha256(symbol + run id) order
+  (ledger 2026-11-22d, `services/corpus_pilot_sample.py`); fewer than 65 qualifying members, or
+  fewer than 65 judged names in the screen, fails the pilot. G1-G3 and G6
+  (`scripts/ops/ops_feature_column_screen.py --null-gate` on the sample at 1d with
+  `--min-name-rows` 748 and `--min-judged-names` 65, and on chunk 0's 5m-tier names at 1h)
   and G4-G5
-  (`scripts/ops/ops_pilot_compute_gate.py`, every chunk 0 name at 1d and 1h) must pass. It
+  (`scripts/ops/ops_pilot_compute_gate.py`, every pilot name at 1d and 1h) must pass. It
   records per-piece wall time, the extrapolated wall clock per stage, the DB load against the
   other lanes, the 1d and intraday bytes per row and the stored-per-spool ratio in
   `corpus_run.measured`. It measures the real compression ratio: the pilot's 1d and 1h rows are
@@ -200,8 +205,8 @@ intraday tier load and its disk plan are not needed for them.
   --data-gate-scope 1d` plans with the 1d row counts alone and records no spans; the plan is
   refused when stage_1d's peak alone does not fit the disk limit. The runner also refuses any stage
   call at scope `1d` whose timeframes are not exactly `["1d"]`.
-- `pilot` at scope `1d`: stage_1d's chunk 0 only, no 1h unit. G1 to G3 (column screen), G4 to G5
-  (pilot compute gate) and the G6 object gate run on the 1d units; the bytes per row, the
+- `pilot` at scope `1d`: the stage_1d chunks holding the pilot sample only, no 1h unit. G1 to G3
+  (column screen), G4 to G5 (pilot compute gate) and the G6 object gate run on the 1d units; the bytes per row, the
   stored-per-spool ratio and the compression ratio are measured on 1d rows; the extrapolated seconds
   and the re-projection cover `stage_1d` only (the intraday terms are not measured, so they are not
   judged). Same gates, same constants, nothing relaxed.

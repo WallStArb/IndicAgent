@@ -5,8 +5,8 @@ changed only by a dated amendment there (APR-exempt: an operator-tunable sample 
 tuning after seeing results). The measurement behind them (G6 power 0.90 against a defect in 10
 percent of names at the 5 percent null limit) is in that entry.
 
-- A name qualifies for the sample with at least PILOT_MIN_BARS tradeable 1d bars before the pin
-  date (`horizon`), stated in bars; the screen counts stored rows, `min_stored_rows` converts.
+- A name qualifies for the sample with at least PILOT_MIN_BARS tradeable 1d bars of the series
+  the stage computes (from its proven start) before the pin date (`horizon`), stated in bars; the screen counts stored rows, `min_stored_rows` converts.
 - The sample is the first PILOT_MIN_JUDGED_NAMES qualifying names ordered by
   sha256(symbol + run id): deterministic per run, not confined to one end of the alphabet.
 - A pilot with fewer than PILOT_MIN_JUDGED_NAMES names cannot be sampled or judged and refuses.
@@ -61,13 +61,27 @@ def min_stored_rows(first_row: int) -> int:
 
 
 _HISTORY_BARS_SQL = """
-SELECT symbol, count(*) FROM market_data_ohlcv_tradeable
-WHERE timeframe = '1d' AND timestamp < %s GROUP BY symbol
+SELECT m.symbol, count(*)
+FROM market_data_ohlcv_tradeable m
+JOIN unnest(%s::text[], %s::timestamptz[]) AS s(symbol, floor_ts) ON s.symbol = m.symbol
+WHERE m.timeframe = '1d' AND m.timestamp >= s.floor_ts AND m.timestamp < %s
+GROUP BY m.symbol
 """
+_NAMES_PER_READ = 250  # a whole-universe name array is superlinear over this table
 
 
-def fetch_history_bars(conn: Any, horizon: datetime) -> dict[str, int]:
-    """Per symbol, its tradeable 1d bars before `horizon` (the pin date). Reads only."""
+def fetch_history_bars(
+    conn: Any, horizon: datetime, floors: Mapping[str, datetime]
+) -> dict[str, int]:
+    """Per symbol of `floors`, its tradeable 1d bars from its floor (its proven start, the
+    first bar the stage computes; the epoch when it has none) up to `horizon` (the pin date):
+    the series the stage stores rows from, so a qualifying name stores at least
+    `min_stored_rows` rows. Read in chunks of names; reads only."""
+    names = list(floors)
+    out: dict[str, int] = {}
     with conn.cursor() as cur:
-        cur.execute(_HISTORY_BARS_SQL, (horizon,))
-        return {symbol: int(n) for symbol, n in cur.fetchall()}
+        for i in range(0, len(names), _NAMES_PER_READ):
+            part = names[i : i + _NAMES_PER_READ]
+            cur.execute(_HISTORY_BARS_SQL, (part, [floors[n] for n in part], horizon))
+            out.update({symbol: int(n) for symbol, n in cur.fetchall()})
+    return out

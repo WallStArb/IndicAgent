@@ -5,6 +5,7 @@ bars-to-stored-rows conversion the screen is given."""
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 
 import pytest
 
@@ -63,3 +64,46 @@ def test_the_screen_floor_converts_bars_to_stored_rows_by_the_first_stored_row()
     assert ps.min_stored_rows(first_row=252) == 748
     with pytest.raises(ValueError):
         ps.min_stored_rows(first_row=ps.PILOT_MIN_BARS)  # no stored row could ever qualify
+
+
+class _Cursor:
+    """Records each bar-count query; returns the symbols it was given, 1,200 bars each."""
+
+    def __init__(self):
+        self.calls: list[tuple] = []
+        self._rows: list[tuple] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params):
+        self.calls.append((sql, params))
+        self._rows = [(symbol, 1_200) for symbol in params[0]]
+
+    def fetchall(self):
+        return self._rows
+
+
+class _Conn:
+    def __init__(self):
+        self.cursor_ = _Cursor()
+
+    def cursor(self):
+        return self.cursor_
+
+
+def test_history_bars_counts_from_each_names_floor_in_chunks_of_250():
+    horizon = datetime(2026, 11, 1, tzinfo=UTC)
+    floors = {f"S{i:04d}": datetime(2000 + i % 20, 1, 1, tzinfo=UTC) for i in range(600)}
+    conn = _Conn()
+    bars = ps.fetch_history_bars(conn, horizon, floors)
+    assert set(bars) == set(floors) and set(bars.values()) == {1_200}
+    calls = conn.cursor_.calls
+    assert [len(params[0]) for _, params in calls] == [250, 250, 100]
+    for _, (symbols, starts, end) in calls:
+        assert starts == [floors[s] for s in symbols] and end == horizon
+    sql = calls[0][0]
+    assert "timestamp >= s.floor_ts" in sql and "timestamp < %s" in sql
