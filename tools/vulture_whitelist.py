@@ -1086,3 +1086,7 @@ get_active_symbols  # FastAPI route registered by @router.get('/symbols') in src
 exclusive_file_lock  # used by tools/gate.py and tests/integration/conftest.py
 high_distance_member  # family 9 member, resolved by its dotted spec path once the close input lands (todo 653): src/intelligence/research/families/high_anchor.py
 grid_recompute_findings  # D7 check of stored 15m/1h rows against the 5m derivation (todo 656 task 1); wired into judge_name_intraday by todo 657
+misstamped_rows  # per-year load report counter, set by attribute and printed in the summary: scripts/ops/bars/ops_massive_load.py
+OPERATOR_ROWS_OPTIONAL  # optional operator-row columns, read by tests/unit/scripts/test_ops_split_calendar_audit.py: scripts/ops/bars/ops_split_calendar_audit.py
+ruling  # field of the archive end pin record, checked by tests/unit/test_archive_end.py: src/intelligence/bars/archive_end.py
+manifest_sha256_at_record  # field of the archive end pin record, checked by tests/unit/test_archive_end.py: src/intelligence/bars/archive_end.py
