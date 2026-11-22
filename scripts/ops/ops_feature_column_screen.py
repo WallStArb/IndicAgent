@@ -265,6 +265,18 @@ def screen_rows(
     return report, skipped
 
 
+# Columns whose declared warmup legitimately exceeds every judged name's history, per tf, with the
+# reason. G6 fails a column not judged for that reason that is absent here, so an inflated warmup or a
+# short-history universe cannot move a column from failing to silently passing: a new member stops
+# the screen until it is entered with a reason.
+EXPECTED_NOT_JUDGED: dict[str, dict[str, str]] = {
+    "1d": {
+        "hma_slope_z": "z-score window of 252 over a 30-bar slope step: 7,560 rows, longer than "
+        "any 1d history (todo 652)",
+    },
+}
+
+
 def null_share_gate(
     columns: tuple[str, ...],
     rows: list[tuple],
@@ -276,12 +288,14 @@ def null_share_gate(
     min_name_rows: int,
     worst: int = EXAMPLES,
     clock: Mapping[tuple[str, str], Mapping[str, int]] | None = None,
+    expected_not_judged: Mapping[str, Mapping[str, str]] = EXPECTED_NOT_JUDGED,
 ) -> dict[str, dict]:
     """G6 per tf: the NULL or non-finite share of each applicable column over the rows past its
     declared warmup (`declared_memory`), pooled over the judged names. A column the registry
     declares object dependent fails only when entirely NULL there (its object may not exist).
     An applicable column with judged names but no row past its declared warmup is listed in
-    `not_judged_warmup_exceeds_history` with that warmup (never silent, never a failure).
+    `not_judged_warmup_exceeds_history` with that warmup; it fails unless `expected_not_judged`
+    names it for that tf (a reason is on record), so the list is never silent.
     Returns, per tf, the failing columns with their reason and the worst shares.
     """
     measured: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])  # [rows, finite]
@@ -309,6 +323,11 @@ def null_share_gate(
                     # the declared warmup exceeds every judged name's history (hma_slope_z at 1d:
                     # 7,560 rows): not judged, listed with its warmup so it is never silent
                     not_judged[column] = memory[tf][column]
+                    if column not in expected_not_judged.get(tf, {}):
+                        failing[column] = (
+                            f"not judged: declared warmup {memory[tf][column]} exceeds every "
+                            "judged history and EXPECTED_NOT_JUDGED has no entry for it"
+                        )
                 continue
             share = 1 - finite / total
             shares[column] = round(share, 6)
@@ -538,7 +557,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         failures[NULL_GATE] = sum(len(entry["failing"]) for entry in nulls.values())
         for tf, entry in nulls.items():
-            print(f"{tf}: G6 failing columns {len(entry['failing'])}; worst {entry['worst']}")
+            not_judged = entry["not_judged_warmup_exceeds_history"]
+            print(
+                f"{tf}: G6 failing columns {len(entry['failing'])}; not judged (warmup exceeds "
+                f"history) {len(not_judged)}: {sorted(not_judged) or 'none'}; worst {entry['worst']}"
+            )
     seen = {symbol for _, symbol in rows_by_key}
     missing_symbols = sorted(set(args.symbol or ()) - seen)
     missing_tf = sorted(set(args.tf or ()) - set(report))

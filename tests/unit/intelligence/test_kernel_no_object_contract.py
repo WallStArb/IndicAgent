@@ -34,6 +34,7 @@ from src.intelligence.features.contract.registry import (
     constant_volume_basis,
     default_registry,
 )
+from src.intelligence.features.kernels._primitives import none_mask_name
 from src.intelligence.features.kernels.regime import HmmConfig
 from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR
 from tests.unit.intelligence.test_swing_fib_trend_structure_primitives import _make_cfg
@@ -137,6 +138,19 @@ def test_no_object_columns_are_nan_or_declared_state(flat_and_short, scenario, n
         if column in kernel.zero_is_state and column not in kernel.degenerate_input_state:
             if np.isinf(stored).any():
                 offenders_bad_state.append((column, kernel.name, "inf"))
+            elif (
+                column in kernel.object_dependent
+                and (
+                    # An object-dependent state column may be finite only where the kernel's own none
+                    # mask says the object is present: a 0.0 beside a set mask is a fabricated state
+                    # (the object is absent). roll_spread (serial covariance of a flat close series,
+                    # 0.0), opening_gap_pct (0.0) and gap_filled (1.0) read finite here with a clear
+                    # mask: their object, the price series or the session gap, exists on flat bars.
+                    np.isfinite(values)
+                    & (np.asarray(out[none_mask_name(column)], dtype=float) != 0)
+                ).any()
+            ):
+                offenders_bad_state.append((column, kernel.name, "finite beside a set none mask"))
             elif (
                 scenario == "flat"
                 and len(stored)

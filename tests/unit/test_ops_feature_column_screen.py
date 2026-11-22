@@ -1,3 +1,4 @@
+import dataclasses
 from types import SimpleNamespace
 
 import pytest
@@ -5,6 +6,7 @@ from psycopg import sql
 
 from scripts.ops.ops_feature_column_screen import (
     APR_KEYS,
+    EXPECTED_NOT_JUDGED,
     _clock_query,
     _query,
     applicable_columns,
@@ -21,6 +23,11 @@ from scripts.ops.ops_feature_column_screen import (
     uncovered_dividend_clock,
     zero_is_state,
 )
+from src.intelligence.features.contract.registry import default_registry
+from src.intelligence.features.feature_vector_persistence import feature_vectors_numeric_columns
+from src.intelligence.features.kernels.regime import HmmConfig
+from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR
+from tests.unit.intelligence.test_swing_fib_trend_structure_primitives import _make_cfg
 
 
 @pytest.mark.parametrize(
@@ -186,7 +193,9 @@ def _years(n_years: int, null_years: int) -> tuple:
     return (n, (n, n, 11, -1.0, 1.0, 0, finite_post))
 
 
-def _null_gate(rows, columns=("x",), memory=None, applicable=None, objects=(), max_null=0.05):
+def _null_gate(
+    rows, columns=("x",), memory=None, applicable=None, objects=(), max_null=0.05, expected=None
+):
     tfs = {r[0] for r in rows}
     per_tf = memory or dict.fromkeys(columns, 10)
     return null_share_gate(
@@ -197,6 +206,7 @@ def _null_gate(rows, columns=("x",), memory=None, applicable=None, objects=(), m
         object_columns=frozenset(objects),
         max_null_fraction=max_null,
         min_name_rows=252,
+        **({} if expected is None else {"expected_not_judged": expected}),
     )
 
 
@@ -249,11 +259,41 @@ def test_g6_fails_a_path_dependent_column_null_in_a_block_inside_its_span():
     assert full["failing"] == {}
 
 
-def test_g6_a_column_whose_warmup_exceeds_every_history_is_listed_not_failed():
+def test_g6_a_column_whose_warmup_exceeds_every_history_is_listed_and_fails_unless_expected():
     n, cell = _years(1, 0)  # 262 rows, warmup 300: no name has a row past it
-    gate = _null_gate([_row("1h", "A", n, cell)], memory={"x": 300})["1h"]
+    rows = [_row("1h", "A", n, cell)]
+    gate = _null_gate(rows, memory={"x": 300}, expected={"1h": {"x": "reason"}})["1h"]
     assert gate["failing"] == {}
     assert gate["not_judged_warmup_exceeds_history"] == {"x": 300}
+    unexpected = _null_gate(rows, memory={"x": 300}, expected={"1h": {}})["1h"]
+    assert unexpected["failing"]["x"].startswith("not judged")
+    assert unexpected["not_judged_warmup_exceeds_history"] == {"x": 300}
+
+
+def test_g6_not_judged_set_on_the_real_registry_at_1d_is_exactly_the_expected_list():
+    """With the live 252-bar z-score window, hma_slope_z (7,560 rows) is the only applicable 1d
+    column whose warmup exceeds a 24-year daily history; any other column that joins it fails G6
+    until EXPECTED_NOT_JUDGED names it with a reason."""
+    registry, columns = default_registry(), feature_vectors_numeric_columns()
+    config = dataclasses.replace(
+        _make_cfg(momentum_zscore_window=252), hmm=HmmConfig.from_values(SMALL_HMM_APR.get)
+    )
+    memory = declared_memory(registry, config, columns, ("1d",))
+    assert memory["1d"]["hma_slope_z"] == 7560
+    n = 24 * 252
+    cell = (n, n, 11, -1.0, 1.0, 0, n)  # every column finite on every row
+    gate = null_share_gate(
+        columns,
+        [_row("1d", "A", n, *([cell] * len(columns)))],
+        memory=memory,
+        applicable={"1d": applicable_columns(registry, columns, "1d")},
+        object_columns=frozenset(),
+        max_null_fraction=0.05,
+        min_name_rows=252,
+    )["1d"]
+    assert set(gate["not_judged_warmup_exceeds_history"]) == {"hma_slope_z"}
+    assert set(EXPECTED_NOT_JUDGED["1d"]) == {"hma_slope_z"}
+    assert gate["failing"] == {}
 
 
 def test_g6_object_dependent_columns_fail_only_when_entirely_null():
