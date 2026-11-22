@@ -349,7 +349,7 @@ def test_fill_audit_exempt_on_the_real_registry():
     exempt = fill_audit_exempt(default_registry())
     assert {"opex_flag", "canary_acausal_placebo", "body_ratio"} <= exempt
     assert {"swing_pattern", "bars_since_last_sweep"} <= exempt  # checked genuine states
-    assert {"struct_accel_bias", "reclaim_velocity"}.isdisjoint(exempt)  # todos 659, 660
+    assert {"struct_accel_bias", "reclaim_velocity"} <= exempt  # genuine 0.0 after todos 659, 660
     assert "hmm_churn" not in exempt  # parked until its segment status is verifiable
 
 

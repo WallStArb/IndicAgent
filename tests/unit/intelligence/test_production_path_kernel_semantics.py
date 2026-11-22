@@ -81,7 +81,7 @@ def _warmup_bars(n: int = WARMUP_BARS, base_price: float = 100.0) -> list[dict]:
     ]
     for i in range(n - 1):
         close = price + (0.05 if i % 2 == 0 else -0.04)
-        _extend(bars, price, max(price, close) + 0.05, min(price, close) - 0.05, close)
+        _extend(bars, price, max(price, close), min(price, close), close)
         price = close
     return bars
 
@@ -207,6 +207,17 @@ def _sweep_bars() -> list[dict]:
     return bars
 
 
+def _sweep_bars_with_reclaim_closes(closes: list[float]) -> list[dict]:
+    """`_sweep_bars` up to the sweep bar (a sweep of the 102.0 swing high), then one bar per
+    given close."""
+    bars = _sweep_bars()[:-3]
+    price = bars[-1]["close"]
+    for close in closes:
+        _extend(bars, price, max(price, close), min(price, close), close)
+        price = close
+    return bars
+
+
 def _equal_highs_pool_bars() -> list[dict]:
     bars = _liq_flat_bars(WARMUP_BARS)
     price = 100.0
@@ -231,6 +242,33 @@ def test_pp_sweep_fires_with_bounded_strength_and_velocity(cfg):
     price = bars[-1]["close"]
     _extend(bars, price, price + 0.05, price - 0.05, price)
     assert _last(bars, config=cfg)["bars_since_last_sweep"] == 4.0
+
+
+def test_pp_open_reclaim_window_reads_none_not_zero(cfg):
+    """Todo 659: a sweep whose reclaim window is still open cannot be judged, so its velocity is
+    missing; the same sweep read three bars later is a measured value."""
+    bars = _sweep_bars()
+    assert math.isfinite(_last(bars, config=cfg)["reclaim_velocity"])
+    open_row = _last(bars[:-2], config=cfg)  # one reclaim bar of three observed
+    assert open_row["bars_since_last_sweep"] == 1.0
+    assert math.isnan(open_row["reclaim_velocity"])
+    assert math.isfinite(open_row["sweep_strength"])
+
+
+def test_pp_reclaim_velocity_breaks_to_zero_on_a_close_through_or_at_the_swept_high(cfg):
+    """A close at or above the swept high is a failed reclaim: 0.0 once observed, even while the
+    window is still open (todo 659 review); only an all-held open window is None."""
+    held = [99.9, 99.8, 99.7]
+    assert math.isfinite(
+        _last(_sweep_bars_with_reclaim_closes(held), config=cfg)["reclaim_velocity"]
+    )
+    at_the_high = _last(_sweep_bars_with_reclaim_closes([99.9, 102.0, 99.7]), config=cfg)
+    assert at_the_high["bars_since_last_sweep"] == 3.0
+    assert at_the_high["reclaim_velocity"] == 0.0  # a close at the swept level is not a reclaim
+    for broken in ([99.9, 102.0], [99.9, 102.5]):  # open window, level already retaken
+        assert _last(_sweep_bars_with_reclaim_closes(broken), config=cfg)["reclaim_velocity"] == 0.0
+    open_held = _last(_sweep_bars_with_reclaim_closes(held[:2]), config=cfg)
+    assert math.isnan(open_held["reclaim_velocity"])
 
 
 def test_pp_no_sweep_in_window_is_missing_not_zero(cfg):

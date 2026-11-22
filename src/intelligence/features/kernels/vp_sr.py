@@ -909,8 +909,9 @@ def _compute_swing_momentum(
     # compare the last 2 of each side.
     ext_highs = [(p, idx) for p, idx, t in extremes if t == "high"]
     ext_lows = [(p, idx) for p, idx, t in extremes if t == "low"]
+    struct_accel_bias: float | None
     if len(ext_highs) < 2 or len(ext_lows) < 2:
-        struct_accel_bias = 0.0
+        struct_accel_bias = None  # unobservable (todo 660), never the mixed-structure 0.0
     else:
         h1, h2 = ext_highs[-2][0], ext_highs[-1][0]
         l1, l2 = ext_lows[-2][0], ext_lows[-1][0]
@@ -1447,9 +1448,11 @@ KERNELS = (
         compute=_compute_swing_momentum_columns,
         object_dependent=SWING_MOMENTUM.nullable,  # fewer swings than a measure needs
         # measured once enough extremes exist: expanding 0.0 = not three growing legs, intensity
-        # 0.0 = no expansion. struct_accel_bias is NOT declared: it reads 0.0 when under two
-        # highs or lows were retained (todo 660)
-        zero_is_state=frozenset({"swing_amplitude_expanding", "swing_amplitude_intensity"}),
+        # 0.0 = no expansion; struct_accel_bias 0.0 = highs and lows disagree (None when under two
+        # of each were retained, todo 660)
+        zero_is_state=frozenset(
+            {"swing_amplitude_expanding", "swing_amplitude_intensity", "struct_accel_bias"}
+        ),
     ),
     Kernel(
         name="session_levels",

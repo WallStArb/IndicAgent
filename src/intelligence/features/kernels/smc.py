@@ -13,7 +13,7 @@ None, and an ATR-normalized distance whose object exists but whose ATR is invali
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -448,6 +448,13 @@ def _compute_fvg(
 # Smart Money Concepts — Liquidity Sweeps + Liquidity Pools (Phase 164 Plan 03)
 # ---------------------------------------------------------------------------
 
+
+class _Sweep(NamedTuple):
+    strength: float
+    reclaim_velocity: float | None
+    bar_idx: int
+
+
 # D1 rule 2 (todo 584 4b-2 group 4): the strength/velocity of a sweep that never happened and
 # a right-censored bars-since count are None. (The sweep_detected flag was retired, todo 584 6c:
 # any sweep anywhere in the lookback is the norm, so it was 1.0 on every row; the per-bar event is
@@ -538,64 +545,45 @@ def _compute_liquidity_sweeps(
     depth_ramp_max = config.smc_liquidity_sweeps_depth_ramp_max_pct
     reclaim_ramp_max = config.smc_liquidity_sweeps_reclaim_velocity_ramp_max
 
-    sweeps: list[dict[str, float]] = []
+    sweeps: list[_Sweep] = []
+
+    def _reclaim_velocity(i: int, price: float, above: bool) -> float | None:
+        """Velocity of the reclaim of a sweep at bar i: a measured 0.0 once the reclaim window is
+        complete (or already broken), None while it is still open (todo 659: unobservable, not 0).
+        """
+        if all(
+            (c[i + k] > price if above else c[i + k] < price)
+            for k in range(1, min(reclaim_bars, n_bars - 1 - i) + 1)
+        ):
+            if i + reclaim_bars >= n_bars:
+                return None
+            return linear_ramp(1.0 / max(1, reclaim_bars), 0.0, reclaim_ramp_max)
+        return 0.0
 
     for sl_idx in swing_lows:
         sl_price = float(lo[sl_idx])
         for i in range(sl_idx + neighbor + 1, n_bars):
             if lo[i] < sl_price and c[i] > sl_price:
                 depth_pct = (sl_price - float(lo[i])) / sl_price * 100.0
-                reclaimed = 0.0
-                if i + reclaim_bars < n_bars and all(
-                    c[i + k] > sl_price for k in range(1, reclaim_bars + 1)
-                ):
-                    reclaimed = 1.0
-                sweep_strength = linear_ramp(depth_pct, 0.0, depth_ramp_max)
-                reclaim_velocity = (
-                    linear_ramp(1.0 / max(1, reclaim_bars), 0.0, reclaim_ramp_max)
-                    if reclaimed
-                    else 0.0
-                )
-                sweeps.append(
-                    {
-                        "sweep_strength": sweep_strength,
-                        "reclaim_velocity": reclaim_velocity,
-                        "bar_idx": float(i),
-                    }
-                )
+                strength = linear_ramp(depth_pct, 0.0, depth_ramp_max)
+                sweeps.append(_Sweep(strength, _reclaim_velocity(i, sl_price, True), i))
 
     for sh_idx in swing_highs:
         sh_price = float(h[sh_idx])
         for i in range(sh_idx + neighbor + 1, n_bars):
             if h[i] > sh_price and c[i] < sh_price:
                 depth_pct = (float(h[i]) - sh_price) / sh_price * 100.0
-                reclaimed = 0.0
-                if i + reclaim_bars < n_bars and all(
-                    c[i + k] < sh_price for k in range(1, reclaim_bars + 1)
-                ):
-                    reclaimed = 1.0
-                sweep_strength = linear_ramp(depth_pct, 0.0, depth_ramp_max)
-                reclaim_velocity = (
-                    linear_ramp(1.0 / max(1, reclaim_bars), 0.0, reclaim_ramp_max)
-                    if reclaimed
-                    else 0.0
-                )
-                sweeps.append(
-                    {
-                        "sweep_strength": sweep_strength,
-                        "reclaim_velocity": reclaim_velocity,
-                        "bar_idx": float(i),
-                    }
-                )
+                strength = linear_ramp(depth_pct, 0.0, depth_ramp_max)
+                sweeps.append(_Sweep(strength, _reclaim_velocity(i, sh_price, False), i))
 
     if not sweeps:
         return dict(_SWEEP_FALLBACK)
 
-    latest = max(sweeps, key=lambda s: s["bar_idx"])
+    latest = max(sweeps, key=lambda s: s.bar_idx)
     return {
-        "sweep_strength": float(latest["sweep_strength"]),
-        "reclaim_velocity": float(latest["reclaim_velocity"]),
-        "bars_since_last_sweep": float(n_bars - 1 - int(latest["bar_idx"])),
+        "sweep_strength": float(latest.strength),
+        "reclaim_velocity": latest.reclaim_velocity,
+        "bars_since_last_sweep": float(n_bars - 1 - latest.bar_idx),
     }
 
 
@@ -1249,9 +1237,9 @@ KERNELS = (
         _SWEEP_LOOKBACK,
         _compute_sweeps_columns,
         # bars since the latest sweep: 0.0 is a sweep on the current bar, a measured count; NaN
-        # (object absent) when no sweep is in the window. reclaim_velocity is NOT declared: it
-        # reads 0.0 for a sweep too recent to observe (todo 659)
-        zero_is_state=frozenset({"bars_since_last_sweep"}),
+        # (object absent) when no sweep is in the window. reclaim_velocity 0.0 is a reclaim that was
+        # observed to fail; None while the reclaim window is still open (todo 659)
+        zero_is_state=frozenset({"bars_since_last_sweep", "reclaim_velocity"}),
     ),
     _stateless(
         "liquidity_pools",

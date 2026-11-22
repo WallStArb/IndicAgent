@@ -22,9 +22,9 @@ Per (tf, name) and column:
   `threshold.pilot_gate.zero_share_max`, for a column a 0.0 can stand in for. Skipped, each by a
   declared kernel property and never a column list: `zero_is_state` (0.0 is the measured state)
   and the outputs of an `acausal_control` kernel (a deliberate-lookahead control, not a feature).
-  `object_dependent` columns are NOT skipped: review found 0.0 returned for an absent object
-  (`struct_accel_bias` with under two extremes, `reclaim_velocity` for a sweep too recent to
-  observe), which is exactly what G3 exists to catch.
+  `object_dependent` columns are NOT skipped: a 0.0 returned for an absent or unobservable
+  object (todo 652's trace found two, fixed in todos 659 and 660) is exactly what G3 exists to
+  catch; a column whose 0.0 is a measured state declares `zero_is_state` instead.
 - Context clock (G2, G6): the cross-asset record columns (`macro.RECORD_COLUMNS`) are date
   functions of the same series for every name, so a NaN before the first date on which any
   screened name holds a finite value is an input that does not exist yet (HYG begins in 2007),

@@ -108,6 +108,14 @@ def test_swing_amplitude_expanding_needs_a_max_extremes_seed_above_three():
     assert sql_seed is not None and int(sql_seed.group(1)) >= 4
 
 
+def test_struct_accel_bias_is_none_with_too_few_extremes_and_zero_for_mixed_structure():
+    """Todo 660: fewer than two retained highs or lows is unobservable (None), not the measured
+    mixed-structure 0.0."""
+    mixed = _momentum([100, 103, 99, 106, 96, 110, 92, 100])  # highs rise, lows fall
+    assert mixed["struct_accel_bias"] == 0.0
+    assert _momentum([100, 103, 99, 106, 107])["struct_accel_bias"] is None
+
+
 # --- bars_since_last_shift -----------------------------------------------------------------
 
 

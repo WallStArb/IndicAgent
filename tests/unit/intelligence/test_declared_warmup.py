@@ -135,6 +135,8 @@ def test_object_dependence_is_declared_with_a_presence_mask(registry_and_config)
         "swing_amplitude_expanding",
         "swing_amplitude_intensity",
         "bars_since_last_sweep",
+        "reclaim_velocity",
+        "struct_accel_bias",
         "bars_since_last_shift",
     }
     for column in ("momentum_z_fast", "adx", "poc_rolling_dist_atr", "prior_session_high_dist_atr"):
