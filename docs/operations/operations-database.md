@@ -263,8 +263,9 @@ docker compose up -d --no-deps --no-build timescaledb
 ```
 
 `--no-deps` because dependent services must not be bounced, `--no-build`
-because the base tag is `latest-pg18` and a rebuild could silently change the
-Timescale or pgvector version (record `SELECT version()` and
+because a rebuild changes the Timescale or pgvector version unless the base is
+pinned (the Dockerfile pins the base image by digest since 2026-11-22, so a rebuild
+reproduces it; moving the pin is a deliberate change) (record `SELECT version()` and
 `SELECT extname, extversion FROM pg_extension` before and after; a change is a
 failure). A plain restart is not enough: it reuses the old `Cmd`, which is
 exactly how R-12 happened.

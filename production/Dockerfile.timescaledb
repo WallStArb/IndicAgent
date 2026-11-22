@@ -1,4 +1,6 @@
-FROM timescale/timescaledb:latest-pg18
+# Pinned by digest (2026-11-22): the image running now, PG 18.6 with TimescaleDB 2.32.0. The floating
+# latest-pg18 tag could change Postgres or Timescale on a rebuild. Move the pin deliberately.
+FROM timescale/timescaledb:latest-pg18@sha256:83952d54cfc74d9aebe4aba6ecf2af829c2bcf1f30058dded4c18ab3720a247a
 
 USER root
 
