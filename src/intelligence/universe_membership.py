@@ -155,7 +155,7 @@ ELIGIBLE_TYPES: frozenset[str] = frozenset({"CS", "ADRC", "ETF"})
 
 
 @dataclass(frozen=True)
-class MembershipRule:
+class MembershipSpec:
     """The preregistered values (dollars, sessions)."""
 
     entry_floor: float = 1_000_000.0
@@ -169,22 +169,22 @@ class MembershipRule:
 
     def __post_init__(self) -> None:
         if not 0 < self.exit_floor <= self.entry_floor:
-            raise ValueError("MembershipRule: need 0 < exit_floor <= entry_floor")
+            raise ValueError("MembershipSpec: need 0 < exit_floor <= entry_floor")
         if not self.entry_floor <= self.tier_entry_floor or not (
             self.exit_floor <= self.tier_exit_floor <= self.tier_entry_floor
         ):
             raise ValueError(
-                "MembershipRule: the tier floors must sit at or above the membership floors"
+                "MembershipSpec: the tier floors must sit at or above the membership floors"
             )
         if self.window_sessions < 1 or self.min_history_sessions < self.window_sessions:
-            raise ValueError("MembershipRule: need 1 <= window_sessions <= min_history_sessions")
+            raise ValueError("MembershipSpec: need 1 <= window_sessions <= min_history_sessions")
 
 
-RULE = MembershipRule()
+RULE = MembershipSpec()
 
 
 @dataclass(frozen=True)
-class SecurityHistory:
+class SecurityHistoryRecord:
     """One security's daily bars: ascending unique session dates and aligned close and volume."""
 
     symbol: str
@@ -195,13 +195,17 @@ class SecurityHistory:
 
     def __post_init__(self) -> None:
         if not (len(self.days) == len(self.close) == len(self.volume)):
-            raise ValueError(f"SecurityHistory {self.symbol}: days, close, volume differ in length")
+            raise ValueError(
+                f"SecurityHistoryRecord {self.symbol}: days, close, volume differ in length"
+            )
         if len(self.days) > 1 and not np.all(self.days[1:] > self.days[:-1]):
-            raise ValueError(f"SecurityHistory {self.symbol}: days must be strictly ascending")
+            raise ValueError(
+                f"SecurityHistoryRecord {self.symbol}: days must be strictly ascending"
+            )
 
 
 @dataclass(frozen=True)
-class MembershipRow:
+class MembershipRecord:
     """One member at one month-end. `entered` is False for a name kept by hysteresis."""
 
     as_of: date
@@ -235,14 +239,14 @@ def as_traded_close(canonical_close: float, as_of: date, splits: Iterable[SplitF
 
 
 def decide(
-    history: SecurityHistory,
+    history: SecurityHistoryRecord,
     as_of: date,
     security_type: str | None,
     was_member: bool,
-    rule: MembershipRule = RULE,
+    rule: MembershipSpec = RULE,
     *,
     was_tier: bool = False,
-) -> MembershipRow | None:
+) -> MembershipRecord | None:
     """The membership row for `history.symbol` at `as_of`, or None when it is not a member.
 
     `security_type` is the Massive type at `as_of` (None when unknown, which is ineligible).
@@ -264,7 +268,7 @@ def decide(
     median = float(np.median(dollar))
     if median < (rule.exit_floor if was_member else rule.entry_floor):
         return None
-    return MembershipRow(
+    return MembershipRecord(
         as_of=as_of,
         symbol=history.symbol,
         security_type=security_type,
@@ -277,19 +281,19 @@ def decide(
 
 
 def memberships_for_security(
-    history: SecurityHistory,
+    history: SecurityHistoryRecord,
     month_ends: Iterable[date],
     types: Mapping[date, str | None],
     *,
     was_member: bool = False,
     was_tier: bool = False,
-    rule: MembershipRule = RULE,
-) -> list[MembershipRow]:
+    rule: MembershipSpec = RULE,
+) -> list[MembershipRecord]:
     """Walk `month_ends` (ascending) for one security, carrying membership forward for the
     hysteresis. `was_member` and `was_tier` seed the state before the first month-end (a resumed
     build passes the previous month's membership and tier). `types` maps each month-end to the type known on it; a
     missing key is an unknown type."""
-    rows: list[MembershipRow] = []
+    rows: list[MembershipRecord] = []
     for as_of in month_ends:
         row = decide(history, as_of, types.get(as_of), was_member, rule, was_tier=was_tier)
         was_member = row is not None

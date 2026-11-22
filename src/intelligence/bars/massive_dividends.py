@@ -275,7 +275,7 @@ def collapse_events(
             out.drops[reason] += len(recs)
             out.dropped_dates.setdefault(symbol, set()).add(ex_date)
             continue
-        amounts = sorted({r.cash_amount for r in recs})  # exact repeats collapse
+        amounts = sorted({_amount(r) for r in recs})  # exact repeats collapse
         declared = [r.declared_on for r in recs if r.declared_on is not None]
         out.events.setdefault(symbol, []).append(
             MassiveEvent(
@@ -290,6 +290,14 @@ def collapse_events(
     return out
 
 
+def _amount(rec: DividendRecord) -> float:
+    """The record's cash amount; a missing one was dropped before any amount is read, so a None
+    here is a bug and fails loudly."""
+    if rec.cash_amount is None:
+        raise ValueError(f"dividend record {rec.record_id} has no cash amount")
+    return rec.cash_amount
+
+
 def _restated(recs: Sequence[DividendRecord]) -> bool:
     """True when two records of one ex-date cannot be told apart as one dividend or two: same
     distribution type and pay date with amounts within RESTATEMENT_REL_TOLERANCE (one dividend
@@ -297,14 +305,14 @@ def _restated(recs: Sequence[DividendRecord]) -> bool:
     collapsing the repeat halves them, e.g. BGB 2024-12-23 paid 2024-12-31 and 2025-01-31)."""
     for i, a in enumerate(recs):
         for b in recs[i + 1 :]:
-            if a.cash_amount == b.cash_amount and a.pay_date != b.pay_date:
+            x, y = _amount(a), _amount(b)
+            if x == y and a.pay_date != b.pay_date:
                 return True
             if (
-                a.cash_amount != b.cash_amount
+                x != y
                 and a.distribution_type == b.distribution_type
                 and a.pay_date == b.pay_date
-                and abs(a.cash_amount - b.cash_amount)
-                <= RESTATEMENT_REL_TOLERANCE * max(a.cash_amount, b.cash_amount)
+                and abs(x - y) <= RESTATEMENT_REL_TOLERANCE * max(x, y)
             ):
                 return True
     return False

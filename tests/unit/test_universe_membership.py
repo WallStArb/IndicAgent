@@ -15,8 +15,8 @@ from src.intelligence.universe_membership import (
     LAST_LIST_DATE,
     RULE,
     RULE_ID,
-    MembershipRule,
-    SecurityHistory,
+    MembershipSpec,
+    SecurityHistoryRecord,
     as_traded_close,
     decide,
     ledger_rule_label,
@@ -42,7 +42,7 @@ def _days(n: int, start: date = START) -> list[date]:
 
 def _history(days: list[date], dollar: float | list[float], close: float = 10.0, symbol="AAA"):
     dollars = dollar if isinstance(dollar, list) else [dollar] * len(days)
-    return SecurityHistory(
+    return SecurityHistoryRecord(
         symbol=symbol,
         days=np.array(days, dtype="datetime64[D]"),
         close=np.full(len(days), close),
@@ -189,14 +189,14 @@ def test_walk_missing_type_is_unknown_and_excluded():
 
 def test_rule_validates_floor_order_and_window():
     with pytest.raises(ValueError):
-        MembershipRule(entry_floor=1.0, exit_floor=2.0)
+        MembershipSpec(entry_floor=1.0, exit_floor=2.0)
     with pytest.raises(ValueError):
-        MembershipRule(window_sessions=60, min_history_sessions=59)
+        MembershipSpec(window_sessions=60, min_history_sessions=59)
 
 
 def test_history_rejects_unsorted_days():
     with pytest.raises(ValueError):
-        SecurityHistory(
+        SecurityHistoryRecord(
             "X",
             np.array(["2020-01-02", "2020-01-01"], dtype="datetime64[D]"),
             np.ones(2),
@@ -235,9 +235,9 @@ def test_future_reverse_split_name_is_not_admitted_and_future_split_name_is_kept
 def test_tier_constants_and_validation():
     assert RULE.tier_entry_floor == 25_000_000.0 and RULE.tier_exit_floor == 12_500_000.0
     with pytest.raises(ValueError):  # a tier floor below the membership floor is not nested
-        MembershipRule(tier_entry_floor=500_000.0, tier_exit_floor=400_000.0)
+        MembershipSpec(tier_entry_floor=500_000.0, tier_exit_floor=400_000.0)
     with pytest.raises(ValueError):
-        MembershipRule(tier_entry_floor=2e7, tier_exit_floor=3e7)
+        MembershipSpec(tier_entry_floor=2e7, tier_exit_floor=3e7)
 
 
 def test_tier_enters_at_the_tier_floor_inclusive_and_implies_membership():
@@ -325,7 +325,9 @@ def test_ledger_rule_label_is_the_single_id_or_the_sorted_join():
 def test_decide_is_unchanged_by_the_closed_list_a_name_the_list_lacks_has_no_type():
     days = np.array([np.datetime64("2026-08-03") + i for i in range(120)], dtype="datetime64[D]")
     days = days[np.is_busday(days)][:90]
-    hist = SecurityHistory("X", days, np.full(len(days), 10.0), np.full(len(days), 3e5), splits=())
+    hist = SecurityHistoryRecord(
+        "X", days, np.full(len(days), 10.0), np.full(len(days), 3e5), splits=()
+    )
     as_of = days[-1].astype(object)
     assert decide(hist, as_of, "CS", False) is not None
     assert decide(hist, as_of, None, False) is None  # absent from the list at L: no entrant

@@ -65,8 +65,8 @@ from src.intelligence.universe_membership import (
     LAST_LIST_DATE,
     RULE,
     RULE_ID,
-    MembershipRow,
-    SecurityHistory,
+    MembershipRecord,
+    SecurityHistoryRecord,
     closed_list_candidates_problem,
     ledger_rule_problem,
     memberships_for_security,
@@ -210,15 +210,15 @@ def _number(value: Any) -> float:
 
 def histories_from_records(
     records: Sequence[Any], splits: Mapping[str, Sequence[SplitFactor]] | None = None
-) -> dict[str, SecurityHistory]:
+) -> dict[str, SecurityHistoryRecord]:
     """Group (symbol, day, close, volume) records, ordered by symbol and day, into histories.
     A NULL close or volume becomes NaN; `splits` are the symbol's market splits."""
     grouped: dict[str, list[tuple[date, float, float]]] = defaultdict(list)
     for symbol, day, close, volume in records:
         grouped[symbol].append((day, _number(close), _number(volume)))
-    out: dict[str, SecurityHistory] = {}
+    out: dict[str, SecurityHistoryRecord] = {}
     for symbol, bars in grouped.items():
-        out[symbol] = SecurityHistory(
+        out[symbol] = SecurityHistoryRecord(
             symbol=symbol,
             days=np.array([b[0] for b in bars], dtype="datetime64[D]"),
             close=np.array([b[1] for b in bars], dtype=np.float64),
@@ -308,7 +308,7 @@ class UniverseMembershipWriter(BaseBatch):
             )
         stop = datetime.combine(self._through + timedelta(days=1), time.min, tzinfo=UTC)
 
-        rows: list[MembershipRow] = []
+        rows: list[MembershipRecord] = []
         vanished: list[tuple[str, date, date, str]] = []
         stale: list[str] = []
         for lo in range(0, len(symbols), _SYMBOL_CHUNK):
@@ -415,7 +415,7 @@ class UniverseMembershipWriter(BaseBatch):
         return dict(out)
 
     def _vanished(
-        self, history: SecurityHistory, last_member: date, span: Mapping[str, Any] | None
+        self, history: SecurityHistoryRecord, last_member: date, span: Mapping[str, Any] | None
     ) -> tuple[str, date, date, str] | None:
         """(symbol, last member month-end, last bar, expected end) for a member whose bars stop
         well before its placed span does (before `--through` for an open span); else None."""
