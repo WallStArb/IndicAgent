@@ -120,6 +120,33 @@ _NOT_IN_BASELINE: frozenset[int] = frozenset({568, 571, 572, 573, 574})
 # the same breath as the coverage writer's conflict-target flip; the entry was removed in
 # that same breath per the 190-02 handoff note.)
 
+# Post-baseline migrations that pin one live build and refuse on any other database. They can never
+# replay into an empty indicagent_test, so each is not replayed: its refusal text is asserted by
+# test_live_build_only_migrations.py (the guard stays covered), and the structure it leaves in
+# production is created empty by its stub below so test_migration_schema_sync.py still sees the
+# live schema. 605 resets the stage 2 membership (empty here) and keeps two record tables.
+_LIVE_BUILD_ONLY: dict[int, tuple[str, str]] = {
+    605: (
+        "this reset is for that build only",
+        """
+        CREATE TABLE universe_membership_build_pre605 AS TABLE universe_membership_build WITH NO DATA;
+        CREATE TABLE universe_membership_pre605 AS TABLE universe_membership WITH NO DATA;
+        CREATE TRIGGER trg_universe_membership_pre605_insert_only
+            BEFORE UPDATE OR DELETE ON universe_membership_pre605
+            FOR EACH ROW EXECUTE FUNCTION universe_membership_insert_only();
+        CREATE TRIGGER trg_universe_membership_pre605_no_truncate
+            BEFORE TRUNCATE ON universe_membership_pre605
+            FOR EACH STATEMENT EXECUTE FUNCTION universe_membership_insert_only();
+        CREATE TRIGGER trg_universe_membership_build_pre605_insert_only
+            BEFORE UPDATE OR DELETE ON universe_membership_build_pre605
+            FOR EACH ROW EXECUTE FUNCTION universe_membership_insert_only();
+        CREATE TRIGGER trg_universe_membership_build_pre605_no_truncate
+            BEFORE TRUNCATE ON universe_membership_build_pre605
+            FOR EACH STATEMENT EXECUTE FUNCTION universe_membership_insert_only();
+        """,
+    )
+}
+
 _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent / "production" / "migrations"
 
 
@@ -239,15 +266,20 @@ def _apply_baseline() -> None:
 
 def _replay_post_baseline_migrations() -> None:
     # Committed-but-unapplied migrations would be excluded here (the 465 pattern, 190-02 to
-    # 190-06); the set is empty today, so every post-baseline migration replays.
+    # 190-06); the set is empty today. The live-build-only migrations are the one exclusion.
     new_migrations = sorted(
         p
         for p in _MIGRATIONS_DIR.glob("*.sql")
-        if _migration_number(p) > _BASELINE_MIGRATION_CUTOFF
-        or _migration_number(p) in _NOT_IN_BASELINE
+        if (
+            _migration_number(p) > _BASELINE_MIGRATION_CUTOFF
+            or _migration_number(p) in _NOT_IN_BASELINE
+        )
+        and _migration_number(p) not in _LIVE_BUILD_ONLY
     )
     for path in new_migrations:
         _run_psql_file(path)
+    for _, stub in _LIVE_BUILD_ONLY.values():
+        asyncio.run(_run_sql(stub))
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -259,3 +291,6 @@ def migrated_test_database() -> None:
     asyncio.run(_recreate_test_database())
     _apply_baseline()
     _replay_post_baseline_migrations()
+    # After the rebuild (a large restore or a long migration is not a test): no test may hold a
+    # backend for more than a minute. New sessions of the test database inherit it.
+    asyncio.run(_run_sql(f"ALTER DATABASE {_TEST_DB_NAME} SET statement_timeout = '60s'"))

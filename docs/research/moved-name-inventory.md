@@ -424,8 +424,8 @@ NYSE, ARCA, AMEX, BATS, ISLAND), stored and unused: the derivation ignores venue
 while the gate is false. Baseline taken before any step ran: 0 stored `ibkr_venue` 1d rows in
 `market_data_ohlcv` and 0 rows with venue volume in `market_data_ohlcv_tradeable`; both are
 unchanged. The per-name recovered spans are the table above. Enabling the gate later needs the
-seam and volume checks recorded in `tests/integration/test_d3_d4_live.py`, which fails loudly
-until they exist.
+seam and volume checks that the retired `test_d3_d4_live.py` integration test held (deleted with the
+IBKR removal, 2026-11-13; in git history); the recovery lane itself is gone.
 
 1d empty history reconciled from recorded answers (`reconcile_empty_history(conn, "1d", "ibkr")`):
 115 rows considered, 26 kept (backed by SMART plus every former venue except the primary
