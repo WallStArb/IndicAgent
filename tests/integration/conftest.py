@@ -285,6 +285,16 @@ def _replay_post_baseline_migrations() -> None:
         asyncio.run(_run_sql(stub))
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """A live_catalog test reads production (todo 656): it runs only when asked for by flag."""
+    if config.getoption("--live-catalog", default=False):
+        return
+    skip = pytest.mark.skip(reason="reads the production catalog: pass --live-catalog")
+    for item in items:
+        if item.get_closest_marker("live_catalog"):
+            item.add_marker(skip)
+
+
 # Interim cross-session lock (todo 656, task 2): every session rebuilds the one shared
 # indicagent_test, and a rebuild kills the sessions already running on it. The lock is held for the
 # whole session, not only the rebuild. Removed when the per-session databases land (task 3).

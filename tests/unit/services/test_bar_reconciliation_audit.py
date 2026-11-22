@@ -1636,6 +1636,17 @@ def test_a_stale_stored_digest_fails_only_its_timeframe():
     assert _verdict(run, "AAA|5m", "digest_fresh")[5] is True
 
 
+def test_a_missing_stored_digest_fails_only_its_timeframe():
+    """A month with bars and a recompute but no stored digest (the grid stage never wrote it)."""
+    name = _agreeing_name()
+    month = next(iter(name["digests"]["1h"]))
+    del name["digests"]["1h"][month]
+    run = _intraday(_IntradayConn({"AAA": name}))
+    missing = _verdict(run, "AAA|1h", "digest_fresh")
+    assert missing[5] is False and missing[3] == 1.0
+    assert _verdict(run, "AAA|15m", "digest_fresh")[5] is True
+
+
 def test_first_run_is_a_full_sweep_and_writes_the_sweep_fact_once():
     run = _intraday(_IntradayConn({"AAA": _agreeing_name(), "BBB": _agreeing_name()}))
     assert run.full_sweep is True

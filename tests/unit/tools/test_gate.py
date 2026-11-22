@@ -37,6 +37,24 @@ def test_migrations_are_the_top_level_sql_files_sorted():
     assert plan.migrations == ("production/migrations/530_a.sql", "production/migrations/531_b.sql")
 
 
+def test_any_migration_path_needs_the_live_catalog_schema_sync():
+    assert gate.classify(["production/migrations/531_b.sql"]).needs_live_catalog
+    assert gate.classify(["production/migrations/archive/001_old.sql"]).needs_live_catalog
+    assert not gate.classify(["services/x.py", "production/docker-compose.yml"]).needs_live_catalog
+
+
+def test_the_live_catalog_step_runs_the_schema_sync_and_must_report_a_pass():
+    (step,) = [s for s in _steps(gate.Plan(False, (), True)) if s.name == "live_catalog"]
+    assert step.argv[-4:] == (
+        "--live-catalog",
+        "tests/integration/test_migration_schema_sync.py",
+        "-m",
+        "integration",
+    )
+    assert step.expect == "1 passed" and not step.locked
+    assert "live_catalog" not in [s.name for s in _steps(gate.Plan(False, ()))]
+
+
 BASE = ["529_spread_window_apr_descriptions.sql", "530_typed_domains.sql"]
 
 

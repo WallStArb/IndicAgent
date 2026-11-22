@@ -1085,3 +1085,4 @@ bar_close_ts  # unused function (src/core/service_utils.py:69)
 get_active_symbols  # FastAPI route registered by @router.get('/symbols') in src/api/routes/market_data.py: read by the framework, not by name (the settings.get_active_symbols of the same name was deleted)
 exclusive_file_lock  # used by tools/gate.py and tests/integration/conftest.py
 high_distance_member  # family 9 member, resolved by its dotted spec path once the close input lands (todo 653): src/intelligence/research/families/high_anchor.py
+grid_recompute_findings  # D7 check of stored 15m/1h rows against the 5m derivation (todo 656 task 1); wired into judge_name_intraday by todo 657

@@ -98,6 +98,28 @@ def test_policy_conformance_flags_alpaca_under_a_policy_that_does_not_name_it():
     assert policy_conformance([(d[0], *ALPACA)], _POLICY, {}, symbol="AAA") == [d[0]]
 
 
+_ARCHIVE_END = date(2026, 11, 16)
+# The d2-v6 default rows: Massive from 2003-09-10 to the archive end, then Alpaca with no fallback.
+_D2V6 = [
+    PolicyRow("1d", None, date(2003, 9, 10), _ARCHIVE_END, "observed", "massive", None),
+    PolicyRow("1d", None, _ARCHIVE_END, None, "observed", "alpaca", None),
+]
+MASSIVE = ("massive", "sip_flat_adj")
+
+
+def test_policy_conformance_under_d2v6_accepts_massive_then_alpaca_and_flags_every_ibkr_pair():
+    before, after = _ARCHIVE_END - timedelta(days=3), _ARCHIVE_END + timedelta(days=1)
+    good = [(before, *MASSIVE), (_ARCHIVE_END, *ALPACA), (after, *ALPACA)]
+    assert policy_conformance(good, _D2V6, {"alpaca": {_ARCHIVE_END, after}}, symbol="AAA") == []
+    # Each vendor on the wrong side of the seam contradicts the policy open that day.
+    swapped = [(before, *ALPACA), (after, *MASSIVE)]
+    assert policy_conformance(swapped, _D2V6, {}, symbol="AAA") == [before, after]
+    # No d2-v6 row names IBKR, so no IBKR pair passes on any date, primary served or not.
+    for day in (date(2005, 1, 3), before, after):
+        ibkr = [(day, *IBKR_NAMED), (day, *IBKR_FALLBACK)]
+        assert policy_conformance(ibkr, _D2V6, {}, symbol="AAA") == [day, day]
+
+
 def test_verdict_is_a_plain_record():
     v = Verdict("AAA", "1d", "session_coverage", True, 1.0, 0.999)
     assert (v.symbol, v.timeframe, v.check, v.passed) == ("AAA", "1d", "session_coverage", True)
@@ -1082,3 +1104,33 @@ def test_a_sub_window_restated_inside_a_rescaled_span_fails_at_its_request_bound
     assert split_discontinuities(stored, [split], 0.3) == []  # no seam, no split date in range
     found = split_discontinuities(stored, [split], 0.3, boundaries=boundaries)
     assert [day for day, _ in found] == [days[2], days[5]]
+
+
+# ---------------------------------------------------------------------------
+# grid_recompute_findings: stored 15m/1h rows against the derivation of current 5m
+# ---------------------------------------------------------------------------
+
+from src.intelligence.bars.integrity_checks import grid_recompute_findings  # noqa: E402
+from src.intelligence.bars.write_contract import BarValues  # noqa: E402
+
+
+def _grid(*stamps: datetime) -> dict[datetime, BarValues]:
+    return {
+        stamp: BarValues(10.0 + i, 11.0 + i, 9.0 + i, 10.5 + i, 100 * (i + 1), "derived", "5m_grid")
+        for i, stamp in enumerate(stamps)
+    }
+
+
+def test_grid_recompute_flags_a_changed_extra_or_missing_bucket():
+    t0, t1, t2 = (datetime(2026, 6, 2, h, 30, tzinfo=UTC) for h in (13, 14, 15))
+    derived = _grid(t0, t1)
+    assert grid_recompute_findings(derived, dict(derived)) == []
+    changed = {**derived, t1: derived[t1]._replace(close=derived[t1].close + 0.01)}
+    assert grid_recompute_findings(derived, changed) == [t1]
+    extra = {**derived, t2: _grid(t0, t1, t2)[t2]}
+    assert grid_recompute_findings(derived, extra) == [t2]
+    missing = {t0: derived[t0]}
+    assert grid_recompute_findings(derived, missing) == [t1]
+    # An identity-only difference (a vendor row where the grid belongs) is a finding too.
+    vendor = {**derived, t0: derived[t0]._replace(vendor="massive", kind="sip_flat_adj")}
+    assert grid_recompute_findings(derived, vendor) == [t0]

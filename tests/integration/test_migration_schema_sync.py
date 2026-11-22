@@ -18,7 +18,12 @@ means the committed migrations no longer describe production truth, which is exa
 kind of silent, non-announcing defect this project's audit-trail tables (concept_registry,
 feature_registry, config_history, ...) depend on not having.
 
-Run: pytest tests/integration/test_migration_schema_sync.py -m integration
+The only integration test allowed a production DSN (todo 656): it reads the catalog only
+(information_schema, pg_catalog), on a connection opened read-only with a 30 s statement timeout
+and a 1 s lock timeout, so a busy production database fails it loud instead of holding it. It runs
+only with --live-catalog; tools/gate.py passes the flag whenever production/migrations/ changed.
+
+Run: pytest tests/integration/test_migration_schema_sync.py -m integration --live-catalog
 """
 
 from __future__ import annotations
@@ -26,13 +31,19 @@ from __future__ import annotations
 import asyncpg
 import pytest
 
-pytestmark = pytest.mark.integration
+from tests.integration.conftest import TEST_DB_URL
 
-# Bypasses get_settings()/conftest.py's cached indicagent_test DATABASE_URL - this test
-# needs both databases open at once (test_feature_vectors_schema.py documents the same
-# override idiom for the same reason).
+pytestmark = [pytest.mark.integration, pytest.mark.live_catalog]
+
+# This test needs both databases open at once, so it names production directly instead of reading
+# get_settings(), which points at the test database.
 _PROD_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent"
-_TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
+LIVE_CATALOG_SETTINGS = {
+    "default_transaction_read_only": "on",
+    "statement_timeout": "30000",
+    "lock_timeout": "1000",
+    "application_name": "indicagent-test-live-catalog",
+}
 
 _COLUMNS_SQL = """
     SELECT table_name, column_name, udt_name, is_nullable
@@ -54,8 +65,10 @@ _TABLES_SQL = """
 """
 
 
-async def _fetch_schema(dsn: str) -> tuple[set[str], dict[str, set[tuple]], dict[str, set[str]]]:
-    conn = await asyncpg.connect(dsn)
+async def _fetch_schema(
+    dsn: str, server_settings: dict[str, str] | None = None
+) -> tuple[set[str], dict[str, set[tuple]], dict[str, set[str]]]:
+    conn = await asyncpg.connect(dsn, server_settings=server_settings)
     try:
         tables = {r["table_name"] for r in await conn.fetch(_TABLES_SQL)}
 
@@ -77,8 +90,10 @@ async def _fetch_schema(dsn: str) -> tuple[set[str], dict[str, set[tuple]], dict
 @pytest.mark.asyncio
 async def test_migrated_schema_matches_production():
     """Every table/column/constraint in production must be reproducible from migrations alone."""
-    prod_tables, prod_columns, prod_constraints = await _fetch_schema(_PROD_DB_URL)
-    test_tables, test_columns, test_constraints = await _fetch_schema(_TEST_DB_URL)
+    prod_tables, prod_columns, prod_constraints = await _fetch_schema(
+        _PROD_DB_URL, LIVE_CATALOG_SETTINGS
+    )
+    test_tables, test_columns, test_constraints = await _fetch_schema(TEST_DB_URL)
 
     failures: list[str] = []
 

@@ -67,6 +67,17 @@ async def mock_database_connection():
     return conn_mock
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Here, not in tests/integration/conftest.py, so the flag parses whatever path pytest is
+    given; the skip hook for the marker lives with the integration fixtures."""
+    parser.addoption(
+        "--live-catalog",
+        action="store_true",
+        default=False,
+        help="run the tests marked live_catalog, which read the production catalog read-only",
+    )
+
+
 def pytest_xdist_auto_num_workers(config):
     """`-n auto` takes half the cores: the box also runs the live services and other sessions."""
     return max(1, (os.cpu_count() or 2) // 2)

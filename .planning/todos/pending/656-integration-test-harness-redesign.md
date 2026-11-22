@@ -8,6 +8,8 @@ blocked_on: the daily residual run is counted and the lead says go
 
 # Integration test harness redesign: an isolated test cluster, a database per session, no test reads production data
 
+Status (2026-11-22): tasks 1 and 2 done (task 2 in 7b05a7284, task 1 in the landing that adds the closure note below); tasks 3 to 5 open.
+
 ## Why
 
 `tests/integration/conftest.py` drops and rebuilds one hard-coded database, `indicagent_test`, on the production cluster at every session start (`pg_terminate_backend`, `DROP DATABASE`, baseline restore, replay of migrations above cutoff 576). Three defects follow, each verified in the code on 2026-11-22:
@@ -83,12 +85,12 @@ Outside the live files the suite collects 173 tests: 156 pass, 1 skips, 16 fail,
 End state: no integration file reads production data; the tradeable-view invariants run on the test database; `test_migration_schema_sync.py` runs only with `--live-catalog`.
 
 Scope:
-- [ ] Delete `test_pipeline_flow.py`, `test_battery_waivers_have_recorded_runs.py`, `test_scrub_pass_live.py`, `test_bar_quality_flag_quarantine.py`.
-- [ ] Map each assertion of `test_d2_single_writer_live.py` and `test_derived_grid_live.py` to an audit check or "obsolete (IBKR)"; write the map into this todo's fix note; add a pure check plus unit test for any assertion with no home; then delete both files.
-- [ ] Extend `test_market_data_ohlcv_tradeable_view.py`: `test_quarantined_bar_is_hidden`, `test_flagged_unquarantined_bar_is_visible`, `test_view_column_contract` (insert fixture rows in a rolled-back transaction).
-- [ ] `tests/unit/research/test_battery_pass.py::test_legacy_waivers_stay_empty` asserting `LEGACY_WAIVERS == {}`.
-- [ ] Register `live_catalog` in `pytest.ini`; add the `--live-catalog` option and skip hook to `tests/integration/conftest.py`; open the production connection in the schema sync test with the options in decision (b).
-- [ ] `tools/gate.py`: add `--live-catalog tests/integration/test_migration_schema_sync.py` to the plan when a changed path is under `production/migrations/`; unit test in `tests/unit/tools/` for the classification.
+- [x] Delete `test_pipeline_flow.py`, `test_battery_waivers_have_recorded_runs.py`, `test_scrub_pass_live.py`, `test_bar_quality_flag_quarantine.py`.
+- [x] Map each assertion of `test_d2_single_writer_live.py` and `test_derived_grid_live.py` to an audit check or "obsolete (IBKR)"; write the map into this todo's fix note; add a pure check plus unit test for any assertion with no home; then delete both files.
+- [x] Extend `test_market_data_ohlcv_tradeable_view.py`: `test_quarantined_bar_is_hidden`, `test_flagged_unquarantined_bar_is_visible`, `test_view_column_contract` (insert fixture rows in a rolled-back transaction).
+- [x] `tests/unit/research/test_battery_pass.py::test_legacy_waivers_stay_empty` asserting `LEGACY_WAIVERS == {}`.
+- [x] Register `live_catalog` in `pytest.ini`; add the `--live-catalog` option and skip hook to `tests/integration/conftest.py`; open the production connection in the schema sync test with the options in decision (b).
+- [x] `tools/gate.py`: add `--live-catalog tests/integration/test_migration_schema_sync.py` to the plan when a changed path is under `production/migrations/`; unit test in `tests/unit/tools/` for the classification.
 
 TDD: write the three view tests and the gate classification test, see them fail, implement, see them pass.
 Gates: unit suite exit 0; `pytest tests/integration/test_market_data_ohlcv_tradeable_view.py` exit 0; `grep -rln "5432/indicagent\"" tests/integration` lists only the schema sync test; independent review of the assertion map.
@@ -156,3 +158,58 @@ Plan confirmed; execution waits for the daily residual run to be counted and the
 - (c) Session-long `flock` in `src/core/file_lock.py` (Ring 0), removed when (a) lands.
 - (d) Baseline bump: yes, in a quiet window only (no fingerprinted run, no step 7 window); tell the lead before reading production.
 - Order change: fix the `test_pipeline_flow` `DATABASE_URL` import side effect first, by deleting it with its disposition note. That deletion is task 1 (highest hazard). CI integration only after todo 654.
+
+## Task 1 closure note: dispositions
+
+Every test function of the six deleted files, one line each. A: a named check of the D7 audit (`services/bar_reconciliation_audit.py`, timer daily 06:00 UTC, over `src/intelligence/bars/integrity_checks.py`) holds it, with the unit test that pins the check. B: moved to the test database or to a pure function with a unit test. C: obsolete, with the reason. Totals: 33 functions, A 10, B 12, C 11 (a mixed row counts under its first letter). Each A and B home below was verified by reading the named code and unit test on 2026-11-22.
+
+| File | Test | Disposition |
+|---|---|---|
+| test_pipeline_flow.py | test_timescaledb_connectable_sync | C: phase 107 smoke; every integration session connects anyway, and production health is service_auditor's and the nightly audits' |
+| test_pipeline_flow.py | test_intelligence_features_has_recent_data_sync | C: `intelligence_features` is a deleted v2.x table; the assertion was `count >= 0` |
+| test_pipeline_flow.py | test_signal_ledger_has_recent_data_sync | C: v2.x signal path deleted (phase 185-45); `count >= 0` |
+| test_pipeline_flow.py | test_market_data_ohlcv_has_recent_data_sync | C: `count >= 0` asserts nothing; canonical freshness is the audit's `freshness_1d` |
+| test_pipeline_flow.py | test_jsonb_not_double_serialized_sync | C: reads the deleted `intelligence_features`; the asyncpg codec rule is in gotchas |
+| test_pipeline_flow.py | test_signal_ledger_schema_columns_exist_sync | C: v2.x table; the schema of what exists is `test_migration_schema_sync.py`'s |
+| test_pipeline_flow.py | test_intelligence_features_schema_columns_exist_sync | C: v2.x table, as above |
+| test_battery_waivers_have_recorded_runs.py | test_every_waiver_row_has_a_recorded_real_run | B: `tests/unit/research/test_battery_pass.py::test_legacy_waivers_stay_empty` (the waiver table is empty, so the old test only skipped; a waiver needs its recorded-run check where the runner consumes it) |
+| test_scrub_pass_live.py | test_fixture_sizes_pinned | B: already `tests/unit/bars/test_fixtures_present.py::test_dry_run_report_section_counts` (45/27/1864) |
+| test_scrub_pass_live.py | test_all_72_dry_run_keys_quarantined_and_hidden | B: the rule's verdicts on the known answers are `tests/unit/bars/test_scrub_known_answers.py::test_all_45_confirmed_corrupt_rows_quarantined`; hidden-when-quarantined is `test_market_data_ohlcv_tradeable_view.py::test_quarantined_bar_is_hidden`; a wick the view still serves is the audit's `isolated_wick` |
+| test_scrub_pass_live.py | test_no_ambiguous_key_is_quarantined | B: `test_scrub_known_answers.py::test_none_of_the_1864_ambiguous_rows_quarantined` |
+| test_scrub_pass_live.py | test_15_legacy_1d_keys_quarantined | B: `test_scrub_known_answers.py::test_all_15_legacy_confirmed_corrupt_1d_rows_quarantined_or_recorded` |
+| test_scrub_pass_live.py | test_both_timeframes_have_completed_scrub_batches | C: one-time landing record of phase 185 plan 10 |
+| test_scrub_pass_live.py | test_integrity_facts_recorded_per_timeframe | C: one-time landing record of phase 185 plan 10 |
+| test_scrub_pass_live.py | test_tradeable_view_admits_no_quarantined_bar | B: `test_market_data_ohlcv_tradeable_view.py::test_quarantined_bar_is_hidden` (the anti-join count, on fixture rows) |
+| test_bar_quality_flag_quarantine.py | test_legacy_copy_survives_and_no_status_bar_is_visible | B + C: the legacy copy stays protected and quarantining by `services/bar_scrub.py` `_PROTECTED_RULES` (`tests/unit/services/test_bar_scrub.py::test_write_flags_refuses_legacy_rule_in_evaluated_set`, `::test_write_flags_prune_stale_deletes_other_rules_except_legacy`); the status-visibility half is C, `price_sanity_status` is no longer a visibility rule (migration 447) |
+| test_bar_quality_flag_quarantine.py | test_quarantined_bars_absent_from_tradeable_view | B: `test_market_data_ohlcv_tradeable_view.py::test_quarantined_bar_is_hidden` |
+| test_bar_quality_flag_quarantine.py | test_unquarantined_flagged_bars_still_visible | B: `test_market_data_ohlcv_tradeable_view.py::test_flagged_unquarantined_bar_is_visible` |
+| test_bar_quality_flag_quarantine.py | test_dropped_index_gone | C: one-time check that migration 381 applied (an index drop) |
+| test_bar_quality_flag_quarantine.py | test_tradeable_view_column_contract | B: `test_market_data_ohlcv_tradeable_view.py::test_view_column_contract` (plus the venue volume null) |
+| test_d2_single_writer_live.py | test_the_corpus_holds_only_d2v2_canonical_identities | A: `policy_conformance` (stricter, per date; `tests/unit/bars/test_integrity_checks.py::test_a_contradicting_pair_fails_policy_conformance`, and the d2-v6 case `test_policy_conformance_under_d2v6_accepts_massive_then_alpaca_and_flags_every_ibkr_pair` added here) and `check_stray_sources` (`tests/unit/services/test_bar_reconciliation_audit.py::test_the_retired_vendor_is_a_stray_daily_pair`). The presence half (IBKR pairs must exist) is C: IBKR removed 2026-11-13 |
+| test_d2_single_writer_live.py | test_ibkr_named_bars_sit_only_under_an_ibkr_exception_policy_row | A: `policy_conformance`: no d2-v6 row names IBKR, so every IBKR row fails it (the d2-v6 unit test above) |
+| test_d2_single_writer_live.py | test_lineage_view_holds_only_the_current_rule_version | A: `stale_digest_months` (`digest_fresh`) fails a month whose digest is not of `RULE_VERSION`; `test_digest_fresh_fails_on_drift_missing_month_or_old_rule_version` |
+| test_d2_single_writer_live.py | test_stored_values_equal_derive_daily_for_a_sample_recomputed_from_d1 | A: `recompute_findings` (`canonical_recompute`) over every active name, not a sample; `test_recompute_fails_on_a_changed_extra_or_missing_bar`. The IBKR sample categories are C |
+| test_d2_single_writer_live.py | test_digest_covers_every_1d_month_with_bars | A: `month_digests` + `stale_digest_months` (`digest_fresh`) flag a missing month; same unit test |
+| test_d2_single_writer_live.py | test_no_scale_break_across_a_split_unless_flagged_pre_split_unrefetched | A: `split_discontinuities` (`split_continuity`), judged against the split product, stricter than the old 2x band; `test_split_continuity_names_an_unadjusted_and_a_double_adjusted_split` |
+| test_derived_grid_live.py | test_no_session_has_1h_rows_at_two_minutes | A + B: a foreign 1h row is `stray_vendor_rows` (`test_stray_vendor_rows_fail_per_timeframe`); one anchor per session is `aggregate_session_grid`'s (`tests/unit/bars/test_session_grid.py::test_full_day_grid_shapes`). Stored-row equality: gap 1 below |
+| test_derived_grid_live.py | test_derived_symbols_1h_rows_are_derived_and_session_anchored | A + B: `stray_vendor_rows`; anchoring is `test_full_day_grid_shapes`, `test_half_day_grid_shapes`, `test_nyse_sessions_dst_transition_opens`; the delayed open is `tests/unit/bars/test_nyse_sessions_grid_alignment.py` (see correction 1) |
+| test_derived_grid_live.py | test_derived_bars_equal_direct_5m_aggregation | B: `test_session_grid.py::test_grid_equals_direct_loop`; stored rows equal to the derivation: `grid_recompute_findings` (gap 1) |
+| test_derived_grid_live.py | test_first_1h_open_equals_the_first_5m_open_of_every_session | B: `test_grid_equals_direct_loop`; quarantined 5m are dropped before aggregation (`tests/unit/services/test_bar_derivation_grid.py::test_constituent_flags_list_kept_bar_rules_and_quarantine_excludes`) |
+| test_derived_grid_live.py | test_1h_volume_close_and_open_agree_with_ibkr_smart_1d_observations | C: IBKR removed 2026-11-13; canonical 5m holds no IBKR session since the step 7 rebuild (d2-v6, 2026-11-16) |
+| test_derived_grid_live.py | test_canonical_grid_holds_derived_rows_only_and_raw_holds_vendor_parity | A + C: canonical half is `stray_vendor_rows` and `check_stray_sources` (`ALLOWED_PAIRS` 15m/1h = the derived pair), the grid stage fails loud on a vendor row (`test_a_stored_vendor_row_fails_the_symbol_loud_and_writes_nothing`), the writer fence `tests/unit/test_market_data_ohlcv_writer_boundary.py`; the raw IBKR parity half is C (Part F deletes those rows) |
+| test_derived_grid_live.py | test_digest_current_covers_5m_15m_1h_for_derived_symbols | A: intraday `digest_fresh` (`intraday_month_digests` + `stale_intraday_months`) fails a month with a recompute but no stored digest, per timeframe; the missing-month case is now pinned by `test_bar_reconciliation_audit.py::test_a_missing_stored_digest_fails_only_its_timeframe` (the existing case covered a wrong digest only) |
+
+Gaps:
+1. Stored 15m/1h rows equal to the derivation of current 5m: closed in the check library, open in monitoring until todo 657 wires it. `integrity_checks.grid_recompute_findings` (pure, same `write_contract.classify` comparison as `recompute_findings`, identity included), unit test `test_grid_recompute_flags_a_changed_extra_or_missing_bucket`. Intraday `digest_fresh` cannot see this: the grid stage writes the digest from the values it derived (`services/bar_derivation.py`, `_month_digest_rows` over `derived`), not from the rows it stored. Not wired into the audit yet: todo 657.
+2. d2-v6 policy conformance: `test_policy_conformance_under_d2v6_accepts_massive_then_alpaca_and_flags_every_ibkr_pair`.
+
+Corrections to the draft map:
+1. The late open: the draft said no unit case covers a 09:32 open. One does, and the deleted test's own expectation was stale: `nyse_sessions` floors mcal's 09:32 open on 2006-12-27 to the 09:30 vendor grid (`tests/unit/bars/test_nyse_sessions_grid_alignment.py::test_delayed_open_is_floored_to_the_five_minute_grid`), so the derived grid of that day anchors at 09:30, not :32. Added `test_the_delayed_open_day_derives_its_grid_on_the_vendor_grid` to pin the grid end to end.
+2. `judge_name_intraday` lives in `services/bar_reconciliation_audit.py`, not in `integrity_checks.py`.
+
+Follow-up, filed as todo 657: wire a `grid_recompute` verdict per 15m/1h into `judge_name_intraday`. It needs a per-name read of the stored canonical 15m/1h rows (the loader reads 5m and the raw archive only), a field on `_IntradayInputs`, the aggregate over the months `digest_scope` picks, and a new name in `CHECKS_INTRADAY`, which changes the audit's verdict list and every reader of it, in a module a timer imports. More than a few lines and an output-contract change, so it gets its own reviewed change.
+
+Scope notes (both filed in todo 657):
+- `CANONICAL_1D_SOURCES` still admits the three IBKR pairs, so `check_stray_sources` would not flag a stray IBKR 1d row (only `policy_conformance` would, and it judges `is_active` names only). After Part F, removing those pairs makes the stray check enforce no IBKR in canonical; separate change.
+- `check_daily_vs_intraday` reads IBKR SMART observations, so it is vacuous after Part F; nothing vendor-neutral compares canonical 1d to the canonical 5m aggregate. A successor needs a measured tolerance first.
+- `test_migration_schema_sync.py` now runs only with `--live-catalog` (marker `live_catalog`), on a production connection with `default_transaction_read_only=on`, `statement_timeout=30s`, `lock_timeout=1s`, `application_name=indicagent-test-live-catalog`; its three queries read `information_schema` and `pg_catalog` only (`tests/unit/test_live_catalog_schema_sync.py` pins both). `tools/gate.py` adds the `live_catalog` step whenever a path under `production/migrations/` changed, and the step fails unless the test reports `1 passed`.

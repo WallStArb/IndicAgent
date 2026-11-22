@@ -542,3 +542,13 @@ def test_a_new_spec_validator_or_field_does_not_stale_the_key_but_resolving_memb
         lambda t: t.replace("_check_member_path(dotted)\n    module, _, attr", "module, _, attr", 1)
     )
     assert bp.battery_code_key(BATTERY, FAMILY_MODULE) != base
+
+
+def test_legacy_waivers_stay_empty():
+    """Replaces the live-reading integration check that every waiver names a spec hash with a
+    recorded real run (todo 656): it only skipped while the table was empty. A waiver added here
+    needs that recorded-run check where the runner consumes it, not a test against production."""
+    assert bp.LEGACY_WAIVERS == {}, (
+        "a legacy waiver needs its recorded-run check (research_run, mode real or exploration) at "
+        "the point the runner consumes it before it lands"
+    )

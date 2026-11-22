@@ -18,6 +18,12 @@ What it decides, from the changed paths:
 - the full unit suite (`pytest tests/unit -n auto`) for any change that is not text only;
 - `repro_frozen` (must report bit-identical) when src/intelligence/research/, src/intelligence/
   statistics/ or the determinism scripts changed;
+- the schema sync against the production catalog (`--live-catalog`, read only) when anything under
+  production/migrations/ changed, the change that can make the committed migrations drift from the
+  live schema. It compares both directions, so it passes only once the migration is applied live:
+  run the gate after the `psql -f`. Until todo 656 task 3 lands, the integration session fixture
+  rebuilds indicagent_test on the production cluster, so keep a migration gate out of a counted or
+  fingerprinted run's window;
 - `--compare-all` and `--integration` only when asked.
 
 `repro_frozen` and `compare-all` run under one cross-session lock (logs/gate/parity.lock in the
@@ -55,6 +61,7 @@ REPRO_PREFIXES = (
     "scripts/research/determinism/",
 )
 MIGRATION_DIR = "production/migrations/"
+SCHEMA_SYNC_TEST = "tests/integration/test_migration_schema_sync.py"
 _MIGRATION_NUMBER = re.compile(r"^(\d+)_.+\.sql$")
 LOCK_POLL_SECONDS = 15
 LOCK_TIMEOUT_SECONDS = 8 * 3600
@@ -64,6 +71,7 @@ LOCK_TIMEOUT_SECONDS = 8 * 3600
 class Plan:
     needs_repro: bool
     migrations: tuple[str, ...]
+    needs_live_catalog: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -84,6 +92,7 @@ def classify(changed: Sequence[str]) -> Plan:
                 if p.startswith(MIGRATION_DIR) and p.endswith(".sql") and p.count("/") == 2
             )
         ),
+        needs_live_catalog=any(p.startswith(MIGRATION_DIR) for p in changed),
     )
 
 
@@ -150,6 +159,25 @@ def build_steps(
                 "compare_all",
                 (python, "scripts/research/backfill_attempt_series.py", "--compare-all"),
                 locked=True,
+            )
+        )
+    if plan.needs_live_catalog:
+        steps.append(
+            Step(
+                "live_catalog",
+                (
+                    python,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-p",
+                    "no:cacheprovider",
+                    "--live-catalog",
+                    SCHEMA_SYNC_TEST,
+                    "-m",
+                    "integration",
+                ),
+                expect="1 passed",  # the test skips without the flag; a skip is no check
             )
         )
     if integration:

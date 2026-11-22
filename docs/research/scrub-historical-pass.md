@@ -3,8 +3,10 @@
 Author: Claude (phase 185 plan 10 execution, 2026-09-28)
 Informed by: `.planning/phases/185-daily-data-foundation/185-10-PLAN.md`; todo 151 dry-run report (`tests/fixtures/bars/corrupt_1d_dry_run_2026_09_26.txt`); migration 381; plan 05's rule library.
 
-Status: complete. Both passes applied; quarantine state verified by
-`tests/integration/test_scrub_pass_live.py`.
+Status: complete. Both passes applied; the quarantine state was verified against production by a
+one-time live check, deleted with todo 656 (the standing invariant, the tradeable view admits no
+quarantined bar, is `tests/integration/test_market_data_ohlcv_tradeable_view.py` on the test
+database).
 
 ## Runs
 

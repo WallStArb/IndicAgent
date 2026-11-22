@@ -361,12 +361,29 @@ def stale_digest_months(
     ]
 
 
+def _value_findings[K: (date, datetime)](
+    derived: Mapping[K, BarValues], stored: Mapping[K, BarValues]
+) -> list[K]:
+    delta = classify(derived, stored, removal_scope=stored.keys())
+    return sorted(set(delta.new) | set(delta.changed) | set(delta.removed))
+
+
 def recompute_findings(
     derived: Mapping[date, BarValues], stored: Mapping[date, BarValues]
 ) -> list[date]:
     """Dates where the rule's bar and the stored bar differ in any field, or only one exists."""
-    delta = classify(derived, stored, removal_scope=stored.keys())
-    return sorted(set(delta.new) | set(delta.changed) | set(delta.removed))
+    return _value_findings(derived, stored)
+
+
+def grid_recompute_findings(
+    derived: Mapping[datetime, BarValues], stored: Mapping[datetime, BarValues]
+) -> list[datetime]:
+    """Bucket starts where a stored 15m/1h row and the derivation of the current 5m bars
+    (session_grid.aggregate_session_grid) differ in any field, identity included, or only one
+    exists. The intraday digest_fresh check cannot see this: the grid stage writes the digest from
+    the values it derived, not from the rows it stored, so a stored grid row that drifts after the
+    write keeps a fresh digest. The caller passes both sides over the same months."""
+    return _value_findings(derived, stored)
 
 
 def _in_any(day: date, spans: Sequence[tuple[date, date]]) -> bool:
