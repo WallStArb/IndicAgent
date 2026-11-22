@@ -1573,3 +1573,15 @@ Evidence, held names. The 11 names are inactive, their latest `proven_start_1d` 
 Proven start, verified not an artefact. Of 551 names whose latest `proven_start_1d` fact moved earlier since the first gate records, a sample of five was checked against the bars: LSGR 2023-12-20 to 2023-06-30 (93 tradeable bars between), SNG 2009-05-06 to 2003-09-10 (1,384), MXT~1113306 2014-11-12 to 2007-10-31 (1,543), VINC 2025-04-21 to 2020-12-31 (1,077) each start equals the name's first tradeable bar and the bars between are dense; the fifth, TLTD, moved two days later (2012-10-03 to 2012-10-05), noise. The d2 clip no longer lets a sparse tail push the start past the dense history, the intended effect. The pilot's proven-start disclosure now counts 36 names (was 587).
 
 Pre-registered? No: decided before the corpus rerun and before any counted test, after the failing set was known; the lead rules it right on the materiality grounds above, and the owner keeps the veto.
+
+## 2026-11-22: the E21 clean-data lift for the price-derived 1d families (owner ruling, confirmed in the lead's session)
+
+Recorded before the first counted run of the daily residual family and before any real-data number for it.
+
+Ruling. The owner confirmed on 2026-11-22: lift the E21 clean-data rule for the price-derived 1d families, on the lead's recommendation. Scope: the 1d families that read canonical 1d and `universe_membership` through the panel (the daily residual family of todo 636, and later families of the same kind). Not lifted: the 27 `compute_eligible_1d = false` names and the entity classes stay excluded and wait on the owner; every feature-vector and intraday family still needs its own gate.
+
+Grounds. The scope-1d data gate passes with a pinned held list (ledger 2026-11-21b and 2026-11-21g); the `d2_landed` gate passes for all 12,857 members with 24 pinned holds (2026-11-21e, 2026-11-21f); the dividend source covers 59.7 percent of member cells on the panel (2026-11-21d); the E17 battery pass for the reduced family is bound on seed bases 7,000,000 and 8,000,000 (2026-11-21c). Every remaining defect is disclosed with its class counts under the 2026-11-20 materiality rule. The 1d-first corpus run stopped at its pilot feature screen (todo 652); the daily family does not read `feature_vectors`, so that failure does not touch it.
+
+What it permits. `scripts/research/run_spec.py` on `research/specs/daily_residual_h5.yaml` and then `daily_residual_h5_core.yaml`, each counted through the ledger at the moment it starts, six looks under A4, then the `reversal_21` pooled replication. It changes no spec hash, statistic or gate.
+
+Pre-registered? Yes: the rule, the scope and the exclusions are stated here before any real-data number exists.
