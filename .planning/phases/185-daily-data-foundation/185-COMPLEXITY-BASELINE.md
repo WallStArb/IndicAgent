@@ -630,8 +630,8 @@ The TEMPORARY count here is taken before the 185-44 guards existed. The single_w
 - .planning/todos/completed/492-tradier-vs-ibkr-vendor-reconciliation-and-production-token.md
 - .planning/todos/pending/493-tradier-nightly-intraday-capture-5m-15m.md
 - .planning/todos/pending/494-unit-tests-can-spawn-live-writers-ci-guard.md
-- .planning/todos/pending/495-integration-baseline-regen-after-phase-185.md
-- .planning/todos/pending/496-two-live-db-integration-tests-red-since-185-12-and-186-23.md
+- .planning/todos/completed/495-integration-baseline-regen-after-phase-185.md
+- .planning/todos/completed/496-two-live-db-integration-tests-red-since-185-12-and-186-23.md
 - .planning/todos/deferred/497-186-27-sets-the-intraday-recovery-unlock-keys.md
 - .planning/todos/pending/498-otel-collector-drops-every-job-labelled-metric.md
 

@@ -49,7 +49,7 @@ Alternative considered and not recommended: carry the last list forward as an op
 
 ## Build requirements
 
-- B-L (built): `services/universe_membership_writer.py` refuses any `as_of` after L unless the rule id is `stage2-closed-list`, and refuses that rule id at or before L. A test pins both. This edits a module the corpus rerun key reads, so it lands in the post-D1 landing runbook order (`docs/plans/2026-11-15-post-d1-landing-runbook.md`), not before D1.
+- B-L (built): `services/universe_membership_writer.py` refuses any `as_of` after L unless the rule id is `stage2-closed-list`, and refuses that rule id at or before L. A test pins both. This edits a module the corpus rerun key reads, so it landed in the post-D1 landing order (archive stub `docs/plans/archive/2026-11-15-post-d1-landing-runbook.md`), not before D1.
 - B-A (optional, a witness only): capture Alpaca's asset list nightly into raw with its capture time, so a symbol change or a ticker reuse after L shows as a changed asset id or name. It is never an admission source. It needs a short measurement that the Alpaca asset id is stable across ticker changes before it is relied on (unverified here).
 - B-C: the disclosure of item 4 added to the freeze and confirmation reports.
 

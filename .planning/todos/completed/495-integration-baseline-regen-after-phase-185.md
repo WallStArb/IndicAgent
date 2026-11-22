@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-10-06
 source: 185 session, 185-18 and 185-22 close-out
@@ -20,3 +20,7 @@ see them missing.
 When 185-24 lands, regenerate the baseline and seed files from production (todo 486's method: schema,
 hypertables with the compressed-stub drop, instruments, tag, vocabulary, config seed), raise the cutoff to the
 head, run pytest -m integration.
+
+## Closed 2026-11-22
+
+Done by todo 591: `2dd49c7c9` regenerated the integration baseline with `scripts/infrastructure/regenerate_integration_baseline.py` and raised `_BASELINE_MIGRATION_CUTOFF` from 433 to 576, above phase 185's migrations 404 to 408.

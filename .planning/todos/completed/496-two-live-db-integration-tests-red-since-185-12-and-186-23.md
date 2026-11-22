@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-10-06
 source: 185 session, 185-18 integration run
@@ -27,3 +27,7 @@ of the ic_engine-era `feature_ic_scores`, which migration 575 dropped (after `fo
 pure harness (`tests/unit/measure/parity_replay.py`) and its unit tests remain. Left here: the
 quarantine check.
 
+
+## Closed 2026-11-22
+
+The parity replay test was deleted (migration 575, 2026-11-04). The quarantine test was rewritten to the live invariants (no status bar is visible, quarantined bars are absent from the tradeable view, non-quarantine flags hide nothing) in `e1e28d379`.

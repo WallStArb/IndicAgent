@@ -2588,7 +2588,7 @@ and disclosed (presence by era, the names missing), never a gate. **Not:** `hist
 back a present name's bars reach), `survivorship bias` (signal corpus) in its retired ML sense, or
 the `listing end` record, which marks a name's last session and keeps it in the universe.
 **Banned:** (none)
-**Status:** active as a disclosure rule; the caveat wording moves with the L3 landing (`docs/plans/2026-11-15-post-d1-landing-runbook.md`); step 7 deepened history to 2003-09-10 and left the universe at current names
+**Status:** active as a disclosure rule; the caveat wording moved with the L3 landing (archive stub `docs/plans/archive/2026-11-15-post-d1-landing-runbook.md`); step 7 deepened history to 2003-09-10 and left the universe at current names
 **Code surface:** caveat strings in `services/corpus_rerun_data_gate.py` and
 `services/corpus_rerun.py` (the owner of the wording), `docs/foundation/instrument-onboarding-sop.md`
 

@@ -52,7 +52,7 @@ Timers (live since D5): standby probe every 5 min, Alpaca nightly 04:40Z, deriva
 
 Massive dated list (todo 600): the plan lapses about 2026-12-10 (owner: renew or lapse; the lead recommends lapse after the capture). Final dated reference capture and file catch-up about 2026-12-07 (`docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`). No filings capture from Massive (EDGAR direct if ever needed). The Massive nightly leaf (`ops_massive_nightly`) stays off unless the plan renews.
 
-Held post-D1 landings (lead ruling 2026-11-15): `wt-refactor-land`, `wt-l1-kernels`, `wt-r2-prodpin`, the L3 universe projection fix and the `wt-i2-tier` doc; order and gates in `docs/plans/2026-11-15-post-d1-landing-runbook.md`. Pending operator steps (sudo): remove the installed bar-writer, cross-asset, macro-compute, roll-batch and hmm-training units, reinstall wave targets, daemon-reload, restart `service_auditor`.
+Pending operator steps (sudo): remove the installed bar-writer, cross-asset, macro-compute, roll-batch and hmm-training units, reinstall wave targets, daemon-reload, restart `service_auditor`.
 
 Working rules (binding): a worker editing anything a timer or service runs (providers, the nightly, bar_derivation, D7, shared writers, the dashboard) works in a detached worktree off origin/main; nothing unpushed stays on shared main; every landing gets an independent review; measure a defect class and its base rate before naming a rule; judge tests by the summary line or exit code, never a tail; one heavy job at a time, detached; after a dashboard package change, `npm ci` before restarting `indicagent-dashboard`.
 
@@ -69,7 +69,7 @@ dirty. Never two backfills at once; kill by PID only; never edit a module a live
 - Todo 600: renew or lapse the Massive plan before about 2026-12-10, and keep or drop the HX370 copy of the archive.
 - Todo 547: certify the reversal members and book now, hold `reversal_5_skip1` and the two momentum members (S1 drift), or hold the family. E17 landed; the StepM attestation passed; `select_books.py` is unblocked.
 - Todo 558: the pre-rebuild feature-additions pass; the lane owners' candidate list is the owner's to change.
-- Daily residual family (todo 636): the battery pass is bound (A4); the run waits on the E21 lift; a failed battery postpones and is never a verdict. Adopted 2026-11-18 and no longer waiting: A1, A2, A3, E23, E24, E26 and the stage 2 amendments (`docs/plans/2026-11-16-609-owner-gates-summary.md`).
+- Daily residual family (todo 636): the battery pass is bound (A4); the run waits on the E21 lift; a failed battery postpones and is never a verdict. Adopted 2026-11-18 and no longer waiting: A1, A2, A3, E23, E24, E26 and the stage 2 amendments (ledger and the stage 2 preregistration).
 - Concept-layer reset (todo 571) runs after the 186-26 rebuild and 584's batch.
 
 ## Open items that are not verdicts

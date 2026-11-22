@@ -202,5 +202,5 @@ Tasks 2, 3, 7, 9 and 10 run now, in parallel with task 1.
 
 - Step 7 is done through D4 (2026-11-16): canonical is Massive from 2003-09-10 to the archive end, 2026-11-16, then Alpaca, no IBKR. The 1d source split by era (Massive 2004 to 2007 and 2014 on, IBKR 2008 to 2013) of the 2026-11-13 amendment is void; Massive serves every era, and the 2003 to 2007 close convention stays open as todo 610.
 - Task 5 (pre-2016 5m) is answered by Massive for every name at once; task 7 (split recovery) is the A3 sweep against the rebuilt canonical.
-- Order now: the held post-D1 landings (`docs/plans/2026-11-15-post-d1-landing-runbook.md`), the stage 2 universe (todo 609), the A3 sweep and the pre-rerun window, the 584 pin and the one corpus rerun, then 186-28 and the first counted tests.
+- Order now: the stage 2 universe (todo 609, landed), the A3 sweep and the pre-rerun window, the 584 pin and the one corpus rerun, then 186-28 and the first counted tests.
 
