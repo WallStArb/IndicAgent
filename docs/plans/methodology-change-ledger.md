@@ -1601,3 +1601,13 @@ Effect on the count. The 2026-11-22 E21 lift permitted six looks for the two dai
 Guard change (owner approved 2026-11-22, same day). The spec-once rule (D-02) refused the rerun, because a failed row counted as a prior run. It now blocks a spec hash only when a prior row could have recorded an outcome: a `failed` row with no `snapshot_hash` (the process was killed before any result was written) no longer blocks, a `completed` row or a `failed` row that holds a snapshot still does. Those rows stay charged to the budget. A killed run records no outcome, so the change cannot enable a retry conditioned on a result. The change edits `ledger.py` and lands with `repro_frozen` bit-identical; the rerun starts only after it is on main.
 
 Pre-registered? Yes: the counting rule is stated before any real-data number exists, and it errs toward counting.
+
+## 2026-11-22c: the daily residual family's two counted runs and their disclosures (lead record)
+
+The first counted real-data numbers for the family, recorded as run, not selected. The E21 lift (2026-11-22) permitted six looks; with the three killed attempt rows of 2026-11-22b, vintage_1 holds nine charged evidence looks (budget_m 30; no book tests).
+
+Runs. `daily_residual_h5.yaml` (spec hash 096abd79, run group c249e9bb, code 8c344beb5, 11,757 names, snapshot 8b47b0e0) and `daily_residual_h5_core.yaml` (spec hash 7308dafd, run group d5a95034, code 6bd5bb59d, 2,150 names, snapshot 85d4b8b9). Per member (t, p as the runner printed them): `residual_momentum_12_1` 0.99, 0.161 (h5) and 0.59, 0.276 (core); `residual_momentum_12_1_z` 1.44, 0.075 and 0.87, 0.193; `reversal_21` 3.09, 0.00102 and 3.50, 0.000233. These are per-member statistics before StepM; the selection step reads the series in `research_run_series`.
+
+Disclosures. (1) The first scored session is 2008-06-03 for momentum and 2008-02-29 for reversal, 14 to 17 months after the spec's trading_start 2007-03-01 (252-session warmup plus the 60-session volatility window), so the prereg's first sub-period (2007-03-01 to 2011-12-31) is in effect 2008 onward. (2) `dividends.uncovered_share` is 0.819 on the h5 panel and 0.496 on core; the 59.7 percent coverage in ledger 2026-11-21d is measured on a different basis (member cells at the first counted panel) and must not be cited for these runs. (3) One numpy "degrees of freedom <= 0" warning per run from a `nanstd` on an all-NaN or short column; no NaN reached a row or a series. (4) The E21 lift entry reads "six looks"; read it with 2026-11-22b (nine).
+
+Pre-registered? No decision here; it records results and disclosures, no gate, threshold or spec changes.
