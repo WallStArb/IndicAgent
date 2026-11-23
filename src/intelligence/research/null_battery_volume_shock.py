@@ -14,6 +14,11 @@ exists to remove and what volatility clustering turns into a variance link, but 
 signed return. Every constant is a named value here, declared in the registration ledger line
 before the first block, and changed only by a dated amendment.
 
+Disclosed limits of the pass: in the static-mean cells the generator's volume depends on |resid|, which
+includes the per-name static means, so volume levels correlate with |static mean|; and in the S1
+cell the volume is NaN wherever the S1 residual returns are (the S1 warmup), so the members start
+later than on the real panel.
+
 Panels carry NAMES = 300 names, not the daily battery's 100: the spec's 200-name fit minimum
 (`min_names`) would leave every row of a 100-name panel NaN. Compute only.
 """
