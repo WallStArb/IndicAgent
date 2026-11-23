@@ -63,7 +63,8 @@ APR_KEYS = (
 
 _COUNTED_SQL = """
 SELECT r.run_id::text AS run_id, c.name AS concept, r.kind, r.status, r.spec_blob, r.code_commit,
-       s.sessions, s.d_s
+       r.mode, r.concept_id::text AS concept_id, r.spec_hash, r.snapshot_hash, r.decision_t,
+       r.decision_p, r.gross_sharpe, r.span_start, s.sessions, s.d_s
 FROM research_run r
 JOIN concept_registry c USING (concept_id)
 LEFT JOIN research_run_series s USING (run_id)
@@ -105,6 +106,40 @@ def battery_refusals(record: dict | None, apr: dict, stepm_sha256: str) -> list[
         if record.get(field) != float(apr[f"alpha.selection.stepm.{key}"]):
             out.append(f"battery {field} {record.get(field)} is not the APR's")
     return out
+
+
+_RESULT_FIELDS = ("snapshot_hash", "decision_t", "decision_p", "gross_sharpe", "span_start")
+
+
+def split_missing_series(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(rows without a series that are a gap, rows without one that are exempt).
+
+    A row without a series leaves its max-t out of the StepM null, so it is a gap, with one
+    exception (ledger 2026-11-22g): a real row killed before it recorded any outcome, which is the
+    `research_run_real_spec_once` index's own predicate (status failed and every result field
+    NULL). When a completed real row of the same spec hash and concept has a series, determinism
+    makes the killed row's series equal to it, so the universe's maxima are unchanged. Such a row
+    is exempt from the series gate and stays charged to the look count.
+    """
+    covered = {
+        (r["spec_hash"], r["concept_id"])
+        for r in rows
+        if r["sessions"] is not None and r["mode"] == "real"
+    }
+    gaps, exempt = [], []
+    for r in rows:
+        if r["sessions"] is not None:
+            continue
+        killed = (
+            r["mode"] == "real"
+            and r["status"] == "failed"
+            and all(r[f] is None for f in _RESULT_FIELDS)
+        )
+        if killed and (r["spec_hash"], r["concept_id"]) in covered:
+            exempt.append(r)
+        else:
+            gaps.append(r)
+    return gaps, exempt
 
 
 def selection_refusals(
@@ -182,7 +217,7 @@ async def build_report(
     root = repo_root(Path.cwd())
     rows, others, apr, vintage = await _load(dsn, vintage)
     with_series = [r for r in rows if r["sessions"] is not None]
-    missing = [r for r in rows if r["sessions"] is None]
+    missing, exempt = split_missing_series(rows)
     record = json.loads(Path(battery).read_text()) if battery else None
     refusals = selection_refusals(
         missing, others, battery_refusals(record, apr, stepm_source_sha256())
@@ -239,6 +274,7 @@ async def build_report(
             if out.selected[k]
         ],
         "not_selected": len(with_series) - int(out.selected.sum()),
+        "exempt_killed_rows": [r["run_id"] for r in exempt],
         "missing_series": [
             {
                 "run_id": r["run_id"],

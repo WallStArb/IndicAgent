@@ -6,6 +6,7 @@ from scripts.research.select_books import (
     battery_refusals,
     horizon_sessions,
     selection_refusals,
+    split_missing_series,
     universe_matrix,
 )
 
@@ -83,3 +84,46 @@ def test_missing_series_and_other_vintages_are_not_a_result():
     reasons = selection_refusals([{"run_id": "r"}], ["2"], ["no battery"])
     assert len(reasons) == 3 and "1 charged runs have no series" in reasons[0]
     assert "other vintages" in reasons[1]
+
+
+def _row(run_id, *, status="completed", sessions=("2024-01-02",), spec="h1", concept="m", **kw):
+    row = {
+        "run_id": run_id,
+        "status": status,
+        "mode": "real",
+        "concept_id": concept,
+        "spec_hash": spec,
+        "sessions": sessions,
+        "snapshot_hash": "s1",
+        "decision_t": 1.0,
+        "decision_p": 0.3,
+        "gross_sharpe": 0.1,
+        "span_start": "2014-12-29",
+    }
+    return row | kw
+
+
+def _killed(run_id, **kw):
+    nulls = dict.fromkeys(
+        ("snapshot_hash", "decision_t", "decision_p", "gross_sharpe", "span_start")
+    )
+    return _row(run_id, status="failed", sessions=None, **(nulls | kw))
+
+
+def test_a_killed_row_is_exempt_only_when_a_completed_real_row_of_its_spec_and_member_has_a_series():
+    done, killed = _row("done"), _killed("killed")
+    assert split_missing_series([killed, done]) == ([], [killed])
+    assert split_missing_series([killed]) == ([killed], [])  # no twin yet: a gap
+    for other in (_row("o", spec="h2"), _row("o", concept="n"), _row("o", mode="exploration")):
+        assert split_missing_series([killed, other]) == ([killed], [])
+
+
+def test_a_failed_row_that_recorded_any_outcome_or_is_not_failed_stays_a_gap():
+    done = _row("done")
+    gaps = [
+        _killed("a", snapshot_hash="abc"),
+        _killed("b", decision_t=2.1),  # computed a statistic, then died before its series
+        _killed("c", mode="exploration"),
+        _row("d", status="started", sessions=None, snapshot_hash=None),
+    ]
+    assert split_missing_series([*gaps, done]) == (gaps, [])
