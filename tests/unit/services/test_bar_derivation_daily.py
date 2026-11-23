@@ -226,6 +226,13 @@ class FakeConn:
             ]
         if "corporate_action_current" in sql:
             return self.splits.get(str(args[0]), [])
+        if "/* stray_1d */" in sql:
+            vendors, kinds = tuple(args[1]), tuple(args[2])  # type: ignore[arg-type]
+            return [
+                {"timestamp": _ts(t), "vendor": r["vendor"], "kind": r["kind"]}
+                for t, r in sorted(self.stored.get(str(args[0]), {}).items())
+                if not (r["vendor"] in vendors and r["kind"] in kinds)
+            ][:1]
         if "/* stored_1d */" in sql:
             vendors, kinds = tuple(args[1]), tuple(args[2])  # type: ignore[arg-type]
             self.stored_read_sources.append((vendors, kinds))
@@ -511,6 +518,16 @@ def test_a_missing_policy_row_fails_the_symbol_loud():
     conn = FakeConn(observations=observations, stored=stored, policy=[])
     with pytest.raises(RuntimeError, match="no bar_source_policy row"):
         _run(conn, apply=False)
+
+
+def test_a_stray_ibkr_1d_row_fails_the_symbol_naming_the_row_not_a_key_collision():
+    observations, stored = _fixture()
+    stored["TEST"][_D3] = _row(12.0, vendor="ibkr", kind="named")  # outside the canonical pairs
+    conn = FakeConn(observations=observations, stored=stored)
+    with pytest.raises((ValueError, RuntimeError), match=r"TEST.*2024-06-03 ibkr/named"):
+        _run(conn, apply=True)
+    assert not any("INSERT INTO market_data_ohlcv" in sql for sql, _args in conn.statements)
+    assert conn.executemany_calls == []
 
 
 # --- apply -----------------------------------------------------------------------------------

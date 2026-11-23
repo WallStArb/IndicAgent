@@ -41,8 +41,8 @@ REQUIRED_CHECKS: Mapping[str, frozenset[str]] = MappingProxyType(
         ),
         # todo 600 (admission design section 5): every Massive 5m bar carries the splits known now
         "5m": frozenset({"slot_coverage", "digest_fresh", "coverage_cache", "split_horizon_fresh"}),
-        "15m": frozenset({"digest_fresh", "grid_parity"}),
-        "1h": frozenset({"digest_fresh", "grid_parity"}),
+        "15m": frozenset({"digest_fresh", "grid_recompute"}),
+        "1h": frozenset({"digest_fresh", "grid_recompute"}),
     }
 )
 

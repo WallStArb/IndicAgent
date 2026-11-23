@@ -53,7 +53,7 @@ def test_required_checks_match_the_design():
         "coverage_cache",
         "split_horizon_fresh",
     }
-    assert REQUIRED_CHECKS["15m"] == REQUIRED_CHECKS["1h"] == {"digest_fresh", "grid_parity"}
+    assert REQUIRED_CHECKS["15m"] == REQUIRED_CHECKS["1h"] == {"digest_fresh", "grid_recompute"}
     assert REBUILD_ONLY_CHECKS == {
         "1d": {"freshness_1d"},
         "15m": {"stray_vendor_rows"},
@@ -128,8 +128,10 @@ def test_a_tie_at_the_same_instant_fails():
 def test_compute_gates_every_requested_timeframe():
     rows = _rows("AAA", "1d") + _rows("AAA", "5m") + _rows("AAA", "15m") + _rows("AAA", "1h")
     assert _gate(rows, timeframes=["5m", "15m", "1h", "1d"]) == {}
-    rows = [r for r in rows if not (r.timeframe == "15m" and r.check == "grid_parity")]
-    assert _gate(rows, timeframes=["5m", "15m", "1h", "1d"]) == {"AAA": ["15m:grid_parity missing"]}
+    rows = [r for r in rows if not (r.timeframe == "15m" and r.check == "grid_recompute")]
+    assert _gate(rows, timeframes=["5m", "15m", "1h", "1d"]) == {
+        "AAA": ["15m:grid_recompute missing"]
+    }
 
 
 def test_other_symbols_and_other_timeframes_do_not_leak():

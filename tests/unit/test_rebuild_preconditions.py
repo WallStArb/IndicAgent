@@ -64,7 +64,7 @@ def test_bar_coverage_passes_and_lists_empty_history_spans_verbatim():
 def test_bar_coverage_names_every_failing_symbol_timeframe_and_check():
     scan = VerdictScan(
         {
-            "SPY": ["5m:slot_coverage failed", "15m:grid_parity missing"],
+            "SPY": ["5m:slot_coverage failed", "15m:grid_recompute missing"],
             "QQQ": ["1h:stray_vendor_rows failed", "5m:digest_fresh stale (verdict 31.0h old)"],
         },
         3,
@@ -74,7 +74,7 @@ def test_bar_coverage_names_every_failing_symbol_timeframe_and_check():
     result = check_bar_coverage(scan, [("AAA", "5m", "reached request start 2006-09-29")])
     assert not result.ok
     assert "SPY" in result.detail and "5m:slot_coverage failed" in result.detail
-    assert "15m:grid_parity missing" in result.detail
+    assert "15m:grid_recompute missing" in result.detail
     assert "QQQ" in result.detail and "1h:stray_vendor_rows failed" in result.detail
     assert "stale" in result.detail
     assert "2 of 3 symbols" in result.detail

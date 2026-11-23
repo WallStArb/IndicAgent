@@ -9,8 +9,6 @@ with the venue study):
 - route_disagreement: a venue-routed D1 close vs the SMART close for the same day.
 - adjusted_vs_trades: a step in the ADJUSTED_LAST / TRADES ratio on a day with no recorded
   dividend or corporate action.
-- daily_vs_intraday: the IBKR daily bar vs the regular-session 5m bars (open exact, close
-  within the bp tolerance, volume within the measured tolerance).
 - unexplained_seams: a close-to-close jump beyond the robust-scale threshold with no
   corporate action and no quarantine flag.
 - late_heads: a moved name whose canonical history starts after its first known trade.
@@ -25,6 +23,8 @@ with the venue study):
 - isolated_wick: bars the tradeable view serves on 1d, 1h, 15m or 5m whose wick the scrub rule
   isolated_wick flags (todo 594), counted per name and timeframe; a bar the scrub has not judged
   yet (a new intraday bar) or a dropped quarantine entry shows here.
+- grid_recompute (todo 657, in the intraday report): the stored canonical 15m and 1h rows of the
+  scoped months against the derivation of the current 5m bars, field by field.
 - completeness and masked_slots (todo 462): per (symbol, timeframe, year) the share of
   expected session slots that hold a real bar or lie inside an answered request window,
   and the 15m/1h slots that hide real 5m volume behind a placeholder or a hole.
@@ -112,6 +112,7 @@ from src.intelligence.bars.gap_plan import (
 )
 from src.intelligence.bars.integrity_checks import (
     CHECK_FRESHNESS_1D,
+    CHECK_GRID_RECOMPUTE,
     CHECK_SPLIT_HORIZON_FRESH,
     CHECKS_1D,
     CHECKS_INTRADAY,
@@ -123,20 +124,18 @@ from src.intelligence.bars.integrity_checks import (
     SWEEP_SUBJECT,
     NameInputs1d,
     StoredBar,
-    Values,
     answered_slots,
     digest_scope,
-    grid_parity,
+    grid_recompute_findings,
     judge_name_1d,
-    rebucket_5m,
     routed_horizon_stale,
     routed_seam_breaks,
     slot_coverage_by_year,
     split_horizon_stale,
-    superseded_archive_buckets,
 )
 from src.intelligence.bars.restatement import BASIS_SIGNATURES
 from src.intelligence.bars.scrub_rules import ScrubParams, SymbolBars, isolated_wick
+from src.intelligence.bars.session_grid import GridBars
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.sources import (
     CANONICAL_1D_KINDS,
@@ -151,7 +150,6 @@ from src.intelligence.bars.split_rescale import (
     split_row,
     splits_known_at,
 )
-from src.intelligence.bars.vendor_basis import BP
 from src.intelligence.bars.vendor_kind import (
     DERIVED_PAIR,
     KIND_MASSIVE_CANONICAL,
@@ -159,6 +157,7 @@ from src.intelligence.bars.vendor_kind import (
     VENDOR_MASSIVE,
     raw_kind_for_canonical,
 )
+from src.intelligence.bars.write_contract import BarValues
 from src.observability.metrics import counter, point_gauge
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
@@ -193,10 +192,6 @@ class CheckResult(NamedTuple):
 
     n_findings: int
     samples: tuple[str, ...]
-
-
-def _bp(a: float, b: float) -> float:
-    return abs(a / b - 1.0) * BP
 
 
 # ---------------------------------------------------------------------------
@@ -328,37 +323,6 @@ def adjusted_pairs(
             rows.append((day, trades, adjusted))
         day += timedelta(days=1)
     return rows
-
-
-def check_daily_vs_intraday(
-    daily: Mapping[tuple[str, date], tuple[float, float, int | None]],
-    agg: Mapping[tuple[str, date], tuple[float, float, int | None]],
-    close_tol_bp: float,
-    volume_tol_rel: float,
-) -> CheckResult:
-    """Daily bars vs the regular-session 5m aggregate: (open, close, volume) per (symbol, day).
-
-    Open must match exactly (the first 5m open is the daily open), close within
-    `close_tol_bp`, volume within `volume_tol_rel` of the daily volume (a NULL volume, as
-    on venue bars, is not judged). Days present on one side only are not judged here;
-    completeness owns holes.
-    """
-    samples: list[str] = []
-    for key in sorted(daily.keys() & agg.keys()):
-        d_open, d_close, d_vol = daily[key]
-        a_open, a_close, a_vol = agg[key]
-        fields: list[str] = []
-        if not math.isclose(d_open, a_open, rel_tol=1e-9):
-            fields.append("open")
-        if _bp(d_close, a_close) > close_tol_bp:
-            fields.append("close")
-        if d_vol is not None and a_vol is not None:
-            if abs(d_vol - a_vol) > volume_tol_rel * abs(d_vol):
-                fields.append("volume")
-        if fields:
-            symbol, day = key
-            samples.append(f"{symbol}|{day.isoformat()}|{'+'.join(fields)}")
-    return CheckResult(len(samples), tuple(samples))
 
 
 def check_unexplained_seams(
@@ -710,30 +674,6 @@ def check_masked_slots(
 # ---------------------------------------------------------------------------
 
 
-def aggregate_sessions(
-    fine: Iterable[tuple[str, datetime, float, float, int]],
-    sessions: Mapping[date, tuple[datetime, datetime]],
-    interval: timedelta,
-) -> dict[tuple[str, date], tuple[float, float, int]]:
-    """Regular-session aggregate per (symbol, day) of (symbol, ts)-ordered fine bars: first
-    open, last close, summed volume. Bars outside the session are dropped, and so is a
-    session whose bars stop before its final slot (a feed that ended mid-session is a
-    completeness gap, not a disagreement about the close)."""
-    out: dict[tuple[str, date], tuple[float, float, int]] = {}
-    last: dict[tuple[str, date], datetime] = {}
-    for symbol, ts, open_, close, volume in fine:
-        bounds = sessions.get(ts.date())
-        if bounds is None or not bounds[0] <= ts < bounds[1]:
-            continue
-        key = (symbol, ts.date())
-        prev = out.get(key)
-        out[key] = (
-            (open_, close, int(volume)) if prev is None else (prev[0], close, prev[2] + int(volume))
-        )
-        last[key] = ts
-    return {key: bar for key, bar in out.items() if last[key] >= sessions[key[1]][1] - interval}
-
-
 def check_partial_daily(
     latest: Iterable[tuple[str, date, datetime]],
     sessions: Mapping[date, tuple[datetime, datetime]],
@@ -867,7 +807,6 @@ _APR_PATTERNS = [
     "threshold.split_continuity.rel_tol",
     "infra.bar_integrity.%",
     "infra.selection_gate.request_load_match_s",
-    "infra.grid_parity.%",
 ]
 
 # The stores are ohlcv_raw and ohlcv_revision (plan 191-09): one current row per (bar, vendor,
@@ -944,11 +883,6 @@ SELECT symbol, effective_date FROM corporate_action_current
 WHERE symbol = ANY($1::text[]) AND effective_date >= $2
 """
 _UNIVERSE_SQL = "SELECT i.symbol FROM instruments i WHERE {clause} ORDER BY i.symbol"
-_FINE_TRADEABLE_SQL = """
-SELECT symbol, timestamp, open, close, volume FROM market_data_ohlcv_tradeable
-WHERE timeframe = $1 AND symbol = ANY($2::text[]) AND timestamp >= $3 AND timestamp < $4
-ORDER BY symbol, timestamp
-"""
 _DAILY_CLOSES_SQL = """
 SELECT symbol, timestamp, close FROM market_data_ohlcv_tradeable
 WHERE timeframe = '1d' AND symbol = ANY($1::text[]) AND timestamp >= $2
@@ -1256,14 +1190,12 @@ class _VerdictRun(NamedTuple):
 
 @dataclass(frozen=True)
 class _Params:
-    close_tol_bp: float
     venue_close_rel: float
     adjusted_step_rel: float
     jump_sigma: float
     seam_scale_sessions: int
     dividend_sessions: int
     lookback_sessions: int
-    volume_tol_rel: float
     completeness_min_share: float
     completeness_years: int
     nightly_max_age_hours: int
@@ -1280,14 +1212,12 @@ class _Params:
         """Fallbacks are the migration 407 seeds (and 401/437 for the switches and lists)."""
         key = "threshold.bar_reconciliation."
         return cls(
-            close_tol_bp=float(_cfg(apr, key + "close_tolerance_bp", 15.0)),
             venue_close_rel=float(_cfg(apr, key + "venue_close_tolerance_rel", 0.0005)),
             adjusted_step_rel=float(_cfg(apr, key + "adjusted_ratio_step_rel", 0.02)),
             jump_sigma=float(_cfg(apr, key + "unexplained_jump_sigma", 8.0)),
             seam_scale_sessions=int(_cfg(apr, key + "seam_scale_sessions", 60)),
             dividend_sessions=int(_cfg(apr, key + "dividend_freshness_sessions", 3)),
             lookback_sessions=int(_cfg(apr, key + "lookback_sessions", 5)),
-            volume_tol_rel=float(_cfg(apr, key + "volume_tolerance_rel", 0.005)),
             completeness_min_share=float(_cfg(apr, key + "completeness_min_share", 0.996)),
             completeness_years=int(_cfg(apr, key + "completeness_years", 1)),
             nightly_max_age_hours=int(_cfg(apr, key + "nightly_max_age_hours", 26)),
@@ -1325,9 +1255,6 @@ class _IntegrityParams:
     # infra.selection_gate.request_load_match_s): the refused-load guard of the answered-window
     # read (the same rule the fetcher's planner applies, todo 567).
     load_match_s: float = 5.0
-    # The D7 dated-exception record (migration 547's infra.grid_parity.dated_exceptions), the
-    # raw JSON document; None or empty dates nothing (fail closed).
-    dated_exceptions_json: str | None = None
     # Migration 567's threshold.split_continuity.rel_tol (todo 587, split_continuity).
     split_continuity_rel_tol: float = 0.3
 
@@ -1360,7 +1287,6 @@ class _IntegrityParams:
                 _cfg(apr, "threshold.bar_integrity.fallback_basis_tolerance_bp", 10.0)
             ),
             load_match_s=float(_cfg(apr, "infra.selection_gate.request_load_match_s", 5.0)),
-            dated_exceptions_json=(_cfg(apr, "infra.grid_parity.dated_exceptions", "") or None),
             split_continuity_rel_tol=float(_cfg(apr, "threshold.split_continuity.rel_tol", 0.3)),
         )
 
@@ -1381,11 +1307,17 @@ _RAW_5M_SLOTS_SQL = """
 SELECT "timestamp" FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = '5m'
 """
-# IBKR's own 15m/1h bars, the grid parity reference (the archive table until plan 191-09).
-_ARCHIVE_ROWS_SQL = """
-SELECT timeframe, "timestamp", open, high, low, close, volume, served_at
-FROM ohlcv_raw
-WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND vendor = 'ibkr' AND kind = 'named'
+# The stored canonical 15m/1h rows of a name (raw table, allow-listed: grid_recompute reads every
+# row the table holds, a stray vendor row included, so an identity difference is a finding). The
+# months are UTC month starts as naive timestamps, NULL for every month (digest_scope's scope).
+_STORED_GRID_SQL = """
+SELECT timeframe, "timestamp", open, high, low, close, volume, vendor, kind
+FROM market_data_ohlcv
+WHERE symbol = $1 AND timeframe = ANY($2::text[])
+  AND ($3::timestamp[] IS NULL OR EXISTS (
+       SELECT 1 FROM unnest($3::timestamp[]) AS m
+       WHERE "timestamp" >= m AT TIME ZONE 'UTC'
+         AND "timestamp" < (m + interval '1 month') AT TIME ZONE 'UTC'))
 """
 # Raw table (allow-listed): the stray vendor rows are exactly what the tradeable view would
 # hide. A row of the grid's own (vendor, kind) is the derivation's, anything else is stray.
@@ -1399,6 +1331,14 @@ GROUP BY 1, 2
 _PREVIOUS_DIGEST_VERDICT_SQL = """
 SELECT DISTINCT ON (subject) subject, passed, evaluated_at FROM integrity_monitor
 WHERE monitor_type = $1 AND metric_name = $2 AND subject LIKE '%|5m'
+ORDER BY subject, evaluated_at DESC
+"""
+# The newest grid_recompute verdict per (symbol|timeframe) subject: a name without a passing one is
+# judged over every month, so the check never passes on an empty digest scope (a first run, or a
+# name that failed last time).
+_PREVIOUS_RECOMPUTE_SQL = """
+SELECT DISTINCT ON (subject) subject, passed FROM integrity_monitor
+WHERE monitor_type = $1 AND metric_name = $2
 ORDER BY subject, evaluated_at DESC
 """
 _LATEST_SWEEP_SQL = """
@@ -1417,14 +1357,13 @@ FROM ohlcv_coverage WHERE symbol = ANY(%s)
 """
 _SESSION_MARGIN_DAYS = 3
 _FIVE_MINUTES = timedelta(minutes=5)
-# bar_derivation's tradeable 5m read plus the vendor and serve time, which the grid parity judge
-# needs: only an ibkr-sourced 5m bar is comparable with the IBKR archive (D-191-P made post-2016
-# 5m Alpaca SIP), and a raw row's served_at dates the evidence against the archive's own (D7,
-# todo 524). The join key is the selection's own (vendor, kind, timestamp) raw row.
+# bar_derivation's tradeable 5m read plus the serving raw row's close and request id (the split
+# horizon and route checks compare the canonical close with its raw close). The join key is the
+# selection's own (vendor, kind, timestamp) raw row.
 _MASSIVE_RAW_5M = raw_kind_for_canonical(VENDOR_MASSIVE, KIND_MASSIVE_CANONICAL, "5m")
 _SELECT_5M_SQL = f"""
 SELECT m."timestamp", m.open, m.high, m.low, m.close, m.volume, m.base, m.vendor, m.kind,
-       r.served_at, r.close AS raw_close, r.request_id
+       r.close AS raw_close, r.request_id
 FROM market_data_ohlcv_tradeable m
 LEFT JOIN ohlcv_raw r
   ON r.symbol = m.symbol AND r.timeframe = m.timeframe
@@ -1433,10 +1372,6 @@ LEFT JOIN ohlcv_raw r
 WHERE m.symbol = $1 AND m.timeframe = '5m'
 ORDER BY m."timestamp"
 """
-# The one vendor whose 5m bars are like-for-like with the archive reference (ohlcv_raw ibkr named).
-# Any kind counts: the canonical 5m holds only (ibkr, named) and (alpaca, sip_rth) today, and an
-# ibkr fallback 5m would still be IBKR's own trades aggregate, so the vendor decides, not the kind.
-_PARITY_VENDOR = VENDOR_IBKR
 # Every split row of a name, as selection reads them (services/bar_selection.read_split_rows):
 # split_horizon_fresh replays selection's rescale with the splits known at the run start.
 _SELECT_SPLIT_ROWS_SQL = """
@@ -1447,117 +1382,6 @@ WHERE symbol = $1 AND action_type IN ('split', 'reverse_split')
 """
 _INTRADAY_DIGEST_TFS = (GRID_SOURCE_TF, *sorted(GRID_TIMEFRAMES))
 _WRITER_ROLE = "bar_derivation_writer"
-
-
-# The D7 dated exceptions (todo 524, D-191-H; recorded 2026-10-31 from the todo 573
-# classification). Waves 1 and 2 release a stamp; wave 3 (wrong-basis archive rows) stays held
-# until its archive rows are re-fetched, and the loader skips it.
-class DatedExceptionsDrift(Exception):
-    """The record's stamps and its wave names lists disagree. Carries every drifted symbol, so
-    one fix cycle repairs the whole record."""
-
-    def __init__(self, symbols: list[str], note: str = "") -> None:
-        self.symbols = sorted(symbols)
-        self.note = note
-        super().__init__(
-            f"dated-exceptions record drift: {self.symbols} hold released stamps but are "
-            f"missing from their stamp wave's names list" + note
-        )
-
-
-def load_dated_exceptions(
-    record: Mapping[str, Any],
-) -> dict[str, dict[str, dict[datetime, tuple[bool, bool]]]]:
-    """The recorded grid_parity dated exceptions, per symbol per timeframe: bucket start -> the
-    dimensions its record excuses, (price, volume), from the parsed APR record (migration 547's
-    infra.grid_parity.dated_exceptions, the todo 573 classification). Only released waves load:
-    a stamp whose wave is not released never excepts. A symbol holding released stamps while
-    absent from its own stamp wave's names list is record drift: the scan collects every
-    drifted symbol and raises once, and the caller fails closed for the whole record, because
-    an excused set that quietly diverges from what the record documents is worthless.
-    """
-    if not isinstance(record, Mapping):
-        raise ValueError("dated-exceptions record is not a mapping")
-    waves = record.get("waves")
-    exceptions = record.get("exceptions")
-    if not isinstance(waves, Mapping) or not isinstance(exceptions, Mapping):
-        raise ValueError("dated-exceptions record lacks a waves or exceptions mapping")
-    # one validation pass over the whole shape, so the scan below can trust types: anything
-    # structurally wrong is a malformed record (the caller warns), never an AttributeError
-    for wave, spec in waves.items():
-        if not isinstance(spec, Mapping):
-            raise ValueError(f"dated-exceptions wave {wave!r} spec is not a mapping")
-        names = spec.get("names")
-        if names is not None and (
-            not isinstance(names, list) or any(not isinstance(n, str) for n in names)
-        ):
-            raise ValueError(f"dated-exceptions wave {wave!r} names list is malformed")
-    for name, per_tf in exceptions.items():
-        if not isinstance(per_tf, Mapping):
-            raise ValueError(f"dated-exceptions for {name!r} are not a mapping")
-        for tf, stamps in per_tf.items():
-            if not isinstance(stamps, list):
-                raise ValueError(f"dated-exceptions stamps for {name!r} {tf!r} are not a list")
-            for s in stamps:
-                if not isinstance(s, Mapping) or not {"stamp", "wave", "price", "volume"} <= set(
-                    s.keys()
-                ):
-                    raise ValueError(
-                        f"dated-exceptions stamp for {name!r} {tf!r} lacks required fields"
-                    )
-                if not isinstance(s["price"], bool) or not isinstance(s["volume"], bool):
-                    raise ValueError(
-                        f"dated-exceptions stamp for {name!r} {tf!r} price/volume must be booleans"
-                    )
-                try:
-                    datetime.fromisoformat(s["stamp"])
-                except (ValueError, TypeError) as error:
-                    raise ValueError(
-                        f"dated-exceptions stamp for {name!r} {tf!r} has an unparsable stamp"
-                    ) from error
-                if "T" not in s["stamp"]:
-                    # a date-only stamp parses to midnight and can never match a bucket
-                    raise ValueError(
-                        f"dated-exceptions stamp for {name!r} {tf!r} carries no time of day"
-                    )
-    wave_names: dict[str, set[str] | None] = {}
-    for wave, spec in waves.items():  # wave_names' keys are exactly the released waves
-        if spec.get("released"):
-            wave_names[wave] = None if spec.get("names") is None else set(spec["names"])
-    out: dict[str, dict[str, dict[datetime, tuple[bool, bool]]]] = defaultdict(dict)
-    missing_from_names: set[str] = set()
-    nameless_waves: set[str] = set()
-    for name, per_tf in exceptions.items():
-        for tf, stamps in per_tf.items():
-            kept = {}
-            for s in stamps:
-                wave = str(s["wave"])
-                if wave not in wave_names:
-                    continue
-                if wave_names[wave] is None:
-                    nameless_waves.add(wave)
-                    continue
-                if name not in wave_names[wave]:
-                    missing_from_names.add(name)
-                    continue
-                kept[datetime.fromisoformat(s["stamp"])] = (bool(s["price"]), bool(s["volume"]))
-            if kept:
-                out[name][tf] = kept
-    if missing_from_names:
-        # the scan finished before raising, so one report carries every defect; drift keeps
-        # its dedicated event even when a nameless wave shares the record
-        suffix = (
-            f" (released waves {sorted(nameless_waves)} also have no names list)"
-            if nameless_waves
-            else ""
-        )
-        raise DatedExceptionsDrift(missing_from_names, suffix)
-    if nameless_waves:
-        raise ValueError(
-            f"released waves {sorted(nameless_waves)} of the dated-exceptions record have no "
-            f"names list"
-        )
-    return out
 
 
 @dataclass(frozen=True)
@@ -1573,8 +1397,6 @@ class _FiveMinute:
     close: np.ndarray
     volume: np.ndarray
     rules: list[tuple[str, ...]]
-    ibkr: np.ndarray  # bool per bar: the bar was served by the archive's own vendor
-    served: np.ndarray  # float64 epoch seconds per bar, NaN when the raw row has no served_at
     massive: np.ndarray  # bool per bar: a rescaled Massive bar (canonical kind sip_flat_adj)
     raw_close: np.ndarray  # the joined raw row's close, NaN when it has none
     massive_vendor: np.ndarray  # bool per bar: vendor massive, whatever its kind
@@ -1597,9 +1419,6 @@ class _FiveMinute:
         def column(name: str) -> np.ndarray:
             return np.array([r[name] for r in kept], dtype=np.float64)
 
-        served = [
-            r["served_at"].timestamp() if r.get("served_at") is not None else np.nan for r in kept
-        ]
         return cls(
             ts,
             column("open"),
@@ -1608,8 +1427,6 @@ class _FiveMinute:
             column("close"),
             column("volume"),
             [tuple(sorted(rules_by_ts.get(int(t), ()))) for t in ts],
-            np.array([r["vendor"] == _PARITY_VENDOR for r in kept], dtype=bool),
-            np.array(served, dtype=np.float64),
             np.array([r.get("kind") == KIND_MASSIVE_CANONICAL for r in kept], dtype=bool),
             np.array(
                 [np.nan if r.get("raw_close") is None else r["raw_close"] for r in kept],
@@ -1630,13 +1447,8 @@ class _IntradayInputs:
     five: _FiveMinute
     stored_slots: Sequence[datetime]
     answered: AnsweredWindows
-    archive: Mapping[str, Mapping[datetime, Values]]
-    # The archive rows' served_at, the same keys as `archive` (D7 freshness evidence; None when
-    # the raw row predates the column).
-    archive_served: Mapping[str, Mapping[datetime, datetime | None]]
-    # Recorded D7 exceptions for this symbol per timeframe: bucket start -> the dimensions its
-    # record excuses, (price, volume) (APR infra.grid_parity.dated_exceptions, migration 547).
-    recorded: Mapping[str, Mapping[datetime, tuple[bool, bool]]]
+    # The stored canonical 15m/1h rows of the scoped months per timeframe (grid_recompute).
+    stored_grid: Mapping[str, Mapping[datetime, BarValues]]
     current_digests: Mapping[str, Mapping[datetime, str]]
     scope: frozenset[datetime] | None
     stray: Mapping[str, int]
@@ -1654,8 +1466,6 @@ class _IntradayVerdict(NamedTuple):
     passed: bool
     metric: float | None
     threshold: float
-    compared: int = 0  # grid_parity only: the buckets compared (metric is the mismatched count)
-    excepted: int = 0  # grid_parity only: mismatches inside the D7 dated exceptions
 
 
 async def _answered_windows_5m(conn: Any, symbol: str, match_s: float) -> AnsweredWindows:
@@ -1707,25 +1517,32 @@ class _SessionCalendar:
         return {d: b for d, b in self._sessions.items() if first <= d <= last}
 
 
-def intraday_month_digests(
+class _ScopedGrids(NamedTuple):
+    """The derivation of the scoped months, once: the 5m month digests, the derived 15m and 1h
+    grids with their constituent rules, and the months actually checked."""
+
+    five_digests: dict[datetime, str]
+    grids: dict[str, tuple[GridBars, list[tuple[str, ...]]]]
+    targets: frozenset[datetime]
+
+
+def scoped_grids(
     five: _FiveMinute,
     sessions: Mapping[date, tuple[datetime, datetime]],
     scope: frozenset[datetime] | None,
-) -> tuple[dict[str, dict[datetime, str]], frozenset[datetime]]:
-    """Recomputed month digests per timeframe (5m, 15m, 1h) for the scoped months, by
-    bar_derivation's own recipe, and the months actually checked.
+) -> _ScopedGrids:
+    """Derive 15m and 1h from the scoped months of the 5m bars by bar_derivation's own recipe.
 
     The checked months are the scope's months inside the 5m series' first-to-last range
-    (all of them when scope is None). A month with no rows has no recomputed digest.
+    (all of them when scope is None). A month with no rows has no derived bar.
     """
-    out: dict[str, dict[datetime, str]] = {tf: {} for tf in _INTRADAY_DIGEST_TFS}
     if not five.ts.size:
-        return out, frozenset()
+        return _ScopedGrids({}, {}, frozenset())
     targets = frozenset(start for start, _ in month_ranges(five.ts))
     if scope is not None:
         targets &= scope
     if not targets:
-        return out, targets
+        return _ScopedGrids({}, {}, targets)
     months = five.ts.astype("datetime64[s]").astype("datetime64[M]")
     wanted = np.array([np.datetime64(f"{d.year:04d}-{d.month:02d}") for d in targets])
     rows = np.flatnonzero(np.isin(months, wanted))
@@ -1733,16 +1550,39 @@ def intraday_month_digests(
         a[rows] for a in (five.ts, five.open, five.high, five.low, five.close, five.volume)
     )
     rules = [five.rules[i] for i in rows]
-    out[GRID_SOURCE_TF] = {s: d for s, _, d, _ in _month_digest_rows(ts, o, h, lo, c, v, rules)}
-    for tf, minutes in GRID_TIMEFRAMES.items():
-        grid, grid_rules = _derive_for_tf(ts, o, h, lo, c, v, rules, dict(sessions), minutes)
+    five_digests = {s: d for s, _, d, _ in _month_digest_rows(ts, o, h, lo, c, v, rules)}
+    grids = {
+        tf: _derive_for_tf(ts, o, h, lo, c, v, rules, dict(sessions), minutes)
+        for tf, minutes in GRID_TIMEFRAMES.items()
+    }
+    return _ScopedGrids(five_digests, grids, targets)
+
+
+def scoped_digests(scoped: _ScopedGrids) -> dict[str, dict[datetime, str]]:
+    """Recomputed month digests per timeframe (5m, 15m, 1h) for the scoped months."""
+    out: dict[str, dict[datetime, str]] = {tf: {} for tf in _INTRADAY_DIGEST_TFS}
+    out[GRID_SOURCE_TF] = scoped.five_digests
+    for tf, (grid, grid_rules) in scoped.grids.items():
         out[tf] = {
             s: d
             for s, _, d, _ in _month_digest_rows(
                 grid.ts_seconds, grid.open, grid.high, grid.low, grid.close, grid.volume, grid_rules
             )
         }
-    return out, targets
+    return out
+
+
+def derived_grid_values(grid: GridBars) -> dict[datetime, BarValues]:
+    """A derived grid as the write contract's values per bucket start (bar_derivation's own
+    conversion): what the grid stage would store."""
+    return {
+        datetime.fromtimestamp(int(ts), tz=UTC): BarValues(
+            float(o), float(h), float(lo), float(c), int(v), *DERIVED_PAIR
+        )
+        for ts, o, h, lo, c, v in zip(
+            grid.ts_seconds, grid.open, grid.high, grid.low, grid.close, grid.volume
+        )
+    }
 
 
 def stale_intraday_months(
@@ -1770,13 +1610,15 @@ def judge_name_intraday(
     *,
     timings: dict[str, float] | None = None,
 ) -> list[_IntradayVerdict]:
-    """The slot_coverage, digest_fresh, grid_parity, stray_vendor_rows and split_horizon_fresh
+    """The slot_coverage, digest_fresh, grid_recompute, stray_vendor_rows and split_horizon_fresh
     verdicts of one name (coverage_cache needs the fetcher lock and is judged for all names at
     once). Pure.
 
-    grid_parity is a vendor cross-check (digest_fresh already proves the derivation): it compares
-    only buckets whose 5m constituents are all ibkr-sourced; metric is the mismatched count
-    outside the D7 dated exceptions, None when no bucket was comparable.
+    grid_recompute compares the stored canonical 15m and 1h rows of the scoped months with the
+    derivation of the current 5m bars, field by field and identity included (digest_fresh cannot
+    see a stored row that drifts after the grid stage wrote its digest from the derived values);
+    metric is the number of buckets that differ, are missing or are extra. A name whose 5m bars
+    derive buckets but whose stored grid is empty fails: no stored rows is never a pass.
 
     split_horizon_fresh also counts a route row's canonical 5m seam that reads double adjusted
     (routed_seam_breaks, todo 626): the guard against a vendor restating a named series."""
@@ -1825,62 +1667,26 @@ def judge_name_intraday(
         )
     else:
         derive_sessions = {}
-    recomputed, targets = intraday_month_digests(five, derive_sessions, inputs.scope)
+    scoped = scoped_grids(five, derive_sessions, inputs.scope)
+    recomputed, targets = scoped_digests(scoped), scoped.targets
     for tf in _INTRADAY_DIGEST_TFS:
         stale = stale_intraday_months(recomputed[tf], inputs.current_digests.get(tf, {}), targets)
         verdicts.append(_IntradayVerdict(tf, "digest_fresh", not stale, float(len(stale)), 0.0))
     timed("digest_fresh", started)
 
     started = perf_counter()
-    # Only ibkr-sourced 5m bars enter the re-bucketing. rebucket_5m returns a bucket only when
-    # every 5m constituent is present, so one SIP constituent (left out here) drops its whole
-    # bucket: it is neither compared nor counted, like a bucket one side lacks.
-    keep = five.ibkr
     for tf in sorted(GRID_TIMEFRAMES):
-        archived = inputs.archive.get(tf, {})
-        compared = mismatched = excepted = 0
-        if archived and keep.any():
-            starts = [int(stamp.timestamp()) for stamp in archived]
-            rebucketed = rebucket_5m(
-                five.ts[keep],
-                five.open[keep],
-                five.high[keep],
-                five.low[keep],
-                five.close[keep],
-                five.volume[keep],
-                starts,
-                timeframe=tf,
-            )
-            ours = {datetime.fromtimestamp(t, tz=UTC): values for t, values in rebucketed.items()}
-            # D7 dated tolerance (todo 524): a mismatch on a recorded stamp, or on a bucket whose
-            # archive row was served before the day's 5m bars (superseded evidence), is dated
-            # vendor-side history, not a live disagreement. Unrecorded, unsuperseded buckets stay
-            # held to exact parity.
-            superseded = superseded_archive_buckets(
-                five.ts[keep], five.served[keep], inputs.archive_served.get(tf, {}), timeframe=tf
-            )
-            dated: dict[datetime, tuple[bool, bool]] = {stamp: (True, True) for stamp in superseded}
-            dated.update(inputs.recorded.get(tf, {}))
-            compared, mismatched, excepted = grid_parity(
-                ours, archived, timeframe=tf, exceptions=dated
-            )
-        if not compared:
-            # Nothing was comparable (no archive, or no bucket made only of ibkr 5m bars): a pass
-            # that says nothing was measured, visible as a null metric and counted in the log.
-            verdicts.append(_IntradayVerdict(tf, "grid_parity", True, None, 0.0, 0))
-        else:
-            verdicts.append(
-                _IntradayVerdict(
-                    tf,
-                    "grid_parity",
-                    mismatched == 0,
-                    float(mismatched),
-                    0.0,
-                    compared,
-                    excepted,
-                )
-            )
-    timed("grid_parity", started)
+        derived = derived_grid_values(scoped.grids[tf][0]) if tf in scoped.grids else {}
+        stored = {
+            ts: v
+            for ts, v in inputs.stored_grid.get(tf, {}).items()
+            if datetime(ts.year, ts.month, 1, tzinfo=UTC) in scoped.targets
+        }
+        findings = grid_recompute_findings(derived, stored)
+        verdicts.append(
+            _IntradayVerdict(tf, CHECK_GRID_RECOMPUTE, not findings, float(len(findings)), 0.0)
+        )
+    timed(CHECK_GRID_RECOMPUTE, started)
 
     for tf in sorted(GRID_TIMEFRAMES):
         n = inputs.stray.get(tf, 0)
@@ -1987,11 +1793,7 @@ class _IntradayRun(NamedTuple):
     n_names: int
     coverage_skipped: int
     full_sweep: bool
-    n_without_archive: dict[str, int]  # names whose grid_parity compared no bucket, per timeframe
-    parity_failing: list[str]
-    parity_compared: dict[str, int]  # buckets compared over all names, per timeframe
-    parity_mismatched: dict[str, int]
-    parity_excepted: dict[str, int]  # mismatches inside the D7 dated exceptions, per timeframe
+    recompute_failing: list[str]  # "SYM|tf|findings=n" of every name failing grid_recompute
     names: tuple[str, ...] = ()
 
 
@@ -2090,7 +1892,6 @@ class BarReconciliationAudit(BaseBatch):
             checks: dict[str, _Judged] = {
                 "route_disagreement": await self._route_disagreement(conn, params, window),
                 "adjusted_vs_trades": await self._adjusted_vs_trades(conn, params, window),
-                "daily_vs_intraday": await self._daily_vs_intraday(conn, params, window, compute),
                 "unexplained_seams": await self._seams(conn, params, window, compute_1d),
                 "late_heads": await self._late_heads(conn, params),
                 "listing_venue_coverage": await self._listing_venue_coverage(conn, params),
@@ -2225,36 +2026,6 @@ class BarReconciliationAudit(BaseBatch):
             if r["bar_date"] in lookback
         ]
         return _Judged(check_partial_daily(latest, window.sessions), len(latest))
-
-    @staticmethod
-    async def _daily_vs_intraday(
-        conn: Any, params: _Params, window: _Window, compute: list[str]
-    ) -> _Judged:
-        """IBKR's own two views of a session: the D1 SMART TRADES daily observation vs the
-        regular-session 5m bars. The canonical 1d row is not used: most names' canonical
-        daily source is Alpaca SIP now (D-191-Q), whose volume is a different count.
-        A daily observation fetched before its session closed is partial_daily's finding
-        and is not judged again here."""
-        lookback = set(window.lookback)
-        daily = {
-            (r["symbol"], r["bar_date"]): (r["open"], r["close"], r["volume"])
-            for r in await conn.fetch(_SMART_OBS_SQL, compute, window.judge_from, _KIND_TRADES)
-            if r["bar_date"] in lookback and r["fetched_at"] >= window.sessions[r["bar_date"]][1]
-        }
-        fine = await conn.fetch(
-            _FINE_TRADEABLE_SQL,
-            GRID_SOURCE_TF,
-            compute,
-            window.sessions[window.judge_from][0],
-            window.end,
-        )
-        agg = aggregate_sessions(
-            ((r["symbol"], r["timestamp"], r["open"], r["close"], r["volume"]) for r in fine),
-            window.sessions,
-            timedelta(minutes=_GRID_MINUTES[GRID_SOURCE_TF]),
-        )
-        result = check_daily_vs_intraday(daily, agg, params.close_tol_bp, params.volume_tol_rel)
-        return _Judged(result, len(daily.keys() & agg.keys()))
 
     @staticmethod
     async def _seams(conn: Any, params: _Params, window: _Window, compute_1d: list[str]) -> _Judged:
@@ -2812,34 +2583,22 @@ class BarReconciliationAudit(BaseBatch):
         run_start: datetime,
         *,
         coverage_drift: Any | None,
-        recorded: Mapping[str, Mapping[str, Mapping[datetime, tuple[bool, bool]]]] | None = None,
     ) -> _IntradayRun:
         """Judge every name holding 5m bars on the intraday checks (design section 6), then the
         coverage ledger of all of them under the fetcher lock (`coverage_drift` None defers that
         step to the caller, which runs it after these verdicts are written). A finding never
-        raises. `recorded` overrides the D7 dated-exception APR record (tests); None reads
-        infra.grid_parity.dated_exceptions from the params."""
-        # Fail closed: without the record nothing is dated, so the audit can only hold more
-        # names to exact parity, never fewer. An absent record is the normal pre-migration
-        # state; a malformed record warns; record drift errors with the drifted symbols, a
-        # different event so triage can tell the three apart.
-        if recorded is None:
-            if not integ.dated_exceptions_json:
-                recorded = {}
-            else:
-                try:
-                    recorded = load_dated_exceptions(json.loads(integ.dated_exceptions_json))
-                except DatedExceptionsDrift as error:
-                    logger.error("bar_integrity.dated_exceptions_drift", symbols=error.symbols)
-                    recorded = {}
-                except (ValueError, KeyError, TypeError) as error:
-                    logger.warning("bar_integrity.dated_exceptions_unavailable", error=str(error))
-                    recorded = {}
+        raises."""
         names = [r["symbol"] for r in await conn.fetch(_INTRADAY_NAMES_SQL)]
         previous = {
             r["subject"]: (r["passed"], r["evaluated_at"])
             for r in await conn.fetch(
                 _PREVIOUS_DIGEST_VERDICT_SQL, _MONITOR_TYPE_VERDICT, "digest_fresh"
+            )
+        }
+        recompute_passed = {
+            r["subject"]: r["passed"]
+            for r in await conn.fetch(
+                _PREVIOUS_RECOMPUTE_SQL, _MONITOR_TYPE_VERDICT, CHECK_GRID_RECOMPUTE
             )
         }
         last_sweep = await conn.fetchval(
@@ -2866,11 +2625,7 @@ class BarReconciliationAudit(BaseBatch):
         failing: dict[str, int] = defaultdict(int)
         passing: dict[str, int] = defaultdict(int)
         timings: dict[str, float] = {}
-        without_archive: dict[str, int] = defaultdict(int)
-        parity_failing: list[str] = []
-        parity_compared: dict[str, int] = defaultdict(int)
-        parity_mismatched: dict[str, int] = defaultdict(int)
-        parity_excepted: dict[str, int] = defaultdict(int)
+        recompute_failing: list[str] = []
 
         def record(symbol: str, v: _IntradayVerdict) -> None:
             facts.append(
@@ -2892,7 +2647,11 @@ class BarReconciliationAudit(BaseBatch):
                 conn,
                 symbol,
                 scope=digest_scope(
-                    full_sweep=full_sweep,
+                    # grid_recompute needs a passing record of its own before it may skip months
+                    full_sweep=full_sweep
+                    or not all(
+                        recompute_passed.get(f"{symbol}|{tf}") is True for tf in GRID_TIMEFRAMES
+                    ),
                     previous_at=at,
                     previous_passed=before,
                     loads=loads.get(symbol, ()),
@@ -2900,7 +2659,6 @@ class BarReconciliationAudit(BaseBatch):
                 stray=stray.get(symbol, {}),
                 listing_end=listing_end.get(symbol),
                 match_s=integ.load_match_s,
-                recorded=recorded.get(symbol, {}),
                 horizon=run_start,
             )
             for v in judge_name_intraday(
@@ -2912,18 +2670,10 @@ class BarReconciliationAudit(BaseBatch):
                 timings=timings,
             ):
                 record(symbol, v)
-                if v.check == "grid_parity":
-                    if v.metric is None:
-                        without_archive[v.timeframe] += 1
-                    else:
-                        parity_compared[v.timeframe] += v.compared
-                        parity_mismatched[v.timeframe] += int(v.metric)
-                        parity_excepted[v.timeframe] += v.excepted
-                        if not v.passed:
-                            parity_failing.append(
-                                f"{symbol}|{v.timeframe}|mismatched={int(v.metric)}"
-                                f"|compared={v.compared}"
-                            )
+                if v.check == CHECK_GRID_RECOMPUTE and not v.passed:
+                    recompute_failing.append(
+                        f"{symbol}|{v.timeframe}|findings={int(v.metric or 0)}"
+                    )
 
         skipped = 0
         if coverage_drift is not None:
@@ -2956,11 +2706,7 @@ class BarReconciliationAudit(BaseBatch):
             len(names),
             skipped,
             full_sweep,
-            dict(without_archive),
-            parity_failing,
-            dict(parity_compared),
-            dict(parity_mismatched),
-            dict(parity_excepted),
+            recompute_failing,
             tuple(names),
         )
 
@@ -2973,7 +2719,6 @@ class BarReconciliationAudit(BaseBatch):
         stray: Mapping[str, int],
         listing_end: date | None = None,
         match_s: float,
-        recorded: Mapping[str, Mapping[datetime, tuple[bool, bool]]] | None = None,
         horizon: datetime,
     ) -> _IntradayInputs:
         five = _FiveMinute.from_rows(
@@ -2995,17 +2740,12 @@ class BarReconciliationAudit(BaseBatch):
         splits = splits_known_at(split_rows, horizon)
         routed = routed_splits_known_at(split_rows, horizon)
         answered = await _answered_windows_5m(conn, symbol, match_s)
-        archive: dict[str, dict[datetime, Values]] = defaultdict(dict)
-        archive_served: dict[str, dict[datetime, datetime | None]] = defaultdict(dict)
-        for r in await conn.fetch(_ARCHIVE_ROWS_SQL, symbol, sorted(GRID_TIMEFRAMES)):
-            archive[r["timeframe"]][r["timestamp"]] = (
-                r["open"],
-                r["high"],
-                r["low"],
-                r["close"],
-                r["volume"],
+        stored_grid: dict[str, dict[datetime, BarValues]] = defaultdict(dict)
+        months = None if scope is None else [m.replace(tzinfo=None) for m in sorted(scope)]
+        for r in await conn.fetch(_STORED_GRID_SQL, symbol, sorted(GRID_TIMEFRAMES), months):
+            stored_grid[r["timeframe"]][r["timestamp"]] = BarValues(
+                r["open"], r["high"], r["low"], r["close"], r["volume"], r["vendor"], r["kind"]
             )
-            archive_served[r["timeframe"]][r["timestamp"]] = r["served_at"]
         digests: dict[str, dict[datetime, str]] = defaultdict(dict)
         for r in await conn.fetch(
             _SELECT_CURRENT_GRID_DIGESTS_SQL, symbol, list(_INTRADAY_DIGEST_TFS)
@@ -3016,9 +2756,7 @@ class BarReconciliationAudit(BaseBatch):
             five=five,
             stored_slots=[r["timestamp"] for r in await conn.fetch(_RAW_5M_SLOTS_SQL, symbol)],
             answered=answered,
-            archive=archive,
-            archive_served=archive_served,
-            recorded=recorded or {},
+            stored_grid=stored_grid,
             current_digests=digests,
             scope=scope,
             stray=stray,
@@ -3041,14 +2779,10 @@ class BarReconciliationAudit(BaseBatch):
             failing_by_check=run.failing_by_check,
             passing_by_check=run.passing_by_check,
             coverage_cache_skipped=run.coverage_skipped,
-            grid_parity_compared_nothing=run.n_without_archive,
-            grid_parity_buckets_compared=run.parity_compared,
-            grid_parity_buckets_mismatched=run.parity_mismatched,
-            grid_parity_buckets_excepted=run.parity_excepted,
             seconds_by_check={k: round(v, 1) for k, v in run.timings.items()},
         )
-        if run.parity_failing:
-            logger.error("bar_integrity.grid_parity_mismatches", names=run.parity_failing)
+        if run.recompute_failing:
+            logger.error("bar_integrity.grid_recompute_findings", names=run.recompute_failing)
         print("\n# Intraday verdict report (bar_integrity)\n")
         print(f"{'check':<20} {'pass':>7} {'fail':>7} {'seconds':>9}")
         for check in CHECKS_INTRADAY:

@@ -516,6 +516,16 @@ WHERE symbol = $1 AND timeframe = '1d' AND vendor = ANY($2::text[]) AND kind = A
 ORDER BY "timestamp"
 """
 
+# A stored 1d row outside the canonical pairs: the stage's stored read cannot see it, so its date
+# would classify as new and collide with it on the (timestamp, symbol, timeframe) key (todo 657).
+_SELECT_STRAY_1D_SQL = """
+/* stray_1d */
+SELECT "timestamp", vendor, kind FROM market_data_ohlcv
+WHERE symbol = $1 AND timeframe = '1d'
+  AND NOT (vendor = ANY($2::text[]) AND kind = ANY($3::text[]))
+ORDER BY "timestamp" LIMIT 1
+"""
+
 # The 1d digest's content: stored rows of every canonical 1d (vendor, kind) pair ($2/$3 as
 # _SELECT_STORED_1D_SQL).
 _SELECT_DIGEST_1D_SQL = """
@@ -1686,6 +1696,15 @@ class BarDerivation(BaseBatch):
             basis_tolerance_bp=params.tolerance_bp,
         )
 
+        for stray in await conn.fetch(
+            _SELECT_STRAY_1D_SQL, symbol, list(CANONICAL_1D_VENDORS), list(CANONICAL_1D_KINDS)
+        ):
+            raise ValueError(
+                f"{symbol}: a stored 1d row outside the canonical pairs, "
+                f"{stray['timestamp'].date()} {stray['vendor']}/{stray['kind']}; the stage reads "
+                "canonical pairs only and would collide with it on the row key: remove or "
+                "re-label the row (the audit's stray_sources check lists it)"
+            )
         stored_rows = await conn.fetch(
             _SELECT_STORED_1D_SQL, symbol, list(CANONICAL_1D_VENDORS), list(CANONICAL_1D_KINDS)
         )

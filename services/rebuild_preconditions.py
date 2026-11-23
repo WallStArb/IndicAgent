@@ -189,7 +189,7 @@ def check_bar_coverage(
     scan: VerdictScan, empty_history_spans: Sequence[tuple[str, str, str]]
 ) -> CheckResult:
     """D-32 bar completeness: every rebuild symbol passes the intraday verdicts (5m slot_coverage,
-    digest_fresh and coverage_cache; 15m and 1h digest_fresh and grid_parity) plus
+    digest_fresh and coverage_cache; 15m and 1h digest_fresh and grid_recompute) plus
     stray_vendor_rows, fresh. Reads the same rows promotion reads (plan 185-41).
 
     `ohlcv_empty_history` spans are listed verbatim in the detail, never assumed away: a

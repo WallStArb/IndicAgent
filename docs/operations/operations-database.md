@@ -133,7 +133,7 @@ Four timers. Sources are chosen per date by `bar_source_policy_current`:
    (`services/bar_reconciliation_audit.py`).
 
 D7 checks (findings go to `integrity_monitor` and OTel, never the exit code):
-`route_disagreement`, `adjusted_vs_trades`, `daily_vs_intraday`, `unexplained_seams`,
+`route_disagreement`, `adjusted_vs_trades`, `unexplained_seams`,
 `late_heads`, `listing_venue_coverage`, `unconfirmed_empty`, `partial_daily`,
 `dividend_freshness`, `nightly_skipped`, `stray_sources`, `switches`, `completeness`,
 `masked_slots`, `held_names`, plus vendor agreement per year (Tradier against IBKR SMART over
@@ -142,7 +142,7 @@ operations dashboard). It also writes the verdict
 report: one `bar_integrity` row per (symbol, timeframe, check) for the 1d checks
 (session_coverage, policy_conformance, lineage_missing, canonical_recompute, digest_fresh,
 unexplained_seam, split_continuity, freshness_1d) and the intraday checks (slot_coverage,
-digest_fresh, coverage_cache, grid_parity, stray_vendor_rows). Promotion and the phase 186
+digest_fresh, coverage_cache, grid_recompute, stray_vendor_rows). Promotion and the phase 186
 rebuild pass only on passed, fresh verdicts (`src/intelligence/bars/verdict_gate.py`).
 
 `session_coverage` (1d) is the share of NYSE sessions that hold a canonical bar or an
@@ -162,13 +162,14 @@ held at the bound, the check is skipped, logged (`bar_integrity.coverage_cache_s
 counted in `coverage_cache_skipped`; a skipped check writes no row, so the verdict ages out of the
 30 h freshness the rebuild gate requires.
 
-`grid_parity` re-buckets canonical 5m bars into the IBKR archive's 15m/1h buckets and requires
-exact equality, but only on buckets whose 5m constituents are all `vendor = 'ibkr'`. Since D-191-P
-the 5m from 2016-01-04 is Alpaca SIP, which legitimately differs from the IBKR reference, so those
-buckets are excluded like a bucket one side lacks. The verdict metric is the mismatched count;
-`NULL` means no bucket was comparable (a pass that measured nothing), and the run log carries
-`grid_parity_compared_nothing`, `grid_parity_buckets_compared` and `grid_parity_buckets_mismatched`
-per timeframe.
+`grid_recompute` (todo 657, replacing `grid_parity` and the retired `daily_vs_intraday`, whose IBKR
+inputs are gone) compares the stored canonical 15m and 1h rows of the months `digest_scope` picks with
+the derivation of the current 5m bars (`session_grid.aggregate_session_grid`), field by field and
+identity included: a changed, missing or extra bucket fails, and a name whose 5m bars derive buckets
+while its stored grid is empty fails (no stored rows is never a pass). `digest_fresh` cannot see this:
+the grid stage writes the digest from the values it derived, not from the rows it stored. The verdict
+metric is the number of differing buckets; the run log lists the failing names under
+`bar_integrity.grid_recompute_findings`.
 
 Grafana rules on these gauges: `bar_integrity_failing`, `bar_integrity_report_stale`,
 `bar_freshness_1d` (a name more than `threshold.bar_integrity.freshness_max_lag_sessions_1d`

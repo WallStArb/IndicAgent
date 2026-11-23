@@ -12,7 +12,7 @@ from collections import defaultdict
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from typing import NamedTuple, Protocol
+from typing import Protocol
 
 import numpy as np
 import pandas as pd
@@ -578,11 +578,12 @@ def judge_name_1d(
 
 TIMEFRAME_5M = "5m"
 CHECK_SPLIT_HORIZON_FRESH = "split_horizon_fresh"
+CHECK_GRID_RECOMPUTE = "grid_recompute"
 # Checks one name with 5m bars is judged on, in report order (identifiers, not tunables).
 CHECKS_INTRADAY = (
     "slot_coverage",
     "digest_fresh",
-    "grid_parity",
+    CHECK_GRID_RECOMPUTE,
     "stray_vendor_rows",
     "coverage_cache",
     CHECK_SPLIT_HORIZON_FRESH,
@@ -591,10 +592,6 @@ CHECKS_INTRADAY = (
 # the last full sweep happened. Informational: it never fails.
 INFO_DIGEST_FULL_SWEEP = "digest_full_sweep"
 SWEEP_SUBJECT = "intraday|sweep"
-
-_FIVE_MINUTES = 300
-_BUCKET_SECONDS = {"15m": 900, "1h": 3600}
-Values = tuple[float, float, float, float, float]
 
 
 def answered_slots(
@@ -631,160 +628,6 @@ def slot_coverage_by_year(
         if slot in slots_answered:
             done[slot.year] += 1
     return {year: done[year] / n for year, n in sorted(expected.items())}
-
-
-class ParityResult(NamedTuple):
-    """grid_parity's outcome: the buckets compared, how many mismatched outside the dated
-    exceptions (what the verdict gates on) and how many mismatched inside them (reported, never
-    gating, so a change in the excepted stamps' behavior stays visible)."""
-
-    compared: int
-    mismatched: int
-    excepted: int
-
-
-def grid_parity(
-    derived: Mapping[datetime, Values],
-    archived: Mapping[datetime, Values],
-    *,
-    timeframe: str,
-    exceptions: Mapping[datetime, tuple[bool, bool]] | None = None,
-) -> ParityResult:
-    """ParityResult(compared, mismatched, excepted) over the buckets both sides hold, on the
-    archive's keys.
-
-    Open, high, low and close must match exactly on every shared bucket. Volume may differ by up
-    to n - 1 shares for a bucket of n 5m bars (todo 569): the vendor rounds fractional-share
-    volume once per bucket while the derived value sums rounded 5m bars. 1h is compared on
-    shared buckets only (the vendor's 1h grid lacks the 09:30 half hour on 39 of 231 measured
-    names); a bucket one side lacks is never counted either way. Values are (open, high, low,
-    close, volume).
-
-    The caller decides which derived buckets are like-for-like: the audit passes only buckets made
-    entirely of ibkr-sourced 5m bars, because the reference is IBKR's own trades aggregate and SIP
-    5m bars (canonical from 2016-01-04) legitimately differ from it.
-
-    `exceptions` carries the D7 dated tolerance (todo 524, deferral D-191-H, recorded 2026-10-31):
-    a bucket start mapped to the dimensions its record excuses, (price, volume). A stamp recorded
-    in the APR record infra.grid_parity.dated_exceptions (migration 547) excuses only the dimensions its record
-    mismatched, so a new disagreement in the other dimension there stays a live failure; a bucket
-    whose archive row predates its 5m constituents (superseded evidence, the whole bucket stale)
-    excuses both. A mismatch on an excused dimension is counted in `excepted`, never in
-    `mismatched`; an exception that agrees is counted nowhere. Prices stay exact on every bucket
-    the caller has not dated."""
-    if timeframe not in _BUCKET_SECONDS:
-        raise ValueError(f"grid_parity is defined for {sorted(_BUCKET_SECONDS)}, not {timeframe!r}")
-    volume_slack = _BUCKET_SECONDS[timeframe] // _FIVE_MINUTES - 1
-    shared = derived.keys() & archived.keys()
-    mismatched = excepted = 0
-    for key in shared:
-        ours, theirs = derived[key], archived[key]
-        price_bad = tuple(map(float, ours[:4])) != tuple(map(float, theirs[:4]))
-        volume_bad = not abs(float(ours[4]) - float(theirs[4])) <= volume_slack
-        if not (price_bad or volume_bad):
-            continue
-        excused = exceptions.get(key, (False, False)) if exceptions else (False, False)
-        if (price_bad and not excused[0]) or (volume_bad and not excused[1]):
-            mismatched += 1
-        else:
-            excepted += 1
-    return ParityResult(len(shared), mismatched, excepted)
-
-
-def superseded_archive_buckets(
-    constituent_ts: np.ndarray,
-    constituent_served: np.ndarray,
-    archive_served: Mapping[datetime, datetime | None],
-    *,
-    timeframe: str,
-) -> frozenset[datetime]:
-    """The archive buckets whose row predates the newest 5m constituent it aggregates, by serve
-    time (the D7 freshness rule, todo 524): the row is superseded evidence, so a disagreement on
-    that bucket is dated vendor-side history, not a live disagreement. An archive row with no
-    serve time is never superseded, and neither is a bucket with any constituent of unknown serve
-    time (the newest serve time is then unknown, so the bucket can never be dated stale).
-    `constituent_ts` holds the kept 5m stamps sorted ascending and `constituent_served` their
-    serve times as epoch seconds with NaN for unknown; `archive_served` is the bucket start ->
-    the row's served_at, and the bucket starts come back as datetimes, the keys `grid_parity`'s
-    `exceptions` takes."""
-    width = _BUCKET_SECONDS[timeframe]
-    if not archive_served or not constituent_ts.size:
-        return frozenset()
-    keys = sorted(archive_served)
-    starts = np.array([int(key.timestamp()) for key in keys], dtype=np.int64)
-    ends = (starts // width + 1) * width
-    n = constituent_ts.size
-    lo = np.searchsorted(constituent_ts, starts, side="left")
-    hi = np.searchsorted(constituent_ts, ends, side="left")
-    # The newest serve time per bucket over exactly [lo, hi): reduceat over the interleaved
-    # bucket boundaries, reading only the even results (the odd ones span outside any bucket).
-    # Unknown (NaN) serve times drop out of the max and poison the bucket: one unknown
-    # constituent means the bucket's newest serve time is unknown.
-    unknown = np.isnan(constituent_served)
-    mesh = np.append(np.column_stack((lo, hi)).ravel(), n)
-    padded = np.append(np.where(unknown, -np.inf, constituent_served), -np.inf)
-    seg_max = np.maximum.reduceat(padded, mesh)[::2][: len(keys)]
-    seg_unknown = np.add.reduceat(np.append(unknown, False), mesh)[::2][: len(keys)] > 0
-    newest = np.where(hi > lo, seg_max, np.nan)
-    newest[seg_unknown] = np.nan
-    return frozenset(
-        keys[i]
-        for i in range(len(keys))
-        if archive_served[keys[i]] is not None
-        and not np.isnan(newest[i])
-        and archive_served[keys[i]].timestamp() < newest[i]
-    )
-
-
-def rebucket_5m(
-    ts_seconds: np.ndarray,
-    open_: np.ndarray,
-    high: np.ndarray,
-    low: np.ndarray,
-    close: np.ndarray,
-    volume: np.ndarray,
-    bucket_starts: Sequence[int],
-    *,
-    timeframe: str,
-) -> dict[int, Values]:
-    """Aggregate sorted 5m bars into the vendor archive's own buckets (epoch seconds -> values).
-
-    The archive's 1h grid sits on clock hours (a half-hour bar at 09:30, then 10:00, 11:00, ...)
-    while the derived grid is session anchored (09:30, 10:30, ...), so stored derived 1h rows
-    share only the 09:30 key with the archive and differ there by span. Re-aggregating the 5m
-    bars over each archive bucket's own span (to the next clock boundary of the timeframe) gives
-    the like-for-like comparison. A bucket is returned only when every 5m constituent is present.
-    """
-    width = _BUCKET_SECONDS[timeframe]
-    if not len(bucket_starts) or not ts_seconds.size:
-        return {}
-    starts = np.array(sorted(set(bucket_starts)), dtype=np.int64)
-    ends = (starts // width + 1) * width
-    idx = np.searchsorted(starts, ts_seconds, side="right") - 1
-    inside = (idx >= 0) & (ts_seconds < ends[np.clip(idx, 0, None)])
-    if not inside.any():
-        return {}
-    ids = idx[inside]
-    first = np.concatenate(([0], np.flatnonzero(np.diff(ids)) + 1))
-    counts = np.diff(np.concatenate((first, [ids.size])))
-    bucket = ids[first]
-    expected = (ends[bucket] - starts[bucket]) // _FIVE_MINUTES
-    full = counts == expected
-    o, h, lo, c, v = (a[inside] for a in (open_, high, low, close, volume))
-    last = first + counts - 1
-    out_high = np.maximum.reduceat(h, first)
-    out_low = np.minimum.reduceat(lo, first)
-    out_volume = np.add.reduceat(v, first)
-    return {
-        int(starts[bucket[i]]): (
-            float(o[first[i]]),
-            float(out_high[i]),
-            float(out_low[i]),
-            float(c[last[i]]),
-            float(out_volume[i]),
-        )
-        for i in np.flatnonzero(full)
-    }
 
 
 def routed_horizon_stale(

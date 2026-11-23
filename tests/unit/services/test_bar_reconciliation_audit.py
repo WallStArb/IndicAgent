@@ -6,7 +6,6 @@ services/bar_reconciliation_audit.py only loads these inputs and reports the res
 
 from __future__ import annotations
 
-import json
 import math
 from datetime import UTC, date, datetime, timedelta
 
@@ -14,11 +13,9 @@ import pytest
 
 from services import bar_reconciliation_audit as audit
 from services.bar_reconciliation_audit import (
-    aggregate_sessions,
     bucket_fine_volume,
     check_adjusted_vs_trades,
     check_completeness,
-    check_daily_vs_intraday,
     check_dividend_freshness,
     check_late_heads,
     check_listing_venue_coverage,
@@ -109,44 +106,6 @@ class TestAdjustedVsTrades:
         days = [date(2026, 9, 14), date(2026, 9, 15)]
         pairs = {"ABC": [(days[0], 100.0, 99.5), (days[1], 100.0, 100.0)]}
         assert check_adjusted_vs_trades(pairs, set(), 0.02).n_findings == 0
-
-
-# ---------------------------------------------------------------------------
-# Daily vs aggregated intraday
-# ---------------------------------------------------------------------------
-
-
-class TestDailyVsIntraday:
-    @staticmethod
-    def _run(daily_bar, agg_bar, volume_tol=0.0):
-        return check_daily_vs_intraday(
-            {("ABC", D0): daily_bar}, {("ABC", D0): agg_bar}, 15.0, volume_tol
-        )
-
-    def test_ten_bp_auction_difference_passes(self):
-        assert self._run((50.0, 100.10, 1000), (50.0, 100.0, 1000)).n_findings == 0
-
-    def test_thirty_bp_close_difference_fails(self):
-        result = self._run((50.0, 100.30, 1000), (50.0, 100.0, 1000))
-        assert result.n_findings == 1
-        assert result.samples == ("ABC|2026-09-21|close",)
-
-    def test_open_mismatch_fails(self):
-        assert self._run((50.01, 100.0, 1000), (50.0, 100.0, 1000)).n_findings == 1
-
-    def test_volume_mismatch_by_one_fails_at_zero_tolerance(self):
-        assert self._run((50.0, 100.0, 1001), (50.0, 100.0, 1000)).n_findings == 1
-
-    def test_volume_within_measured_tolerance_passes(self):
-        # 185-12 measured the official daily volume above the intraday sum by up to ~0.26%.
-        assert self._run((50.0, 100.0, 1002), (50.0, 100.0, 1000), 0.005).n_findings == 0
-
-    def test_null_daily_volume_is_not_judged(self):
-        assert self._run((50.0, 100.0, None), (50.0, 100.0, 1000)).n_findings == 0
-
-    def test_session_missing_on_one_side_is_not_judged(self):
-        result = check_daily_vs_intraday({("ABC", D0): (1.0, 1.0, 1)}, {}, 15.0, 0.0)
-        assert result.n_findings == 0
 
 
 # ---------------------------------------------------------------------------
@@ -285,23 +244,6 @@ class TestConfirmedSpansFromRequests:
         venues = ["NYSE", "ISLAND"]
         rows = self._rows(["NYSE"], primary="NASDAQ")
         assert len(confirmed_spans_from_requests(rows, venues, slack=self.SLACK)) == 1
-
-
-class TestAggregateSessions:
-    def test_first_open_last_close_summed_volume_inside_the_session(self):
-        sessions = nyse_sessions(D0, D0)
-        fine = [
-            ("ABC", OPEN - FIVE, 9.0, 9.0, 999),  # pre-market: dropped
-            ("ABC", OPEN, 10.0, 10.5, 100),
-            ("ABC", OPEN + FIVE, 10.5, 11.0, 50),
-            ("ABC", OPEN + FIVE * 77, 11.0, 12.0, 25),  # 15:55 ET, the last bar
-        ]
-        assert aggregate_sessions(fine, sessions, FIVE) == {("ABC", D0): (10.0, 12.0, 175)}
-
-    def test_session_whose_feed_stops_before_the_final_slot_is_dropped(self):
-        sessions = nyse_sessions(D0, D0)
-        fine = [("ABC", OPEN, 10.0, 10.5, 100), ("ABC", OPEN + FIVE * 60, 10.5, 11.0, 50)]
-        assert aggregate_sessions(fine, sessions, FIVE) == {}
 
 
 class TestPartialDaily:
@@ -633,7 +575,6 @@ def test_the_1d_verdict_names_are_the_backfill_dimension(monkeypatch):
     for name in (
         "_route_disagreement",
         "_adjusted_vs_trades",
-        "_daily_vs_intraday",
         "_seams",
         "_late_heads",
         "_listing_venue_coverage",
@@ -971,21 +912,6 @@ def _intraday_series(days=_I_DAYS):
     return sessions, rows
 
 
-def _archive_rows(rows, tf):
-    """What a vendor archive holds when it agrees with the 5m rows (built by the rebucketing)."""
-    from src.intelligence.bars.integrity_checks import rebucket_5m
-
-    five = audit._FiveMinute.from_rows(rows, [])
-    width = {"15m": 900, "1h": 3600}[tf]
-    starts = sorted({int(r["timestamp"].timestamp()) // width * width for r in rows})
-    if tf == "1h":  # the vendor's first bucket of a session is the 09:30 half hour
-        starts = sorted({s for s in starts} | {int(r["timestamp"].timestamp()) for r in rows[:1]})
-    rebucketed = rebucket_5m(
-        five.ts, five.open, five.high, five.low, five.close, five.volume, starts, timeframe=tf
-    )
-    return {datetime.fromtimestamp(t, tz=UTC): values for t, values in rebucketed.items()}
-
-
 class _IntradayConn:
     """Answers the intraday report's reads by SQL constant and records nothing it must not."""
 
@@ -993,11 +919,15 @@ class _IntradayConn:
         self, names, *, previous=None, last_sweep=None, loads=(), stray=None, listing_end=None
     ):
         self.listing_end = listing_end or {}  # symbol -> last session date
-        self.names = names  # symbol -> {"rows", "archive": {tf: {ts: values}}, "digests": {tf: {}}}
+        self.names = (
+            names  # symbol -> {"rows", "stored_grid": {tf: {ts: BarValues}}, "digests": {tf: {}}}
+        )
         self.previous = previous or {}
         self.last_sweep = last_sweep
         self.loads = list(loads)
         self.stray = stray or {}
+        self.recompute_known = True  # a passing grid_recompute record exists for every name
+        self.grid_reads: list = []  # the months argument of every stored-grid read
         self.facts: list[tuple] = []
 
     async def fetch(self, sql, *args):
@@ -1009,6 +939,13 @@ class _IntradayConn:
             return [
                 {"subject": s, "passed": p, "evaluated_at": at}
                 for s, (p, at) in self.previous.items()
+            ]
+        if sql == audit._PREVIOUS_RECOMPUTE_SQL:
+            return [
+                {"subject": f"{symbol}|{tf}", "passed": True}
+                for symbol in self.names
+                for tf in ("15m", "1h")
+                if self.recompute_known
             ]
         if sql == audit._CHANGING_LOADS_SQL:
             return self.loads
@@ -1031,16 +968,13 @@ class _IntradayConn:
             ]
         if sql == audit._ANSWERED_5M_SQL:
             return data.get("answered_windows", ())
-        if sql == audit._ARCHIVE_ROWS_SQL:
-            served = data.get("archive_served", {})
+        if sql == audit._STORED_GRID_SQL:
+            _symbol, timeframes, months = args
+            self.grid_reads.append(months)
             return [
-                {
-                    "timeframe": tf,
-                    "timestamp": ts,
-                    "served_at": served.get((tf, ts)),
-                    **dict(zip(("open", "high", "low", "close", "volume"), v)),
-                }
-                for tf, by_ts in data["archive"].items()
+                {"timeframe": tf, "timestamp": ts, **v._asdict()}
+                for tf, by_ts in data["stored_grid"].items()
+                if tf in timeframes
                 for ts, v in by_ts.items()
             ]
         if sql == audit._SELECT_CURRENT_GRID_DIGESTS_SQL:
@@ -1074,11 +1008,11 @@ def _agreeing_name(rows=None):
     sessions, base_rows = _intraday_series()
     rows = rows if rows is not None else base_rows
     five = audit._FiveMinute.from_rows(rows, [])
-    digests, _ = audit.intraday_month_digests(five, sessions, None)
+    scoped = audit.scoped_grids(five, sessions, None)
     return {
         "rows": rows,
-        "archive": {tf: _archive_rows(rows, tf) for tf in ("15m", "1h")},
-        "digests": digests,
+        "stored_grid": {tf: audit.derived_grid_values(g) for tf, (g, _r) in scoped.grids.items()},
+        "digests": audit.scoped_digests(scoped),
     }
 
 
@@ -1093,17 +1027,16 @@ def _no_drift(names):
     return drift(names)
 
 
-def _intraday(conn, drift=_no_drift, recorded=None, integ=None):
+def _intraday(conn, drift=_no_drift, integ=None):
     import asyncio
 
     return asyncio.run(
         audit.BarReconciliationAudit._verdict_report_intraday(
             conn,
-            integ or _I_PARAMS,  # from_apr({}): no dated record, so nothing is excepted
+            integ or _I_PARAMS,
             _IWindow(),
             _I_NOW,
             coverage_drift=drift,
-            recorded=recorded,
         )
     )
 
@@ -1120,8 +1053,8 @@ def test_an_agreeing_name_passes_every_intraday_check_and_gets_the_whole_row_set
         ("AAA|5m", "digest_fresh"),
         ("AAA|15m", "digest_fresh"),
         ("AAA|1h", "digest_fresh"),
-        ("AAA|15m", "grid_parity"),
-        ("AAA|1h", "grid_parity"),
+        ("AAA|15m", "grid_recompute"),
+        ("AAA|1h", "grid_recompute"),
         ("AAA|15m", "stray_vendor_rows"),
         ("AAA|1h", "stray_vendor_rows"),
         ("AAA|5m", "coverage_cache"),
@@ -1129,8 +1062,8 @@ def test_an_agreeing_name_passes_every_intraday_check_and_gets_the_whole_row_set
     }
     assert {f[0] for f in run.facts} == {"bar_integrity"}
     assert all(f[5] for f in run.facts) and run.failing_by_check == {}
-    parity = _verdict(run, "AAA|15m", "grid_parity")
-    assert parity[3] == 0.0 and parity[4] == 0.0
+    recompute = _verdict(run, "AAA|15m", "grid_recompute")
+    assert recompute[3] == 0.0 and recompute[4] == 0.0
 
 
 def test_missing_unanswered_slots_fail_slot_coverage_with_the_worst_year_as_metric():
@@ -1254,379 +1187,70 @@ def test_requested_end_is_inclusive_and_the_day_after_is_not():
     assert _coverage(name)[5] is False
 
 
-def test_a_mismatched_archive_bucket_fails_grid_parity_and_is_named():
+def _first_bucket(name, tf="15m"):
+    key = min(name["stored_grid"][tf])
+    return key, name["stored_grid"][tf][key]
+
+
+def test_a_differing_field_of_a_stored_bucket_fails_grid_recompute_and_is_named():
     name = _agreeing_name()
-    key = next(iter(name["archive"]["15m"]))
-    values = list(name["archive"]["15m"][key])
-    values[4] += 3.0
-    name["archive"]["15m"][key] = tuple(values)
+    key, values = _first_bucket(name)
+    name["stored_grid"]["15m"][key] = values._replace(close=values.close + 0.01)
     run = _intraday(_IntradayConn({"AAA": name}))
-    verdict = _verdict(run, "AAA|15m", "grid_parity")
+    verdict = _verdict(run, "AAA|15m", "grid_recompute")
     assert verdict[5] is False and verdict[3] == 1.0
-    assert run.parity_failing == ["AAA|15m|mismatched=1|compared=52"]
-    assert _verdict(run, "AAA|1h", "grid_parity")[5] is True
+    assert run.recompute_failing == ["AAA|15m|findings=1"]
+    assert _verdict(run, "AAA|1h", "grid_recompute")[5] is True
 
 
-def test_a_name_without_archive_rows_passes_parity_with_a_null_metric_and_is_counted():
+def test_a_missing_bucket_a_partial_write_fails_grid_recompute():
     name = _agreeing_name()
-    name["archive"] = {}
-    run = _intraday(_IntradayConn({"AAA": name}))
-    verdict = _verdict(run, "AAA|15m", "grid_parity")
-    assert verdict[5] is True and verdict[3] is None
-    assert run.n_without_archive == {"15m": 1, "1h": 1}
+    key, _ = _first_bucket(name)
+    del name["stored_grid"]["15m"][key]
+    verdict = _verdict(_intraday(_IntradayConn({"AAA": name})), "AAA|15m", "grid_recompute")
+    assert verdict[5] is False and verdict[3] == 1.0
 
 
-def _sip(rows, keep):
-    """The rows with those picked by `keep(index)` served by Alpaca SIP at slightly other prices."""
-    return [
-        (
-            {**r, "vendor": "alpaca", "open": r["open"] + 0.01, "close": r["close"] - 0.02}
-            if keep(i)
-            else r
-        )
-        for i, r in enumerate(rows)
-    ]
+def test_a_rogue_extra_bucket_fails_grid_recompute():
+    name = _agreeing_name()
+    key, values = _first_bucket(name, "1h")
+    name["stored_grid"]["1h"][key + timedelta(minutes=1)] = values  # inside a checked month
+    verdict = _verdict(_intraday(_IntradayConn({"AAA": name})), "AAA|1h", "grid_recompute")
+    assert verdict[5] is False and verdict[3] == 1.0
 
 
-def test_ibkr_sourced_five_minute_bars_rebucket_equal_to_the_archive_and_are_counted():
-    run = _intraday(_IntradayConn({"AAA": _agreeing_name()}))
-    for tf in ("15m", "1h"):
-        verdict = _verdict(run, f"AAA|{tf}", "grid_parity")
-        assert verdict[5] is True and verdict[3] == 0.0
-    assert run.parity_compared["15m"] > 0 and run.parity_compared["1h"] > 0
-    assert run.parity_mismatched == {"15m": 0, "1h": 0} and run.n_without_archive == {}
+def test_a_vendor_row_where_the_grid_belongs_fails_on_identity():
+    name = _agreeing_name()
+    key, values = _first_bucket(name)
+    name["stored_grid"]["15m"][key] = values._replace(vendor="ibkr", kind="named")
+    verdict = _verdict(_intraday(_IntradayConn({"AAA": name})), "AAA|15m", "grid_recompute")
+    assert verdict[5] is False and verdict[3] == 1.0
 
 
-def test_sip_sourced_five_minute_bars_that_differ_from_the_archive_are_not_compared():
-    _, rows = _intraday_series()
-    name = _agreeing_name(rows)  # the archive is IBKR's: it agrees with the original ibkr bars
-    name["rows"] = _sip(rows, lambda i: True)  # canonical 5m is all SIP now, prices differ
+def test_a_name_with_five_minute_bars_and_no_stored_grid_is_not_a_pass():
+    name = _agreeing_name()
+    name["stored_grid"] = {}
     run = _intraday(_IntradayConn({"AAA": name}))
     for tf in ("15m", "1h"):
-        verdict = _verdict(run, f"AAA|{tf}", "grid_parity")
-        assert verdict[5] is True and verdict[3] is None  # passed, nothing was measured
-    assert run.n_without_archive == {"15m": 1, "1h": 1}
-    assert run.parity_compared == {} and run.parity_failing == []
+        verdict = _verdict(run, f"AAA|{tf}", "grid_recompute")
+        assert verdict[5] is False and verdict[3] > 0
+    assert run.failing_by_check["grid_recompute"] == 2
 
 
-def test_an_ibkr_sourced_bucket_that_mismatches_still_fails_beside_sip_buckets():
-    _, rows = _intraday_series()
-    name = _agreeing_name(rows)
-    half = len(rows) // 2
-    name["rows"] = _sip(rows, lambda i: i >= half)  # first session ibkr, second session SIP
-    key = next(iter(name["archive"]["15m"]))  # a bucket in the ibkr-sourced first session
-    values = list(name["archive"]["15m"][key])
-    values[4] += 3.0
-    name["archive"]["15m"][key] = tuple(values)
-    run = _intraday(_IntradayConn({"AAA": name}))
-    verdict = _verdict(run, "AAA|15m", "grid_parity")
-    assert verdict[5] is False and verdict[3] == 1.0
-    assert run.parity_failing[0].startswith("AAA|15m|mismatched=1|compared=")
-    assert 1 < run.parity_compared["15m"] < len(name["archive"]["15m"])  # SIP buckets excluded
-    assert _verdict(run, "AAA|1h", "grid_parity")[5] is True
-
-
-def _first_bucket_key(name, tf="15m"):
-    return next(iter(name["archive"][tf]))
-
-
-def test_an_archive_row_served_before_the_days_5m_bars_is_a_dated_exception():
-    """D7 freshness rule (todo 524): the archive bar was served once and the day's 5m re-served
-    later, so the archive row is superseded evidence and its mismatch is excepted, not a failure."""
-    name = _agreeing_name()
-    key = _first_bucket_key(name)
-    day = key.date()
-    name["archive_served"] = {
-        ("15m", key): datetime(2026, 10, 1, tzinfo=UTC),
-        **{
-            ("1h", k): datetime(2026, 10, 1, tzinfo=UTC)
-            for k in name["archive"]["1h"]
-            if k.date() == day
-        },
-    }
-    for r in name["rows"]:
-        if r["timestamp"].date() == day:  # the day's 5m was re-served after the archive
-            r["served_at"] = datetime(2026, 10, 20, tzinfo=UTC)
-    values = list(name["archive"]["15m"][key])
-    values[4] += 3.0
-    name["archive"]["15m"][key] = tuple(values)
-    run = _intraday(_IntradayConn({"AAA": name}))
-    verdict = _verdict(run, "AAA|15m", "grid_parity")
-    assert verdict[5] is True and verdict[3] == 0.0
-    assert run.parity_excepted["15m"] == 1 and run.parity_mismatched["15m"] == 0
-
-
-def test_an_archive_row_served_after_the_days_5m_bars_still_fails():
-    name = _agreeing_name()
-    key = _first_bucket_key(name)
-    day = key.date()
-    name["archive_served"] = {
-        ("15m", key): datetime(2026, 10, 25, tzinfo=UTC),
-        **{
-            ("1h", k): datetime(2026, 10, 25, tzinfo=UTC)
-            for k in name["archive"]["1h"]
-            if k.date() == day
-        },
-    }
-    for r in name["rows"]:
-        if r["timestamp"].date() == day:  # the 5m is the older view here
-            r["served_at"] = datetime(2026, 10, 2, tzinfo=UTC)
-    values = list(name["archive"]["15m"][key])
-    values[4] += 3.0
-    name["archive"]["15m"][key] = tuple(values)
-    run = _intraday(_IntradayConn({"AAA": name}))
-    verdict = _verdict(run, "AAA|15m", "grid_parity")
-    assert verdict[5] is False and verdict[3] == 1.0
-    assert run.parity_excepted.get("15m", 0) == 0
-
-
-def test_a_recorded_dated_exception_releases_its_stamp():
-    name = _agreeing_name()
-    key = _first_bucket_key(name)
-    values = list(name["archive"]["15m"][key])
-    values[4] += 3.0
-    name["archive"]["15m"][key] = tuple(values)
-    recorded = {"AAA": {"15m": {key: (True, True)}}}
-    run = _intraday(_IntradayConn({"AAA": name}), recorded=recorded)
-    verdict = _verdict(run, "AAA|15m", "grid_parity")
-    assert verdict[5] is True and verdict[3] == 0.0
-    assert run.parity_excepted["15m"] == 1 and run.parity_mismatched["15m"] == 0
-    plain = _intraday(_IntradayConn({"AAA": name}))
-    assert _verdict(plain, "AAA|15m", "grid_parity")[5] is False  # unrecorded it still fails
-
-
-def test_a_released_stamp_outside_its_stamps_names_list_is_record_drift():
-    with pytest.raises(audit.DatedExceptionsDrift):
-        audit.load_dated_exceptions(
-            {
-                "waves": {"1": {"released": True, "names": ["BBB"]}},
-                "exceptions": {
-                    "AAA": {
-                        "15m": [
-                            {
-                                "stamp": "2026-10-01T13:30:00+00:00",
-                                "wave": 1,
-                                "price": True,
-                                "volume": False,
-                            }
-                        ]
-                    }
-                },
-            }
-        )
-
-
-def test_drift_collects_every_drifted_symbol_and_checks_the_stamps_own_wave():
-    """Membership is checked against the stamp's own wave, not the union, and one raise names
-    every drifted symbol so one fix cycle repairs the whole record."""
-    stamp = {"stamp": "2026-10-01T13:30:00+00:00", "price": True, "volume": False}
-    with pytest.raises(audit.DatedExceptionsDrift) as caught:
-        audit.load_dated_exceptions(
-            {
-                "waves": {
-                    "1": {"released": True, "names": ["BBB"]},
-                    "2": {"released": True, "names": ["AAA"]},  # AAA holds wave-1 stamps only
-                },
-                "exceptions": {
-                    "AAA": {"15m": [{**stamp, "wave": 1}]},
-                    "CCC": {"15m": [{**stamp, "wave": 2}]},
-                },
-            }
-        )
-    assert caught.value.symbols == ["AAA", "CCC"]
-
-
-def test_a_stamp_in_a_nameless_released_wave_is_a_record_defect_with_its_own_error():
-    with pytest.raises(ValueError, match="no names list"):
-        audit.load_dated_exceptions(
-            {
-                "waves": {"1": {"released": True}},
-                "exceptions": {
-                    "AAA": {
-                        "15m": [
-                            {
-                                "stamp": "2026-10-01T13:30:00+00:00",
-                                "wave": 1,
-                                "price": True,
-                                "volume": False,
-                            }
-                        ]
-                    }
-                },
-            }
-        )
-
-
-def test_a_mixed_defect_record_reports_both_after_one_scan():
-    """The scan completes before raising, so a record with both a nameless wave and drift
-    names all of its defects in one report."""
-    stamp = {"stamp": "2026-10-01T13:30:00+00:00", "price": True, "volume": False}
-    with pytest.raises(audit.DatedExceptionsDrift) as caught:
-        audit.load_dated_exceptions(
-            {
-                "waves": {
-                    "1": {"released": True},  # nameless, referenced below
-                    "2": {"released": True, "names": ["BBB"]},
-                },
-                "exceptions": {
-                    "AAA": {"15m": [{**stamp, "wave": 1}]},
-                    "CCC": {"15m": [{**stamp, "wave": 2}]},  # CCC drifts against wave 2
-                },
-            }
-        )
-    # drift keeps its dedicated event; the nameless wave rides the message as a note
-    assert caught.value.symbols == ["CCC"] and "no names list" in str(caught.value)
-
-
-def test_a_structurally_wrong_record_is_malformed_not_a_crash():
-    raws = [
-        '{"waves": ["1"], "exceptions": {}}',
-        '{"exceptions": "nope"}',
-        '{"waves": {"1": "released"}, "exceptions": {}}',
-        '{"waves": {"1": {"released": true, "names": "AAA"}}, "exceptions": {}}',
-        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, "exceptions": {"AAA": []}}',
-        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, '
-        '"exceptions": {"AAA": {"15m": ["nope"]}}}',
-        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, '
-        '"exceptions": {"AAA": {"15m": [{"stamp": "2026-10-01T13:30:00+00:00", "wave": 1, '
-        '"price": "false", "volume": true}]}}}',
-        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, '
-        '"exceptions": {"AAA": {"15m": [{"stamp": "2026-10-01", "wave": 1, "price": true, '
-        '"volume": true}]}}}',
-        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, '
-        '"exceptions": {"AAA": {"15m": [{"stamp": "nonsense", "wave": 1, "price": true, '
-        '"volume": true}]}}}',
-        '{"waves": {"1": {"released": true, "names": ["AAA"]}}, '
-        '"exceptions": {"AAA": {"15m": [{"stamp": "2026-10-01T13:30:00+00:00", "wave": 1, '
-        '"price": true}]}}}',
-    ]
-    for raw in raws:
-        integ = audit._IntegrityParams.from_apr({"infra.grid_parity.dated_exceptions": raw})
-        run = _intraday(_IntradayConn({"AAA": _agreeing_name()}), integ=integ)
-        assert _verdict(run, "AAA|15m", "grid_parity")[5] is True  # warned, judged
-
-
-def test_a_released_wave_without_a_names_key_does_not_break_unrelated_waves():
-    loaded = audit.load_dated_exceptions(
-        {
-            "waves": {
-                "1": {"released": True, "names": ["AAA"]},
-                "4": {"released": True},  # released, unused, no names list
-            },
-            "exceptions": {
-                "AAA": {
-                    "15m": [
-                        {
-                            "stamp": "2026-10-01T13:30:00+00:00",
-                            "wave": 1,
-                            "price": True,
-                            "volume": False,
-                        }
-                    ]
-                }
-            },
-        }
-    )
-    assert loaded["AAA"]["15m"]  # wave 1's stamps still load
-
-
-def test_a_drifted_record_fails_closed_with_its_own_error_event():
-    """Drift must not vanish into the malformed-record warning: one drifted symbol voids the
-    whole record (fail closed), but under its own event so triage can tell them apart."""
-    name = _agreeing_name()
-    key = next(iter(name["archive"]["15m"]))
-    values = list(name["archive"]["15m"][key])
-    values[4] += 3.0
-    name["archive"]["15m"][key] = tuple(values)
-    record = json.dumps(
-        {
-            "waves": {"1": {"released": True, "names": []}},  # AAA missing: drift
-            "exceptions": {
-                "AAA": {
-                    "15m": [{"stamp": key.isoformat(), "wave": 1, "price": False, "volume": True}]
-                }
-            },
-        }
-    )
-    integ = audit._IntegrityParams.from_apr({"infra.grid_parity.dated_exceptions": record})
-    run = _intraday(_IntradayConn({"AAA": name}), integ=integ)
-    verdict = _verdict(run, "AAA|15m", "grid_parity")
-    assert verdict[5] is False and run.parity_excepted.get("15m", 0) == 0
-    # the drift path logs its own error event, not the malformed-record warning: pin the
-    # distinction by asserting the loader raises the dedicated type for this record
-    with pytest.raises(audit.DatedExceptionsDrift) as caught:
-        audit.load_dated_exceptions(json.loads(record))
-    assert caught.value.symbols == ["AAA"]
-
-
-def test_load_dated_exceptions_releases_only_released_waves():
-    loaded = audit.load_dated_exceptions(
-        {
-            "waves": {"1": {"released": True, "names": ["AAA"]}, "3": {"released": False}},
-            "exceptions": {
-                "AAA": {
-                    "15m": [
-                        {
-                            "stamp": "2026-10-01T13:30:00+00:00",
-                            "wave": 1,
-                            "price": True,
-                            "volume": False,
-                        },
-                        {
-                            "stamp": "2026-10-02T13:30:00+00:00",
-                            "wave": 3,
-                            "price": True,
-                            "volume": True,
-                        },
-                    ]
-                }
-            },
-        }
-    )
-    assert loaded["AAA"]["15m"] == {datetime(2026, 10, 1, 13, 30, tzinfo=UTC): (True, False)}
-
-
-def test_a_missing_or_malformed_dated_exceptions_record_fails_closed():
-    for raw in (None, "{not json", '["waves"]', '{"no": "keys"}'):
-        apr = {} if raw is None else {"infra.grid_parity.dated_exceptions": raw}
-        run = _intraday(
-            _IntradayConn({"AAA": _agreeing_name()}), integ=audit._IntegrityParams.from_apr(apr)
-        )
-        assert _verdict(run, "AAA|15m", "grid_parity")[5] is True  # judged, not raised
-
-
-def test_an_apr_record_releases_its_stamps_without_a_file():
-    """The production path: the record arrives in the APR params (migration 547), not a file."""
-    name = _agreeing_name()
-    key = next(iter(name["archive"]["15m"]))
-    values = list(name["archive"]["15m"][key])
-    values[4] += 3.0
-    name["archive"]["15m"][key] = tuple(values)
-    record = json.dumps(
-        {
-            "waves": {"1": {"released": True, "names": ["AAA"]}},
-            "exceptions": {
-                "AAA": {
-                    "15m": [{"stamp": key.isoformat(), "wave": 1, "price": False, "volume": True}]
-                }
-            },
-        }
-    )
-    integ = audit._IntegrityParams.from_apr({"infra.grid_parity.dated_exceptions": record})
-    run = _intraday(_IntradayConn({"AAA": name}), integ=integ)
-    verdict = _verdict(run, "AAA|15m", "grid_parity")
-    assert verdict[5] is True and run.parity_excepted["15m"] == 1
-
-
-def test_a_bucket_with_one_sip_constituent_is_excluded_not_compared_or_failed():
-    _, rows = _intraday_series()
-    name = _agreeing_name(rows)
-    name["rows"] = _sip(rows, lambda i: i == 1)  # one SIP bar inside the first 15m bucket
-    run = _intraday(_IntradayConn({"AAA": name}))
-    full = len(name["archive"]["15m"])
-    verdict = _verdict(run, "AAA|15m", "grid_parity")
-    assert verdict[5] is True and verdict[3] == 0.0
-    assert run.parity_compared["15m"] == full - 1  # exactly the mixed bucket left out
+def test_the_stored_grid_is_read_over_the_scoped_months_only():
+    conn = _IntradayConn({"AAA": _agreeing_name()})
+    _intraday(conn)
+    assert conn.grid_reads == [None]  # a first run is a full sweep: every month
+    recent = datetime(2025, 6, 1, 6, tzinfo=UTC)
+    scoped = _IntradayConn({"AAA": _agreeing_name()}, previous=_previous(), last_sweep=recent)
+    _intraday(scoped)  # nothing written since the previous report: an empty month scope
+    assert scoped.grid_reads == [[]]
+    # A name with no passing grid_recompute record of its own is judged over every month, so an
+    # empty digest scope can never make the check pass on nothing.
+    fresh = _IntradayConn({"AAA": _agreeing_name()}, previous=_previous(), last_sweep=recent)
+    fresh.recompute_known = False
+    _intraday(fresh)
+    assert fresh.grid_reads == [None]
 
 
 def test_stray_vendor_rows_fail_per_timeframe():
@@ -2211,9 +1835,7 @@ def test_d7_reads_no_retired_store():
     assert not re.search(
         r"(FROM|JOIN|INTO|COPY)\s+(ohlcv_observation|ohlcv_intraday_raw_archive)\b", source
     )
-    assert "FROM ohlcv_raw" in audit._ARCHIVE_ROWS_SQL and "kind = 'named'" in (
-        audit._ARCHIVE_ROWS_SQL
-    )
+    assert not hasattr(audit, "_ARCHIVE_ROWS_SQL")  # the IBKR archive comparison is gone
     assert "q.route = 'SMART'" in audit._SMART_OBS_SQL
     assert "FROM ohlcv_venue_head" in audit._VENUE_FIRST_SQL
     assert not hasattr(audit, "_SMART_HEAD_SQL")
