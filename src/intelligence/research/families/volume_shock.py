@@ -1,10 +1,10 @@
 """Volume-shock kernels (docs/plans/2026-11-15-family10-volume-shock-prereg-draft.md, ledger E24;
 Gervais, Kaniel and Mingelgrin 2001).
 
-Pure functions over [sessions, names] arrays; no member wrapper, no `NULL_BATTERY`, no spec: a
-member needs the share volume AND the S1 residual returns e, and the member contract of
-`families/common.py` hands one array (todo 663, blocked on todo 653). Until that input lands the
-family cannot run, and `runner.static_gate` refuses it before the ledger.
+Pure functions over [sessions, names] arrays; no member wrapper, no `NULL_BATTERY`, no spec. The
+run path reads the share volume through a `panel_source` member (`member_sources`, todo 653) and
+`member_sources.orthogonalize_members` applies `residualize_rows` and `trailing_sum` below, so the
+member contract still hands one array; the spec, the battery and the registration are todo 663.
 
 V1 (`short=1`): for row d, the percentile rank of v[d] among v[d-49..d], minus 0.5, then the
 cross-sectional OLS residual of that value on e[d] and abs(e[d]) with an intercept.

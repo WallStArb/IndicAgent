@@ -199,6 +199,18 @@ class MemberInputSpec(BaseModel):
         return self
 
 
+class OrthogonalizeSpec(BaseModel):
+    """The explicit stage after the members (member_sources.orthogonalize_members): each row's
+    member values are replaced by their cross-sectional OLS residual on the S1 residual return
+    summed over `sum_sessions` sessions ending at the row, and its absolute value, fitted over
+    the member names (after the membership mask) with finite values, and NaN where fewer than
+    `min_names` are finite (ledger 2026-11-22h)."""
+
+    model_config = _STRICT
+    sum_sessions: int = Field(ge=1)
+    min_names: int = Field(ge=4)
+
+
 class MemberSpec(BaseModel):
     model_config = _STRICT
     name: Identifier
@@ -211,6 +223,13 @@ class MemberSpec(BaseModel):
     # smoothing.SMOOTHING_HALF_LIVES (design D3), for input members only (B5).
     input: MemberInputSpec | None = None
     smoothing_half_life: Literal[5, 21, 63] | None = None
+    # Todo 653: a member that reads a field of the book's own panel (the total-return close or the
+    # share volume, same clock, no alignment) instead of the S1 residual bar returns, and an
+    # optional orthogonalization stage to the S1 residual (families 9 and 10). Both left out of the
+    # canonical form while unset, so every recorded spec hash holds. `input` and `panel_source`
+    # are exclusive: a stored feature or kernel source is another route.
+    panel_source: Literal["close", "volume"] | None = None
+    orthogonalize: OrthogonalizeSpec | None = None
 
     @model_validator(mode="after")
     def _slot_history_needs_residual_member(self) -> MemberSpec:
@@ -218,6 +237,28 @@ class MemberSpec(BaseModel):
         # todo 588 item 8); a residual-return member's slot history is at least one session.
         if self.input is None and self.slot_history_sessions < 1:
             raise ValueError(f"member {self.name}: slot_history_sessions must be at least 1")
+        return self
+
+    @model_validator(mode="after")
+    def _panel_source_rules(self) -> MemberSpec:
+        if self.panel_source is not None and (
+            self.input is not None or self.smoothing_half_life is not None
+        ):
+            raise ValueError(
+                f"member {self.name}: panel_source excludes input and smoothing_half_life"
+            )
+        if self.orthogonalize is not None and self.panel_source is None:
+            raise ValueError(f"member {self.name}: orthogonalize needs a panel_source member")
+        if (
+            self.orthogonalize is not None
+            and self.orthogonalize.sum_sessions > self.slot_history_sessions
+        ):
+            # The stage reads e back sum_sessions - 1 rows; the member's declared memory
+            # (slot history plus S1's reach) must cover it.
+            raise ValueError(
+                f"member {self.name}: orthogonalize.sum_sessions {self.orthogonalize.sum_sessions} "
+                f"exceeds slot_history_sessions {self.slot_history_sessions}"
+            )
         return self
 
     @model_validator(mode="after")
@@ -378,6 +419,17 @@ class FamilySpec(BaseModel):
             raise ValueError("a member input needs closes_at in panel.fields")
         if self.panel.tf != "1d" and any(m.smoothing_half_life for m in self.members):
             raise ValueError("smoothing_half_life needs a 1d book clock (RESEARCH A5)")
+        return self
+
+    @model_validator(mode="after")
+    def _panel_sources_are_declared(self) -> FamilySpec:
+        if self.panel.tf != "1d" and any(m.orthogonalize for m in self.members):
+            raise ValueError("orthogonalize needs a 1d book clock (its sums run over sessions)")
+        for m in self.members:
+            if m.panel_source == "close" and self.panel.total_return is None:
+                # Bars are price-only: a close read across a session boundary is the total-return
+                # close or it is wrong at every ex-date (dividends are unknown outside coverage).
+                raise ValueError(f"member {m.name}: a close panel_source needs panel.total_return")
         return self
 
 
@@ -580,7 +632,7 @@ _OPTIONAL_PANEL_FIELDS = (
 # The same for scoring and the combiner: specs run under E16 keep their hashes.
 _OPTIONAL_SCORING_FIELDS = ("timing_statistic",)
 # Plan 184-06: per-member fields, left out of each member's canonical form while unset.
-_OPTIONAL_MEMBER_FIELDS = ("input", "smoothing_half_life")
+_OPTIONAL_MEMBER_FIELDS = ("input", "smoothing_half_life", "panel_source", "orthogonalize")
 _OPTIONAL_COMBINER_FIELDS = (
     "kind",
     "window_sessions",

@@ -156,6 +156,10 @@ def family_recipes(loaded: LoadedSpec) -> dict[str, RecipeContent]:
                     "params": dict(m.params),
                     "slot_history_sessions": m.slot_history_sessions,
                     "declared_memory_rows": m.declared_memory_rows,
+                    # Todo 653: what the member reads and the stage after it (unset is dropped,
+                    # so every recipe hash from before them is unchanged).
+                    "panel_source": m.panel_source,
+                    "orthogonalize": _dump(m.orthogonalize) if m.orthogonalize else None,
                 }
             ),
             cvr,

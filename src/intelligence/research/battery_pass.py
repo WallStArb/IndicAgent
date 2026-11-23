@@ -105,6 +105,11 @@ class BatteryPassRefused(RuntimeError):
     """No recorded pass covers this family at these inputs and this code."""
 
 
+def _json_field(value):
+    """A set optional member field as plain JSON; None stays None (and is left out of the hash)."""
+    return value.model_dump(mode="json") if hasattr(value, "model_dump") else value
+
+
 def battery_input_hash(spec) -> str:
     """sha256 over what the battery simulates for a family spec (a FamilySpec)."""
     body = {
@@ -118,6 +123,13 @@ def battery_input_hash(spec) -> str:
                 "params": dict(sorted(m.params.items())),
                 "slot_history_sessions": m.slot_history_sessions,
                 "declared_memory_rows": m.declared_memory_rows,
+                # Todo 653: what a panel-source member reads and the stage after it; present only
+                # when set, so every input hash recorded before them is byte-identical.
+                **{
+                    field: value
+                    for field in ("panel_source", "orthogonalize")
+                    if (value := _json_field(getattr(m, field))) is not None
+                },
             }
             for m in spec.members
         ],

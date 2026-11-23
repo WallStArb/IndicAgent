@@ -54,6 +54,7 @@ from src.intelligence.research import (
     feature_inputs,
     guards,
     kernel_source,
+    member_sources,
     membership,
     null_battery_persistent,
     power,
@@ -327,6 +328,33 @@ def compute_members(
     return out
 
 
+def compute_family_members(
+    spec: FamilySpec,
+    resid_bar: np.ndarray,
+    *,
+    bars_per_session: int,
+    panel: Panel | None = None,
+) -> dict[str, np.ndarray]:
+    """S2 for a family spec (todo 653): `compute_members` for the residual and input members, the
+    panel-source members through member_sources.compute_panel_members, then the orthogonalization
+    stage member_sources.orthogonalize_members, in spec order. A spec with no panel-source member
+    is exactly `compute_members` (the certified path, unchanged)."""
+    sourced = member_sources.panel_source_members(spec)
+    if not sourced:
+        return compute_members(spec, resid_bar, bars_per_session=bars_per_session, panel=panel)
+    if panel is None:
+        raise ValueError("panel_source members need the panel")
+    plain = spec.model_copy(update={"members": [m for m in spec.members if m.panel_source is None]})
+    members = {
+        **compute_members(plain, resid_bar, bars_per_session=bars_per_session, panel=panel),
+        **member_sources.compute_panel_members(spec, panel, bars_per_session=bars_per_session),
+    }
+    ordered = {m.name: members[m.name] for m in spec.members}
+    return member_sources.orthogonalize_members(
+        spec, ordered, resid_bar, bars_per_session=bars_per_session
+    )
+
+
 def _sub_panel(panel: Panel, sessions: int) -> Panel:
     kept = min(sessions, panel.n_sessions)
     rows = slice(0, kept * panel.bars_per_session)
@@ -375,10 +403,17 @@ def real_guards(
         if m.input is not None:
             reach[m.name], input_reports[m.name] = _guard_input_member(spec, m, panel, fn, rows)
             continue
+        # A panel-source member probes its own panel field; the S1 reach of the orthogonalization
+        # stage is S1's own guard (bar_fn below), the stage reads rows d and earlier only.
+        x = (
+            residuals.bar
+            if m.panel_source is None
+            else member_sources.panel_source_array(panel, m.panel_source)
+        )
         declared = m.slot_history_sessions * bps
-        guards.causality_probe_array(fn, residuals.bar, rows, seed=g.seed)
+        guards.causality_probe_array(fn, x, rows, seed=g.seed)
         reach[m.name] = guards.memory_check_array(
-            fn, residuals.bar, rows[rows < n - declared - 1], declared=declared
+            fn, x, rows[rows < n - declared - 1], declared=declared
         )
 
     sub = _sub_panel(panel, g.s1_probe_sessions)
@@ -1111,7 +1146,11 @@ def _check_spec(spec: FamilySpec, mode: str = "real", book: BookSpec | None = No
     factor_spec = FACTOR_SPECS[spec.factor_spec]
     for m in spec.members:
         if m.input is None:
-            want = declared_memory_rows(m.slot_history_sessions, bps, factor_spec)
+            want = (
+                m.slot_history_sessions * bps
+                if m.panel_source is not None and m.orthogonalize is None
+                else declared_memory_rows(m.slot_history_sessions, bps, factor_spec)
+            )
             if m.declared_memory_rows != want:
                 raise RunRefused(
                     f"member {m.name}: declared_memory_rows {m.declared_memory_rows} != {want} "
@@ -1584,7 +1623,7 @@ async def run_family(
         residuals = compute_residuals(
             panel, horizon=spec.horizon, factor_spec=factor_spec, transform=transform
         )
-        members = compute_members(spec, residuals.bar, bars_per_session=bps, panel=panel)
+        members = compute_family_members(spec, residuals.bar, bars_per_session=bps, panel=panel)
         try:
             checked = real_guards(
                 panel,
@@ -2000,7 +2039,9 @@ async def run_book(
         columns, members, memories, slot_histories, member_keys = [], [], [], [], []
         member_fams: list[str] = []
         for fam in families:
-            fam_members = compute_members(fam, residuals.bar, bars_per_session=bps, panel=panel)
+            fam_members = compute_family_members(
+                fam, residuals.bar, bars_per_session=bps, panel=panel
+            )
             _log(f"S3 guards {fam.family}")
             try:
                 real_guards(
