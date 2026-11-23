@@ -34,10 +34,6 @@ def _scalar(query: str, params: tuple = ()):
         return conn.execute(query, params).fetchone()[0]
 
 
-def test_table_is_empty() -> None:
-    assert _scalar(f"SELECT count(*) FROM {_TABLE}") == 0
-
-
 def test_primary_key_columns() -> None:
     with connect() as conn:
         rows = conn.execute(

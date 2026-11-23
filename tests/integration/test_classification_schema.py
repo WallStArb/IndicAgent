@@ -1,14 +1,10 @@
-"""Live-DB schema checks for the Layer 1 security classification tables (Phase 182, D-01, D-03).
+"""Schema checks for the Layer 1 security classification tables (Phase 182, D-01, D-03).
 
-These tests query the live `indicagent` DB, not the scratch `indicagent_test` DB. They are
-marked `integration` and are NOT GitHub-CI-enforced (CI runs `tests/unit/` only, with no DB).
-Run them locally with `--noconftest` until todo 413 fixes the conftest's scratch-DB rebuild
-(it currently fails on migration 322):
+They run on the integration test database (DATABASE_URL through get_settings); the scheme and
+nodes they need are the classification seed of todo 655. They are marked `integration` and are NOT
+GitHub-CI-enforced (CI runs `tests/unit/` only, with no DB).
 
-    .venv/bin/pytest tests/integration/test_classification_schema.py -m integration --noconftest -q
-
-Every write happens inside an explicit transaction that is always rolled back, so a run leaves
-no trace in the live reference data.
+Every write happens inside an explicit transaction that is always rolled back.
 """
 
 from __future__ import annotations

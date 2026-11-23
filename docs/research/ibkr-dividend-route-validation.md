@@ -74,5 +74,4 @@ read path; the reader marks dispute-spanning returns NaN per the hand-off.
 ## Reproduction
 
 - Writer: `PYTHONPATH=. .venv/bin/python services/dividend_event_writer.py --sources ibkr --fetch-run-id c9b625b5-5fc4-4656-8b49-06fd93062123`
-- Live checks: `tests/integration/test_dividend_d1_route_live.py` (suite blocked by
-  todo 486 at time of writing; the same assertions were run live via psql 2026-10-02)
+- Live checks: the test file that held them was deleted on 2026-11-23 (todo 656; IBKR is removed and the checks read production); the same assertions were run live via psql 2026-10-02

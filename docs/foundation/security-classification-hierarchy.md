@@ -196,18 +196,18 @@ row stays as the record of what was believed that day, which is the point-in-tim
 The unit suite covers the service and the seed logic without a database, and a byte-equality
 test keeps migration 365 identical to the data module's render.
 
-Two integration test files check the live schema and data:
+Two integration test files run on the integration test database (a database per session on the
+test cluster, todo 656; the classification seed is todo 655):
 `tests/integration/test_classification_schema.py` (keys, the current-row index, RESTRICT, the
 immutability guard, path consistency, no scheme named GICS) and
-`tests/integration/test_instrument_classification_coverage.py` (coverage, source_ref, the
-build-date floor, depth, the service round trip, `Instrument.sector`). They query the live
-`indicagent` DB, write only inside rolled-back transactions, and are **local-only: they are not
-GitHub-CI-enforced**. Run them with `--noconftest` until todo 413 fixes the integration
-conftest's scratch-DB rebuild:
+`tests/integration/test_instrument_classification_coverage.py` (the service round trip). They write
+only inside rolled-back transactions and are **local-only: they are not GitHub-CI-enforced**. The
+coverage, source_ref, depth and build-date checks that used to sit in the second file are monitored
+by the nightly coverage audit (`src/config/classification_coverage.py`).
 
 ```
 .venv/bin/pytest tests/integration/test_classification_schema.py \
-  tests/integration/test_instrument_classification_coverage.py -m integration --noconftest -q
+  tests/integration/test_instrument_classification_coverage.py -m integration -q
 ```
 
 ## Changing the classification

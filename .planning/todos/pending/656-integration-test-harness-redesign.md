@@ -10,6 +10,8 @@ blocked_on: the daily residual run is counted and the lead says go
 
 Plan 2026-11-23 (`docs/plans/2026-11-23-integration-harness-plan.md`): the order becomes delete (17 functions, phase 1), cluster (task 3, phase 2), baseline (task 4 with 655, phase 3), CI (task 5, phase 4); the test cluster port is 5442, not 5433 (taken by `ssfi-timescaledb`); 655 closes with a rendered scheme and nodes, not a data dump.
 
+Phase 1 of the plan DONE 2026-11-23: two files deleted (`test_bar_aggregator_session_boundary`, `test_dividend_d1_route_live`) and 10 functions removed from `test_instrument_registry` (2), `test_instrument_classification_coverage` (5) and `test_feature_vectors_schema` (1) plus the 2 whole files; `test_live_build_only_migrations` (3) stays until the baseline phase. Open note for the baseline phase: `test_classification_service_round_trip` asserts the assignments of SMH and SPY, so it needs the assignment rows of 655 (or fixture rows), not only scheme and nodes.
+
 Status (2026-11-22): tasks 1 and 2 done (task 2 in 7b05a7284, task 1 in the landing that adds the closure note below); tasks 3 to 5 open.
 
 ## Why

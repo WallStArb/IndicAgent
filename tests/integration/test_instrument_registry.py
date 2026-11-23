@@ -1,9 +1,8 @@
-"""Integration tests for the instrument registry (Phase 091.1 hardening).
+"""Integration test for the instrument registry's schema (Phase 091.1 hardening).
 
-Verifies:
-1. get_active_contracts() returns instruments from a live DB
-2. Required equity symbols (SPY) are present
-3. The pg_notify trigger was installed by migration 220
+The pg_notify trigger was installed by migration 220. The data checks that lived here (the active
+contract list is non-empty, SPY is present) asserted the content of the instruments seed, not code,
+and were removed under todo 656 (docs/plans/2026-11-23-integration-harness-plan.md).
 
 Run: pytest tests/integration/ -m integration
 """
@@ -11,29 +10,9 @@ Run: pytest tests/integration/ -m integration
 import asyncpg
 import pytest
 
-from src.config.settings import get_active_contracts, get_settings
+from src.config.settings import get_settings
 
 pytestmark = pytest.mark.integration
-
-
-def test_get_active_contracts_returns_nonzero():
-    """get_active_contracts() returns at least one instrument from the live DB."""
-    settings = get_settings()
-    result = get_active_contracts(settings, dimension="backfill")
-    assert (
-        len(result) > 0
-    ), "No active contracts returned — DB unreachable or instruments table empty"
-
-
-def test_all_required_symbols_present():
-    """Required equity symbols are present in active contracts.
-
-    FX pairs (EURUSD/GBPUSD/USDCHF/USDJPY) are intentionally is_active=false in
-    production - FX is not currently traded - so they are not asserted here.
-    """
-    settings = get_settings()
-    symbols = {c.symbol for c in get_active_contracts(settings, dimension="backfill")}
-    assert "SPY" in symbols, f"SPY not found in active contracts: {symbols}"
 
 
 @pytest.mark.asyncio
