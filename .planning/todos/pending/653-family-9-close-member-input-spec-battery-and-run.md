@@ -22,3 +22,10 @@ The kernel `high_distance` and its member wrapper are on main (`src/intelligence
 ## Gates
 
 `repro_frozen` bit-identical, suite exit 0, `/simplify`, independent review, record rebinds shown in the landing commit. No edit while a fingerprinted run that imports `runner` is live.
+
+## Rescope (lead ruling 2026-11-22): one panel-source input for families 9 and 10
+
+Family 10 (E24, volume shock) hits the same wall from the other side: prereg section 3 has each member read share volume and the S1 residual together (V1 residualizes the volume rank on e and abs(e) per row, V2 on the 5-session sum of e), and a member receives one array today. One runner and spec change serves both families: a panel source input kind (the total-return close for family 9, share volume for family 10) and the S1 residual passed to every member as a fixed argument. It edits `runner.member_input`, `runner._member_fn` and `MemberInputSpec.kind`, all inside `battery_pass.RUNNER_STATISTIC_FUNCTIONS`, so it lands once, after both counted runs (daily residual and H-C seasonality), with every battery record rebound in the same commit. Family 10's kernels, tests and todo are built meanwhile in new modules (no pass record: an E17 pass must exercise the runner statistic path); its spec and member wrapper wait on this todo.
+
+Family 10 data gates measured 2026-11-22 (read-only, 1d, 2005-01-03 to 2025-12-23): todo 563 holds (no NULL volume; vendor and kind are only massive sip_flat_adj 42,024,440 and alpaca sip_rth 333,114 rows, no ibkr or venue rows) and todo 560 holds (one basis, VOLUME_BASIS_CONSOLIDATED); 173,699 rows (0.41 percent) have volume <= 0 and are dropped by the tradeable view under the 40-of-50 rule.
+
