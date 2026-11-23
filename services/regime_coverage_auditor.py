@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regime Coverage Auditor — oneshot canary for todo 169.
 
-Checks that every corpus symbol has AT LEAST ONE non-null feature_vectors.regime row
+Checks that every active corpus symbol has AT LEAST ONE non-null feature_vectors.regime row
 (per-symbol walk-forward HMM label, written by the rebuild's regime kernels). A symbol with
 100% NULL regime is a silent gap: the kernel can degenerate-skip a symbol for every (tf) cell
 without anything else in the pipeline noticing (found by accident, todo 168, 7 symbols
@@ -79,11 +79,12 @@ _DAYS_TO_EARLIEST_EXPIRY = _meter.create_gauge(
 _HAS_ROWS_SQL = "SELECT EXISTS (SELECT 1 FROM feature_vectors) AS has_rows"
 
 _COVERAGE_GAP_SQL = """
-    SELECT symbol, count(*) AS total_rows, count(regime) AS non_null_regime_rows
-    FROM feature_vectors
-    GROUP BY symbol
-    HAVING count(regime) = 0
-    ORDER BY symbol
+    SELECT fv.symbol, count(*) AS total_rows, count(fv.regime) AS non_null_regime_rows
+    FROM feature_vectors fv
+    JOIN instruments i ON i.symbol = fv.symbol AND i.is_active
+    GROUP BY fv.symbol
+    HAVING count(fv.regime) = 0
+    ORDER BY fv.symbol
 """
 
 
@@ -212,7 +213,8 @@ def _table_has_rows(cur: psycopg.Cursor) -> bool:
 
 def _fetch_coverage_gaps(cur: psycopg.Cursor) -> list[str]:
     """Pure-ish helper — exported for unit tests. Takes an open cursor, returns the
-    list of symbols with zero non-null feature_vectors.regime rows."""
+    list of active symbols with zero non-null feature_vectors.regime rows. An inactive name (a
+    dead name kept for history, todo 664) is out of scope: no consumer reads its labels."""
     cur.execute(_COVERAGE_GAP_SQL)
     return [row["symbol"] for row in cur.fetchall()]
 

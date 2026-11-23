@@ -45,6 +45,16 @@ def test_gap_found_returns_symbol_list():
     assert _fetch_coverage_gaps(cur) == ["LQD", "SPY"]
 
 
+def test_gap_sql_judges_active_names_only():
+    """Todo 664: an inactive name with all-NULL regime rows must not reach the gap list, so the
+    query joins instruments on is_active and groups by the joined feature symbol."""
+    cur = _mock_cursor([])
+    _fetch_coverage_gaps(cur)
+    sql = " ".join(cur.execute.call_args.args[0].split())
+    assert "JOIN instruments i ON i.symbol = fv.symbol AND i.is_active" in sql
+    assert "HAVING count(fv.regime) = 0" in sql
+
+
 TODAY = date(2026, 10, 1)
 
 
