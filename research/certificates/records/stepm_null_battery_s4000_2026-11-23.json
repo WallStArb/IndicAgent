@@ -1,0 +1,220 @@
+{
+  "schema": "stepm_null_battery_v1",
+  "battery": "src.intelligence.research.null_battery",
+  "complete": true,
+  "sessions": 4000,
+  "stepm_sha256": "df77186e1b35693db641b7bb146dcfba33e6176527ee7ad90efbe3ebd00c1483",
+  "sims_per_cell": 1000,
+  "reps": 500,
+  "block_mean": 20.0,
+  "fwer": 0.05,
+  "studentize": "draw",
+  "bound_quantile": 0.9995,
+  "seed_base": 0,
+  "pooled_rate": 0.0545,
+  "pooled_tolerance": 0.06,
+  "report": [
+    {
+      "cell": "gaussian",
+      "sims": 1000,
+      "familywise_rejections": 50,
+      "rate": 0.05,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.5149700598802395
+    },
+    {
+      "cell": "t4",
+      "sims": 1000,
+      "familywise_rejections": 59,
+      "rate": 0.059,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.48303393213572854
+    },
+    {
+      "cell": "vol_clustering",
+      "sims": 1000,
+      "familywise_rejections": 54,
+      "rate": 0.054,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.48203592814371254
+    },
+    {
+      "cell": "factor",
+      "sims": 1000,
+      "familywise_rejections": 48,
+      "rate": 0.048,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.5109780439121756
+    },
+    {
+      "cell": "static_cell_means",
+      "sims": 1000,
+      "familywise_rejections": 70,
+      "rate": 0.07,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.4740518962075848
+    },
+    {
+      "cell": "slot_effects",
+      "sims": 1000,
+      "familywise_rejections": 57,
+      "rate": 0.057,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.48403193612774453
+    },
+    {
+      "cell": "late_listings",
+      "sims": 1000,
+      "familywise_rejections": 47,
+      "rate": 0.047,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.5109780439121756
+    },
+    {
+      "cell": "hostile",
+      "sims": 1000,
+      "familywise_rejections": 56,
+      "rate": 0.056,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.5099800399201597
+    },
+    {
+      "cell": "real_grid_hostile",
+      "sims": 1000,
+      "familywise_rejections": 49,
+      "rate": 0.049,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.499001996007984
+    },
+    {
+      "cell": "s1_hostile",
+      "sims": 1000,
+      "familywise_rejections": 59,
+      "rate": 0.059,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.4411177644710579
+    },
+    {
+      "cell": "static_vol_stress",
+      "sims": 1000,
+      "familywise_rejections": 63,
+      "rate": 0.063,
+      "bound": 74,
+      "gating": false,
+      "holds": true,
+      "median_min_adjusted_p": 0.47005988023952094
+    },
+    {
+      "cell": "hostile_stress",
+      "sims": 1000,
+      "familywise_rejections": 74,
+      "rate": 0.074,
+      "bound": 74,
+      "gating": false,
+      "holds": true,
+      "median_min_adjusted_p": 0.5109780439121756
+    },
+    {
+      "cell": "s1_slot_stress",
+      "sims": 1000,
+      "familywise_rejections": 940,
+      "rate": 0.94,
+      "bound": 74,
+      "gating": false,
+      "holds": false,
+      "median_min_adjusted_p": 0.001996007984031936
+    },
+    {
+      "cell": "ridge",
+      "sims": 1000,
+      "familywise_rejections": 61,
+      "rate": 0.061,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.48902195608782434
+    },
+    {
+      "cell": "kappa_0.5",
+      "sims": 1000,
+      "familywise_rejections": 48,
+      "rate": 0.048,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.4810379241516966
+    },
+    {
+      "cell": "kappa_0.2",
+      "sims": 1000,
+      "familywise_rejections": 51,
+      "rate": 0.051,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.49500998003992014
+    },
+    {
+      "cell": "ridge_static",
+      "sims": 1000,
+      "familywise_rejections": 56,
+      "rate": 0.056,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.4900199600798403
+    },
+    {
+      "cell": "kappa_0.5_static",
+      "sims": 1000,
+      "familywise_rejections": 62,
+      "rate": 0.062,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.46706586826347307
+    },
+    {
+      "cell": "kappa_0.2_static",
+      "sims": 1000,
+      "familywise_rejections": 45,
+      "rate": 0.045,
+      "bound": 74,
+      "gating": true,
+      "holds": true,
+      "median_min_adjusted_p": 0.5129740518962076
+    },
+    {
+      "cell": "ridge_kappa_hostile",
+      "sims": 1000,
+      "familywise_rejections": 60,
+      "rate": 0.06,
+      "bound": 74,
+      "gating": false,
+      "holds": true,
+      "median_min_adjusted_p": 0.5059880239520957
+    }
+  ],
+  "failures": [],
+  "seconds": 29133.012675762177
+}
