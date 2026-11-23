@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-11-17
 source: A3 triage (todo 629) found canonical coverage holes that only IBKR raw fills; Part F deletes that raw
@@ -10,7 +10,7 @@ source: A3 triage (todo 629) found canonical coverage holes that only IBKR raw f
 ## What
 
 The 629 triage found four names (GSAT 2014, NESR, PMTS, SMCI) whose canonical series has a multi-month hole where IBKR
-raw has real bars. A read-only count on 2026-11-17: 451,735 distinct (symbol, day) 1d IBKR bars with volume, on or
+raw has real bars. A read-only count on 2026-11-17 (overstated, corrected to 359,919 real holes below): 451,735 distinct (symbol, day) 1d IBKR bars with volume, on or
 after 2003-09-10, in 385 active names, exist in no canonical row (about 30,000 to 37,000 a year to 2015, 1,000 to
 6,000 a year since). Part F deletes all IBKR raw from 2003-09-10 with no export (owner 2026-11-13).
 
@@ -48,3 +48,7 @@ Input: the local export (451,735 distinct symbol-days with volume, 385 names). E
 - Not measured: why Massive lacks the early days of the 143 names (needs a per-name vendor look), and 5m.
 
 Recommendation: disclose, no build. The panel absorbs the missing days as NaN under `no_fill`, 0.74 percent of scope C is below the materiality bar (owner 2026-11-20), and filling from the export would overrule the Massive yardstick. Closing this todo on the disclosure plus the correction of the 451,735 figure is the lead's call.
+
+## Closure 2026-11-23 (lead ruling, disclose, no build)
+
+The first-version count of 451,735 bar-days was wrong: 91,816 of them are in canonical by calendar date (timestamp convention). The corrected hole count is 359,919 days. Classes: before the first Massive day 341,638 (6,876 in scope C); inside the Massive span 4,829 (908 in C); Massive row present, no canonical row 6,080 (0 in C); no Massive data for the name 7,372 (0 in C). Scope C is touched on 7,784 days, 0.74 percent of its observations. Reasons for disclosure: the panel absorbs the days as NaN under `no_fill`, the share is below the materiality bar (owner 2026-11-20), and filling from the export would overrule the Massive yardstick. Open question 1 (Part F) was moot (Part F closed); the per-name reason Massive starts later for the 143 names is not chased.
