@@ -1,0 +1,340 @@
+{
+  "battery": "src.intelligence.research.null_battery_high_anchor",
+  "binding": {
+    "battery_code_key": "98aabbc3f16113da5d03fcdc71ca11cb04cebc2163a3882bbf66500beafc4ee9",
+    "battery_input_hash": "a1c34b1800a86ec6762351731d0e2196c84b02d18b425b066ad891c97a0eb26a",
+    "family": "family9_high_anchor",
+    "recorded": "2026-11-23",
+    "spec_hashes": [
+      "1c8e5ed17525852c3c489d8f4d549d9f22acd61ae5e470c9c66c8963c5227d8d",
+      "f1241b4970e14b1088373fcb109061fddc3c3d6dae321b3371327630cffe1ca4"
+    ]
+  },
+  "commit": "6f6f1c31fced419a17e99e19ee74e8f1cb7b052c",
+  "diagnostic_cells": [
+    "high_anchor_hostile_stress",
+    "high_anchor_static_vol_stress"
+  ],
+  "failures": [],
+  "report": [
+    {
+      "arm": "high_distance_252",
+      "cell": "high_anchor_gaussian",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.003,
+          "rejected": 3
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.034,
+          "rejected": 34
+        }
+      },
+      "mean_t": -0.003671923953466697,
+      "sd_t": 0.9134441509211911,
+      "sims": 1000
+    },
+    {
+      "arm": "high_distance_252",
+      "cell": "high_anchor_hostile",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.006,
+          "rejected": 6
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.048,
+          "rejected": 48
+        }
+      },
+      "mean_t": 0.03571055986163052,
+      "sd_t": 0.9781810527618036,
+      "sims": 1000
+    },
+    {
+      "arm": "high_distance_252",
+      "cell": "high_anchor_hostile_no_static",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.005,
+          "rejected": 5
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.035,
+          "rejected": 35
+        }
+      },
+      "mean_t": 0.007506801189734768,
+      "sd_t": 0.9297455862377321,
+      "sims": 1000
+    },
+    {
+      "arm": "high_distance_252",
+      "cell": "high_anchor_hostile_stress",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.004,
+          "rejected": 4
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.042,
+          "rejected": 42
+        }
+      },
+      "mean_t": -0.03702947783051187,
+      "sd_t": 0.9884637872444294,
+      "sims": 1000
+    },
+    {
+      "arm": "high_distance_252",
+      "cell": "high_anchor_late_listings",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.001,
+          "rejected": 1
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.007,
+          "rejected": 7
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.036,
+          "rejected": 36
+        }
+      },
+      "mean_t": -0.025121786867691252,
+      "sd_t": 0.9712257700384122,
+      "sims": 1000
+    },
+    {
+      "arm": "high_distance_252",
+      "cell": "high_anchor_s1_hostile",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.001,
+          "rejected": 1
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.002,
+          "rejected": 2
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.046,
+          "rejected": 46
+        }
+      },
+      "mean_t": 0.06486606123180721,
+      "sd_t": 0.9761522431073367,
+      "sims": 1000
+    },
+    {
+      "arm": "high_distance_252",
+      "cell": "high_anchor_static_means",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.002,
+          "rejected": 2
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.009,
+          "rejected": 9
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.044,
+          "rejected": 44
+        }
+      },
+      "mean_t": -0.03381864589012167,
+      "sd_t": 1.0145603451454097,
+      "sims": 1000
+    },
+    {
+      "arm": "high_distance_252",
+      "cell": "high_anchor_static_vol_stress",
+      "levels": {
+        "0.00167": {
+          "bound": 5,
+          "rate": 0.0,
+          "rejected": 0
+        },
+        "0.01": {
+          "bound": 18,
+          "rate": 0.007,
+          "rejected": 7
+        },
+        "0.05": {
+          "bound": 67,
+          "rate": 0.05,
+          "rejected": 50
+        }
+      },
+      "mean_t": -0.02114206094597705,
+      "sd_t": 1.0272783265957615,
+      "sims": 1000
+    }
+  ],
+  "scenarios": [
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "high_anchor_gaussian",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.0,
+      "t4_noise": false,
+      "vol_clustering": false
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "high_anchor_static_means",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.06,
+      "t4_noise": false,
+      "vol_clustering": false
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "high_anchor_late_listings",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.0,
+      "t4_noise": false,
+      "vol_clustering": false
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "high_anchor_hostile",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.06,
+      "t4_noise": true,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "high_anchor_hostile_no_static",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.0,
+      "t4_noise": true,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "high_anchor_s1_hostile",
+      "names": 100,
+      "s1": true,
+      "sessions": 2000,
+      "static_sd": 0.06,
+      "t4_noise": true,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "high_anchor_static_vol_stress",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.3,
+      "t4_noise": false,
+      "vol_clustering": true
+    },
+    {
+      "bars_per_session": 1,
+      "factor_sd": 0.5,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "high_anchor_hostile_stress",
+      "names": 100,
+      "s1": false,
+      "sessions": 2000,
+      "static_sd": 0.3,
+      "t4_noise": true,
+      "vol_clustering": true
+    }
+  ],
+  "schema": "e17_null_battery_v1",
+  "seed_bases": [
+    9000000
+  ],
+  "sims_per_cell": 1000
+}
