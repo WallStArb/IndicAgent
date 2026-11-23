@@ -250,6 +250,44 @@ async def test_a_refused_or_restore_load_is_not_the_baseline(conn):
     assert (await _probe(conn))["policy_since"]
 
 
+async def test_a_load_of_a_non_completed_batch_is_not_the_baseline(conn):
+    # A later applied load whose batch closed partial (its scrub or digest may have failed)
+    # must not hide a change from --changed-only: the baseline stays the completed batch.
+    await _close(conn, "TEST", _LOAD + timedelta(minutes=5))
+    await conn.execute(
+        "INSERT INTO bar_derivation_batch VALUES (2, 'daily', 'partial', $1, $2)",
+        _LOAD + timedelta(minutes=10),
+        _LOAD + timedelta(minutes=12),
+    )
+    await conn.execute(
+        "INSERT INTO ohlcv_load VALUES"
+        " ('TEST', '1d', 'derived', 'applied', 'bar_derivation-daily', $1, 2)",
+        _LOAD + timedelta(minutes=11),
+    )
+    assert await _waived(conn)
+    assert (await _probe(conn))["policy_since"]
+    await conn.execute("UPDATE bar_derivation_batch SET status = 'completed' WHERE batch_id = 2")
+    assert not await _waived(conn)
+    assert not (await _probe(conn))["policy_since"]
+
+
+@pytest.mark.parametrize("status", ["failed", "running"])
+async def test_a_name_with_only_non_completed_loads_is_due_but_not_waived_as_new(conn, status):
+    await conn.execute("DELETE FROM ohlcv_load WHERE symbol = 'TEST'")
+    await conn.execute(
+        "INSERT INTO bar_derivation_batch VALUES (2, 'daily', $1, $2, NULL)",
+        status,
+        _LOAD,
+    )
+    await conn.execute(
+        "INSERT INTO ohlcv_load VALUES"
+        " ('TEST', '1d', 'derived', 'applied', 'bar_derivation-daily', $1, 2)",
+        _LOAD + timedelta(minutes=1),
+    )
+    assert not await _waived(conn)
+    assert (await _probe(conn))["obs_since"]
+
+
 async def test_an_unchanged_re_serve_after_the_load_is_not_due(conn):
     # A request answered after the load whose values equal raw writes nothing: the rule's
     # inputs are unchanged, so the symbol is not due (served_at did not move).

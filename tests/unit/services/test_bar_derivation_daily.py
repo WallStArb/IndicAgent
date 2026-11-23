@@ -795,6 +795,19 @@ def test_digest_failure_fails_the_run_after_the_scrub(monkeypatch):
         _run(conn)
 
 
+def test_a_failed_scrub_writes_no_digest_and_fails_the_run():
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored)
+
+    def refuse(_conn: FakeConn) -> None:
+        raise RuntimeError("scrub refused")
+
+    with pytest.raises(RuntimeError, match="scrub: scrub refused"):
+        _run(conn, scrub_effect=refuse)
+    assert not conn.digest_rows
+    assert conn.executed("UPDATE bar_derivation_batch")[-1][1] == "partial"
+
+
 def test_changed_only_skips_symbol_without_new_answers():
     observations, stored = _fixture()
     conn = FakeConn(observations=observations, stored=stored, changed_since={"TEST": False})

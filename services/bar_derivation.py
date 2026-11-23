@@ -549,7 +549,9 @@ WHERE symbol = $1 AND timeframe = '1d'
 # The symbol's baseline: when the daily stage last read the inputs it applied, the start of the
 # batch that wrote its latest applied daily load (the policy is read once at run start, the
 # observations before the write), else that load's loaded_at (a load with no batch). No row
-# when the symbol has no applied daily load. Only the daily stage's own loads count. A
+# when the symbol has no applied daily load. Only the daily stage's own loads count, and a load
+# whose batch did not close 'completed' (partial, failed, running) is no baseline: its scrub or
+# digest may not have landed, so the next --changed-only run re-derives the name. A
 # completed batch over other symbols never moves it (plan 185-50: the 38-name batch of 185-49
 # finished after the FTV, IP and STE closes and hid them under a global watermark).
 _LAST_DAILY_LOAD_CTE = """
@@ -559,6 +561,7 @@ last_load AS (
     LEFT JOIN bar_derivation_batch b ON b.batch_id = l.batch_id
     WHERE l.symbol = $1 AND l.timeframe = '1d' AND l.source = 'derived'
       AND l.outcome = 'applied' AND l.caller = 'bar_derivation-daily'
+      AND (l.batch_id IS NULL OR b.status = 'completed')
     ORDER BY l.loaded_at DESC
     LIMIT 1
 )"""
@@ -604,7 +607,8 @@ EXISTS (
 ) AS policy_since
 """
 
-# The revision-ratio waiver: no applied daily load yet, or a corporate action or a 1d policy
+# The revision-ratio waiver: no applied daily load yet (of any batch status: a name whose loads
+# all sit in non-completed batches has no baseline but is not new, so it stays refused), or a corporate action or a 1d policy
 # row (the symbol's or the default) recorded or closed after the symbol's baseline
 # (_LAST_DAILY_LOAD_CTE), or a snapshot restore (plan 185-38, since removed; its recorded loads still
 # count) after it: the restore is a recorded operator rollback, and the re-derivation that follows re-applies the reviewed state.
@@ -614,7 +618,9 @@ _MARKET_REFERENCE_SQL = ", ".join(f"'{code}'" for code in sorted(MARKET_REFERENC
 _SELECT_REVISION_WAIVER_SQL = f"""
 /* revision_waiver */
 WITH {_LAST_DAILY_LOAD_CTE}
-SELECT (SELECT at FROM last_load) IS NULL
+SELECT NOT EXISTS (SELECT 1 FROM ohlcv_load a
+                   WHERE a.symbol = $1 AND a.timeframe = '1d' AND a.source = 'derived'
+                     AND a.outcome = 'applied' AND a.caller = 'bar_derivation-daily')
     OR EXISTS (SELECT 1 FROM corporate_action c, last_load l
                WHERE c.symbol = $1 AND c.recorded_at > l.at
                  AND c.inferred_by NOT IN ({_MARKET_REFERENCE_SQL}))
@@ -1608,6 +1614,8 @@ class BarDerivation(BaseBatch):
                 if applied:
                     # D2a rerun: one scrub_symbols call over the run's symbols so cross-symbol
                     # corroboration (D-11) spans the whole run; digests after it (plan 185-27).
+                    # A failed scrub writes no digest: the batch closes non-completed, so no
+                    # load of it is a baseline and the next --changed-only run retries.
                     try:
                         await scrub_symbols(
                             pool,
@@ -1621,13 +1629,17 @@ class BarDerivation(BaseBatch):
                         )
                     except Exception as error:
                         failed.append(f"scrub: {error}")
-                    for symbol in applied:
-                        try:
-                            await write_1d_digests(
-                                conn, symbol=symbol, batch_id=batch_id, rule_version=RULE_VERSION
-                            )
-                        except Exception as error:
-                            failed.append(f"digest {symbol}: {error}")
+                    else:
+                        for symbol in applied:
+                            try:
+                                await write_1d_digests(
+                                    conn,
+                                    symbol=symbol,
+                                    batch_id=batch_id,
+                                    rule_version=RULE_VERSION,
+                                )
+                            except Exception as error:
+                                failed.append(f"digest {symbol}: {error}")
             finally:
                 summary = _daily_summary(results)
                 if batch_id is not None:
