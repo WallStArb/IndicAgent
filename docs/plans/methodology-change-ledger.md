@@ -1676,8 +1676,23 @@ No document defined the `reversal_21` pooled replication that STATE.md and ledge
 
 Ruling, declared before any sub-period statistic is read. The same spec cannot run again (spec-once) and the E17 statistic is analytic, so a rerun is not evidence. The two recorded panels share every date (2008-02-29 to 2025-12-23) and the core names are a subset of the primary names, so they are one dependent pair already counted as two looks. Independent evidence exists only on the forward span from 2025-12-24, which is reserved for the single confirmation of a frozen book.
 
-1. R-1, a disclosure and not a test: for `reversal_21` on the recorded runs (run groups c249e9bb and d5a95034, both panels, none picked), report the mean session P&L and t in each sub-period the specs already declare (`sub_periods`), six cells. It reads series already charged, creates no spec or series, charges no new look (vintage_1 stays at 13), gates nothing and promotes nothing. It is not independent and is labelled so. A cell with a non-positive mean is disclosed and goes to the forward power plan as a haircut; it does not remove `reversal_21` from the selection or the book. The read-only script (named in the adopted draft doc; the path is cited here once it exists on main) is built in a detached worktree and reviewed before it runs; the sub-periods are the specs' own, never chosen after a number is seen.
+1. R-1, a disclosure and not a test: for `reversal_21` on the recorded runs (run groups c249e9bb and d5a95034, both panels, none picked), report the mean session P&L and t in each sub-period the specs already declare (`sub_periods`), six cells. It reads series already charged, creates no spec or series, charges no new look (vintage_1 stays at 13), gates nothing and promotes nothing. It is not independent and is labelled so. A cell with a non-positive mean is disclosed and goes to the forward power plan as a haircut; it does not remove `reversal_21` from the selection or the book. The read-only script `scripts/research/replication_subperiods.py` is built in a detached worktree and reviewed before it runs; the sub-periods are the specs' own, never chosen after a number is seen.
 2. R-2, the confirmation: one read of the book's own unsearched forward span after a book containing `reversal_21` is frozen; its rule is set at the freeze. No book exists yet, so no forward read is spent.
 3. R-3 (a disjoint-name panel) is rejected for now: it needs a universe-id change in `snapshot.py` and `spec.py`, one new look, a new StepM series that tightens the correction on every attempt, and its own battery pass, and it shares every date.
 
 Every look stays counted. STATE.md and the next-family plan are updated to say R-1 and R-2 in place of the retired phrase.
+
+## 2026-11-23c: R-1 read for `reversal_21` (lead record)
+
+Read once on 2026-11-23, after `scripts/research/replication_subperiods.py` landed (3bb26afeb) and before any other read of these series, under ledger 2026-11-23b: `reversal_21` on run group c249e9bb (spec 096abd79, primary) and run group d5a95034 (spec 7308dafd, core), over the sub-periods recorded in each spec. Non-independent (same dates, core names a subset of primary), non-gating, no look charged (vintage_1 stays at 13). The t is a descriptive HAC t of the stored D_s series (flat-top overlap kernel, overlap 4, Newey-West taper), not the run's decision statistic. No cell holds a non-finite session.
+
+| Panel | Sub-period | Sessions | Mean session P&L | t |
+|---|---|---|---|---|
+| primary | 2007-03-01 to 2011-12-31 (scored from 2008-02-29) | 969 | +8.70e-4 | 2.92 |
+| primary | 2012-01-01 to 2018-12-31 | 1,760 | +2.34e-4 | 3.61 |
+| primary | 2019-01-01 to 2025-12-23 | 1,755 | +5.85e-5 | 0.36 |
+| core | 2007-03-01 to 2011-12-31 (scored from 2008-02-29) | 969 | +9.35e-4 | 3.04 |
+| core | 2012-01-01 to 2018-12-31 | 1,760 | +2.02e-4 | 2.49 |
+| core | 2019-01-01 to 2025-12-23 | 1,755 | +2.11e-4 | 1.21 |
+
+All six means are positive (non-positive cells: 0), which is all the declaration asked. Disclosure: the primary mean falls about fifteen-fold from the first to the last sub-period and its last t is 0.36 (core 1.21), well under the roughly 1.9 per sub-period that a stable effect of the selected size would give (declared power note). The pooled result, adjusted p 0.0090 and 0.0025 in 2026-11-23a, therefore rests mostly on the first two sub-periods. The reading is a possible decay of the effect, not a verdict: a non-gating read of sub-samples of series already charged. It changes no selection, book path or look count, and goes to the forward power plan as the haircut input; the forward confirmation (R-2) is judged on its own rule set at the freeze.
