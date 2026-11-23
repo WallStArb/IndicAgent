@@ -214,7 +214,7 @@ def _table_has_rows(cur: psycopg.Cursor) -> bool:
 def _fetch_coverage_gaps(cur: psycopg.Cursor) -> list[str]:
     """Pure-ish helper — exported for unit tests. Takes an open cursor, returns the
     list of active symbols with zero non-null feature_vectors.regime rows. An inactive name (a
-    dead name kept for history, todo 664) is out of scope: no consumer reads its labels."""
+    dead name kept for history, todo 664) is out of scope for this canary."""
     cur.execute(_COVERAGE_GAP_SQL)
     return [row["symbol"] for row in cur.fetchall()]
 
