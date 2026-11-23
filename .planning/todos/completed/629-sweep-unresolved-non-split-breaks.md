@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: P1
 filed: 2026-11-17
 source: A3 sweep (ops_split_calendar_audit --sweep --strict --witness yahoo); the 2026-11-20 run over all 12,561 universe members read 25,189 breaks, 19,342 with no Yahoo history, 4,086 unresolved
@@ -41,8 +41,18 @@ Non-strict (`--strict` refuses `--symbols`), Yahoo witness, `sweep_dispositions.
 
 In scope: 36 `real_move` by disposition rule; 193 undecided with no Yahoo history (184 C, 9 B), disclosed and never counted as confirmed; 22 witnessed but not bracketable by Yahoo's adjusted close, disclosed; one spin-off (PNR 2018-05-01, nVent, the tape steps -0.438 against Yahoo's -0.008, one observation in a B year) disclosed, no row, same class as SNX; and nine witnessed split-shaped breaks with a matching Yahoo calendar ratio and no recorded row, which are fixed: BAR 2019-03-11 x10, AGQ 2011-10-13 x2, GLL 2010-04-15 x0.2, STLY 2005-06-07 x2, CRCA 2026-02-26 x0.1, DAMD 2026-09-10 x0.1, MRNY, TSLY and XYZY 2025-12-01 (x0.1, x0.2, x0.2). Canonical (`massive/sip_flat_adj`, rescaled from `massive/sip_flat` by recorded rows) carries each as a real scale break (BAR 129.66 to 12.90); the calendar audit returns `route_conflict` with empty route steps, so the rows are written by hand with a Yahoo witness (VIXM and SNDK procedure), independently reviewed, derived and reselected. Out of scope and disclosed: APTV 2017, SW 2016 (rescale verdicts in years the name is not a member), DBEM and VII single-bar reversals.
 
-Open: the nine rows land (indicagent-31), then the sweep re-reads those names; the strict gate over the whole universe is not rerun (a full read; the plan-only data gate is the next check).
+The nine rows landed in bc3656687 (`config/corporate_actions/split_rescale_rows_2026_11_21_delta_nine.csv`, ten rows, Yahoo witnessed and independently reviewed).
 
 ## Done when
 
 The delta sweep over the names the rebuilt universe adds is reported; then the 584 pin readiness row for the strict sweep closes.
+
+## Close-out (2026-11-23, indicagent-d4)
+
+Closed by disclosure under the materiality rule (owner 2026-11-20). Checked, read-only:
+
+- The ten delta rows are recorded in `corporate_action_current` (`calendar_market`, 2026-11-21) and canonical 1d is continuous across each effective date: the close step across the row reads AGQ 0.948, BAR 0.995, CRCA 1.091, DAMD 1.069, GLL 0.989, MRNY 0.942, STLY 1.002, TSLY 1.025 and 1.003, XYZY 0.975 (a missed 2, 5 or 10 times split would read near 0.5, 0.2 or 0.1). The sweep tool was not re-run over those names; the level check above stands in for the re-read.
+- The disclosure lists in this file carry the class counts: 3,551 no-Yahoo-history rows on 1,516 names, 262 not bracketable, the 42 route rows with no calendar event, the 12 calendar-ratio non-splits, the 13 ETF gap cases, the one-bar refusals and the held names (QBTX, HMNY, SDEV, PLRZ, TDIC). Scoped strict rerun: 266 witnessed in-scope breaks, none undecided and split-shaped. Delta sweep: 261 in scope, 193 undecided with no Yahoo history (never counted as confirmed), 22 not bracketable, the PNR spin-off, nine fixed.
+- Not rerun, by the rule: the strict gate over the whole universe (a full read; the remaining defects cannot move a counted test materially) and a strict delta sweep (`--strict` refuses `--symbols`).
+
+Still open, tracked elsewhere: SW 2016-05-16 waits on the pit map (todo 624); ZSL 2015-10 needs a disposition for its 2013-03-15 to 2015-10-30 coverage hole (disclosed, out of scope); the sweep over names added by later membership changes, if any, is a non-strict delta run like the 2026-11-21 one. Readiness row 10 in todo 584 is met by this close-out.
