@@ -84,7 +84,7 @@ def test_every_canonical_1d_source_has_a_basis():
 
 def test_a_new_source_label_forces_a_basis_decision():
     # continuous, official and generic are labels no canonical row carries (checked against
-    # market_data_ohlcv 2026-10-28: only the six mapped pairs and the derived grid exist). A new
+    # market_data_ohlcv 2026-10-28, when the IBKR pairs were still canonical; since Part F only the two Alpaca and Massive pairs and the derived grid exist). A new
     # label that is not mapped and not listed here fails this test instead of a rebuild.
     from src.intelligence.bars.vendor_kind import DERIVED_PAIR, LABEL_TO_VENDOR_KIND
 

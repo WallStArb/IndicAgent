@@ -713,8 +713,8 @@ def _stored_group(vendors: set[str]) -> str:
     """Which vendors a name's stored 1d rows come from before the run."""
     if not vendors:
         return "none"
-    if vendors == {"ibkr"}:
-        return "ibkr_only"
+    if vendors == {"massive"}:
+        return "massive_only"
     return "alpaca_only" if vendors == {"alpaca"} else "mixed"
 
 

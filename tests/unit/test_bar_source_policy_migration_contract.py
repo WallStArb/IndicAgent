@@ -162,10 +162,10 @@ def test_tradeable_view_nulls_fallback_volume_and_keeps_its_columns():
 def test_sources_export_the_canonical_1d_pairs():
     assert sources.SOURCE_IBKR_FALLBACK == "ibkr_fallback"
     assert sources.CANONICAL_1D_SOURCES == (
-        ("ibkr", "named"),
-        ("ibkr", "venue"),
-        ("ibkr", "fallback"),
         ("alpaca", "sip_rth"),
         ("massive", "sip_flat_adj"),  # d2-v6 (todo 600): Massive's split-adjusted day bar
     )
+    # the two ANY arrays the daily stage and the audit read with: a list edit shows up here
+    assert sources.CANONICAL_1D_VENDORS == ("alpaca", "massive")
+    assert sources.CANONICAL_1D_KINDS == ("sip_flat_adj", "sip_rth")
     assert not hasattr(sources, "LABEL_VENDOR"), "LABEL_VENDOR was deleted in plan 13"

@@ -350,8 +350,14 @@ class TestStraySources:
             ("5m", ("ibkr", "named")): 999,  # 5m is not a derived timeframe: not judged
         }
         result = check_stray_sources(counts)
-        assert result.n_findings == 2 + 7
-        assert set(result.samples) == {"1d:yahoo/consolidated=2", "15m:ibkr/named=7"}
+        assert result.n_findings == 10 + 1 + 4 + 2 + 7
+        assert set(result.samples) == {
+            "1d:ibkr/named=10",
+            "1d:ibkr/venue=1",
+            "1d:ibkr/fallback=4",
+            "1d:yahoo/consolidated=2",
+            "15m:ibkr/named=7",
+        }
 
     def test_the_retired_vendor_is_a_stray_daily_pair(self):
         assert check_stray_sources({("1d", ("tradier", "consolidated")): 5}).n_findings == 5
@@ -841,8 +847,11 @@ def test_findings_by_symbol_groups_seam_samples():
     }
 
 
-def test_ibkr_fallback_is_an_allowed_1d_pair():
-    assert check_stray_sources({("1d", ("ibkr", "fallback")): 4}).n_findings == 0
+def test_the_canonical_1d_pairs_are_allowed_and_any_ibkr_1d_row_is_stray():
+    """Part F closed (todo 657): only Alpaca SIP and Massive's adjusted day bar are canonical 1d."""
+    assert check_stray_sources({("1d", ("alpaca", "sip_rth")): 4}).n_findings == 0
+    assert check_stray_sources({("1d", ("massive", "sip_flat_adj")): 4}).n_findings == 0
+    assert check_stray_sources({("1d", ("ibkr", "fallback")): 4}).n_findings == 4
     assert check_stray_sources({("1d", ("mystery", "x")): 4}).n_findings == 4
 
 

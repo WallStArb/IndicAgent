@@ -59,17 +59,15 @@ ROUTE_MASSIVE = "MASSIVE"
 # (plan 185-36, migration 446).
 SOURCE_IBKR_FALLBACK = "ibkr_fallback"
 
-# The 1d market_data_ohlcv (vendor, kind) pairs that are canonical bars: IBKR named (an
-# IBKR-primary policy range), venue (stored history from the deleted d2-v1 rule), the
-# admitted IBKR fallback (d2-v2), Alpaca SIP, the primary from
-# 2016-01-04 under D-191-Q (bar_source_policy), and Massive's split-adjusted day bar (d2-v6,
-# todo 600: the canonical kind of an unadjusted (massive, sip_flat) raw row). The 1d content digest and the daily stage's value comparison read
-# every one of them. Literal pairs, not vendor_kind imports: vendor_kind builds its map
-# from the label constants here, so importing the map back would be circular.
+# The 1d market_data_ohlcv (vendor, kind) pairs that are canonical bars: Alpaca SIP (the
+# canonical source after the Massive archive end, 2026-11-16) and Massive's split-adjusted day bar
+# (d2-v6, todo 600: the canonical kind of an unadjusted (massive, sip_flat) raw row). The three
+# IBKR pairs (named, venue, fallback) left the list with runbook Part F (2026-11-23, todo 657): no
+# canonical 1d row carries one, so an IBKR 1d row is now a stray row the audit flags. The 1d content
+# digest and the daily stage's value comparison read every pair listed. Literal pairs, not
+# vendor_kind imports: vendor_kind builds its map from the label constants here, so importing the
+# map back would be circular.
 CANONICAL_1D_SOURCES: tuple[tuple[str, str], ...] = (
-    ("ibkr", "named"),
-    ("ibkr", "venue"),
-    ("ibkr", "fallback"),
     ("alpaca", "sip_rth"),
     ("massive", "sip_flat_adj"),
 )

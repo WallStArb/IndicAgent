@@ -33,7 +33,7 @@ _FETCHED = datetime(2026, 10, 3, tzinfo=UTC)
 _D1 = date(2024, 5, 1)  # stored alpaca, equal
 _D2 = date(2024, 5, 2)  # stored alpaca, close differs
 _D3 = date(2024, 6, 3)  # not stored: new
-_D4 = date(2024, 6, 4)  # stored ibkr_named with equal values: changes source only
+_D4 = date(2024, 6, 4)  # stored massive/sip_flat_adj with equal values: changes source only
 _D5 = date(2024, 6, 5)  # stored, inside the span, no observation: removed
 _D6 = date(2024, 6, 6)  # Alpaca observation (span end)
 _D0 = date(2024, 4, 1)  # stored before the span: untouched
@@ -96,9 +96,9 @@ def _obs(day: date, close: float, *, route: str = "ALPACA", volume: int | None =
     }
 
 
-# sources.CANONICAL_1D_SOURCES' arrays; d2-v6 adds Massive's canonical (massive, sip_flat_adj).
-_1D_VENDORS = ("alpaca", "ibkr", "massive")
-_1D_KINDS = ("fallback", "named", "sip_flat_adj", "sip_rth", "venue")
+# sources.CANONICAL_1D_SOURCES' arrays: Alpaca SIP and Massive's canonical (massive, sip_flat_adj).
+_1D_VENDORS = ("alpaca", "massive")
+_1D_KINDS = ("sip_flat_adj", "sip_rth")
 
 
 def _row(
@@ -131,7 +131,7 @@ def _fixture() -> tuple[dict[str, list[dict]], dict[str, dict[date, dict]]]:
             _D0: _row(9.0),
             _D1: _row(10.0),
             _D2: _row(11.5),
-            _D4: _row(13.0, vendor="ibkr", kind="named"),
+            _D4: _row(13.0, vendor="massive", kind="sip_flat_adj"),
             _D5: _row(13.5),
             _D6: _row(14.0),
         }
@@ -425,7 +425,7 @@ def test_dry_run_reports_refused_heads(tmp_path):
     obs += [_obs(d, 200.0, route="SMART") for d in days]
     conn = FakeConn(
         observations={"TEST": obs},
-        stored={"TEST": {d: _row(200.0, vendor="ibkr", kind="named") for d in days}},
+        stored={"TEST": {d: _row(200.0, vendor="massive", kind="sip_flat_adj") for d in days}},
     )
     report = tmp_path / "dryrun.tsv"
     result, _ = _run(conn, apply=False, report_path=str(report))
@@ -487,7 +487,7 @@ def _unserved_fixture():
         "TEST": [_obs(d, 10.0, route="SMART") for d in days if d != _D5]
         + [_obs(d, 10.0) for d in days]
     }
-    stored = {"TEST": {d: _row(10.0, vendor="ibkr", kind="named") for d in days}}
+    stored = {"TEST": {d: _row(10.0, vendor="massive", kind="sip_flat_adj") for d in days}}
     return observations, stored, policy
 
 
@@ -551,7 +551,7 @@ def test_apply_writes_the_contract_and_no_lineage():
     revisions = conn.many("INSERT INTO ohlcv_revision")
     assert {(r[3].date(), r[7], r[9], r[10], r[11], r[12]) for r in revisions} == {
         (_D2, 11.5, "alpaca/sip_rth", "load", "alpaca", "sip_rth"),
-        (_D4, 13.0, "ibkr/named", "load", "ibkr", "named"),
+        (_D4, 13.0, "massive/sip_flat_adj", "load", "massive", "sip_flat_adj"),
         (_D5, 13.5, "alpaca/sip_rth", "load", "alpaca", "sip_rth"),
     }
     assert {r[0] for r in revisions} == {load["load_id"]}
@@ -1086,3 +1086,12 @@ def test_the_daily_stage_derives_the_universe_d7_judges():
     assert dimension_where_clause(CANONICAL_1D_DIMENSION) in _DISCOVER_DAILY_SYMBOLS_SQL
     assert "compute_eligible_1d" not in _DISCOVER_DAILY_SYMBOLS_SQL
     assert audit.CANONICAL_1D_DIMENSION is CANONICAL_1D_DIMENSION
+
+
+def test_stored_group_names_the_canonical_vendors_only():
+    from services.bar_derivation import _stored_group
+
+    assert _stored_group(set()) == "none"
+    assert _stored_group({"massive"}) == "massive_only"
+    assert _stored_group({"alpaca"}) == "alpaca_only"
+    assert _stored_group({"alpaca", "massive"}) == "mixed"
