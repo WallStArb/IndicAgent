@@ -19,7 +19,7 @@ No fill: volume <= 0 or non-finite is missing (the tradeable view drops zero-vol
 window reaching before the first row is not a window (NaN), a window with fewer than
 `min_finite` positive volumes is NaN, a short mean needs all `short` sessions, and a row with
 fewer than `min_names` finite names has no cross-section to fit (NaN). The window, short span,
-`min_finite` and `min_names` are spec fields, never defaults here.
+`min_finite`, `min_finite_short` and `min_names` are spec fields, never defaults here.
 """
 
 from __future__ import annotations
@@ -68,17 +68,20 @@ def rolling_centred_rank(x: np.ndarray, *, window: int, min_finite: int) -> np.n
     return np.where(ok, rank, np.nan)
 
 
-def volume_rank(volume: np.ndarray, *, window: int, short: int, min_finite: int) -> np.ndarray:
+def volume_rank(
+    volume: np.ndarray, *, window: int, short: int, min_finite: int, min_finite_short: int
+) -> np.ndarray:
     """The rank value before residualization (V1 `short=1`, V2 `short=5`).
 
     A row is NaN unless at least `min_finite` of the `window` sessions ending at it have positive
-    volume (the prereg 40-of-50 rule) and the short mean is defined; the rank runs over the
-    `window - short + 1` short means ending at it."""
+    volume (the prereg 40-of-50 rule), the short mean is defined, and at least
+    `min_finite_short` of the `window - short + 1` short means ending at it are finite (the
+    rank runs over those means; for V1 they are the volumes themselves)."""
     if not 1 <= short < window:
         raise ValueError(f"need 1 <= short < window, got {short} and {window}")
     v = _positive(volume)
     base = v if short == 1 else trailing_sum(v, short) / short
-    rank = rolling_centred_rank(base, window=window - short + 1, min_finite=2)
+    rank = rolling_centred_rank(base, window=window - short + 1, min_finite=min_finite_short)
     seen = rolling_centred_rank(v, window=window, min_finite=min_finite)
     return np.where(np.isfinite(seen), rank, np.nan)
 
@@ -107,6 +110,7 @@ def volume_shock(
     window: int,
     short: int,
     min_finite: int,
+    min_finite_short: int,
     min_names: int,
 ) -> np.ndarray:
     """V1 (`short=1`) or V2 (`short=5`): the volume rank value orthogonalized to the same-clock
@@ -115,7 +119,13 @@ def volume_shock(
         raise ValueError(
             f"resid and volume must share a shape, got {resid.shape} and {np.shape(volume)}"
         )
-    value = volume_rank(volume, window=window, short=short, min_finite=min_finite)
+    value = volume_rank(
+        volume,
+        window=window,
+        short=short,
+        min_finite=min_finite,
+        min_finite_short=min_finite_short,
+    )
     return residualize_rows(
         value, trailing_sum(np.asarray(resid, dtype=float), short), min_names=min_names
     )
