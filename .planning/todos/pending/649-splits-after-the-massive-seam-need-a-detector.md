@@ -28,3 +28,19 @@ Row recorded (`calendar_market`, 2026-11-13, factor 8, commit 407494a70, indepen
 ## Not blocking
 
 No corpus compute runs before the data gate; the stage 2 chain does not touch SNDK's recent bars.
+
+## Base rate measured 2026-11-23 (indicagent-d4, read-only)
+
+Sources: Alpaca corporate-actions feed (`data.alpaca.markets/v1/corporate-actions`, forward and reverse splits, ex-dates 2026-11-16 to 2026-11-23), `ohlcv_restatement_flag`, `corporate_action`, `instruments`.
+
+- Post-seam splits in the feed: 63 (ex-dates 2026-11-16 to 2026-11-23, 8 days; the 14 on 2026-11-23 are not yet through a nightly). 60 of the 63 symbols are in `instruments`, and only 2 are active (SNDK, VIXM). The other 58 are inactive: no Alpaca capture, last bars are the archive's, so no post-seam canonical exposure.
+- Active names: 2 splits in the first 8 days, about 1.75 a week. Both were caught as restatement flags on the first nightly that saw them (`signatures` share, price_ratio, volume_ratio; ratios 2.0 and 0.125; 136 and 576 5m bars) and both rows were recorded the day after the flag. The flag table holds 4 other post-seam flags (SO once, NVDA three times, share-only, no ratio, not splits).
+- Latency, ex-date to recorded row: VIXM ex 2026-11-19, flag in the 2026-11-19 UTC load, row 2026-11-20; SNDK ex 2026-11-20, flag in the 2026-11-21 UTC load, row 2026-11-21. One to one and a half days each, by hand. Each touched 1 name; neither touched another symbol.
+- Longer base rate, active names, `corporate_action` rows by effective date over the last 12 months (non-void, not superseded): 36, about 3 a month, 0.7 a week; the 2 post-seam events are above that mean on a sample of 8 days. Most of those 36 came from `massive_reference`, which stops when the Massive plan lapses about 2026-12-10, so after the lapse every active-name split reaches `corporate_action` only through the nightly flag and a manual row.
+- Misses: none seen (every active split in the feed had a flag). The flag path depends on Alpaca restating stored 5m bars, so a split where Alpaca serves no stored overlap on 5m would not flag; unmeasured at n = 2.
+
+Recommendation: build. The rate (about 3 a month, above the 1 a month threshold in Done-when 2) and the loss of `massive_reference` justify a nightly step, and the feed already returns the ex-date, ratio and symbol, so the detector does not depend on the flag.
+
+Proposal (proposal only, not built): after the Alpaca nightly capture, one call to the corporate-actions feed for forward and reverse splits with `start` at the last processed ex-date and `end` 14 days ahead; keep the symbols that are active in `instruments`; for each, write a candidate row file under `config/corporate_actions/` in the `split_rescale_rows` format (factor from `old_rate` and `new_rate`, `calendar_market` route, last old-scale session from the canonical 1d series) and log a loud warning with the count. Apply, the Yahoo witness and the review stay manual, as for `calendar_market`. Also surface a feed split with no matching flag and no row after the ex-date as a failing check, which closes the unmeasured miss case. Open for review: the file format and the single-name 5m reselect CLI named in the 2026-11-21 progress note.
+
+Status: Done-when 2 is decided (build, proposal above); item 1 still needs the `split_horizon_fresh` read for `SNDK|5m`. The todo stays pending until the detector is built or declined.
