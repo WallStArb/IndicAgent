@@ -9,10 +9,10 @@ No fill: a window reaching before the first row of the panel is not a window (Na
 fewer than `min_finite` finite closes is NaN (a missing session can hide the high), and so is a
 row whose own close is missing (the name did not trade on d) or whose maximum is not positive.
 
-The member reads closes, not S1 residual returns, so it needs a close input the member contract
-does not have yet (families/common.py: members read residual returns). Until that input kind
-lands this module is a tested pure kernel with no `NULL_BATTERY`, so `runner.static_gate` refuses
-the family before the ledger.
+The member reads the panel's total-return close through a `panel_source: close` member input
+(todo 653, research/member_sources.py), and `NULL_BATTERY` names the E17 battery that certifies it
+(null_battery_high_anchor). Outside dividend coverage the panel's close is NaN, so the member is
+NaN there (ledger 2026-11-23d: no price-only fallback).
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ from __future__ import annotations
 import numpy as np
 
 from src.intelligence.research.families.common import centred_rank
+
+NULL_BATTERY = "src.intelligence.research.null_battery_high_anchor"
 
 
 def high_distance(close: np.ndarray, *, window: int, min_finite: int) -> np.ndarray:

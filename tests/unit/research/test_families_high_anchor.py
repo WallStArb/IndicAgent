@@ -112,5 +112,5 @@ def test_arguments_are_checked():
         high_distance(np.ones(5), window=3, min_finite=2)
 
 
-def test_the_family_names_no_battery_so_a_run_is_refused_before_the_ledger():
-    assert not hasattr(high_anchor, "NULL_BATTERY")
+def test_the_family_names_its_battery():
+    assert high_anchor.NULL_BATTERY == "src.intelligence.research.null_battery_high_anchor"

@@ -9,7 +9,11 @@ from src.intelligence.research.families.common import declared_memory_rows
 from src.intelligence.research.spec import load_spec_from_file
 
 ROOT = Path(__file__).resolve().parents[3]
-PAIRS = (("daily_residual_h5", "daily_residual_h5_core"), ("seasonality_h5", "seasonality_h5_core"))
+PAIRS = (
+    ("daily_residual_h5", "daily_residual_h5_core"),
+    ("seasonality_h5", "seasonality_h5_core"),
+    ("family9_high_anchor_h5", "family9_high_anchor_h5_core"),
+)
 
 
 def _spec(name):
@@ -49,6 +53,26 @@ def test_the_seasonality_memory_comes_from_the_helper_and_the_values_are_the_pin
     assert c1.params == {"lags": 5, "min_lags": 3, "max_missing_fraction": 0.25}
     assert c2.params == {"window_months": 60, "max_missing_fraction": 0.25}
     assert spec.scoring.trading_start == "2009-03-02"
+
+
+@pytest.mark.parametrize("name", ["family9_high_anchor_h5", "family9_high_anchor_h5_core"])
+def test_the_family9_member_memory_window_and_source_are_the_pinned_ones(name):
+    spec = _spec(name)
+    (member,) = spec.members
+    assert member.name == "high_distance_252" and member.panel_source == "close"
+    assert member.params == {"window": 252, "min_finite": 240}
+    assert member.slot_history_sessions == 252
+    assert member.declared_memory_rows == declared_memory_rows(252, 1) == 525
+    assert spec.panel.total_return is not None and spec.panel.total_return.suspect_yield == 0.10
+    assert spec.horizon == 5 and spec.scoring.trading_start == "2007-03-01"
+    assert spec.construction.direction == 1
+
+
+def test_the_family9_family_is_covered_by_its_battery():
+    from src.intelligence.research import runner
+
+    gate = runner.static_gate(_spec("family9_high_anchor_h5"), require_pass=False)
+    assert gate.battery == "src.intelligence.research.null_battery_high_anchor"
 
 
 def test_the_null_battery_lists_every_registered_daily_residual_member():
@@ -103,7 +127,14 @@ MIN_TESTED_SESSIONS = 126  # half a year: a sub-period with fewer is not a discl
 
 @pytest.mark.parametrize(
     "name",
-    ["daily_residual_h5", "daily_residual_h5_core", "seasonality_h5", "seasonality_h5_core"],
+    [
+        "daily_residual_h5",
+        "daily_residual_h5_core",
+        "seasonality_h5",
+        "seasonality_h5_core",
+        "family9_high_anchor_h5",
+        "family9_high_anchor_h5_core",
+    ],
 )
 def test_every_declared_sub_period_has_tested_sessions_under_the_specs_own_e17_memory(name):
     """timing_series tests a session only after 60 scored sessions older than s - L (L = slot

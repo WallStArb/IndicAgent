@@ -38,6 +38,13 @@ PINNED = {
     "seasonality_h5_core.yaml": (
         "57c0072c4ab37d49b45e7d2f2280659d3e040e100c7b5c4a9da5a5fa8fa2f563"
     ),
+    # Recorded 2026-11-23 (ledger 2026-11-23d) before any family 9 battery or real-data run.
+    "family9_high_anchor_h5.yaml": (
+        "ffc2a9952c3d5a2469d43aa96d4354b83476af9299ad9ab5f1d1d77c79189c54"
+    ),
+    "family9_high_anchor_h5_core.yaml": (
+        "89eac9fb11a881f0ed0a2fb1503f138eb1c0ca939bfbd1c3ea7816ffe4c07963"
+    ),
     "family2_overnight_intraday.yaml": (
         "e898745795b34ddc4b00f8de306c9f461d38f6e8b0112a8888d0f5f768c3d845"
     ),
