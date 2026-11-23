@@ -62,10 +62,37 @@ def test_the_family9_member_memory_window_and_source_are_the_pinned_ones(name):
     assert member.name == "high_distance_252" and member.panel_source == "close"
     assert member.params == {"window": 252, "min_finite": 240}
     assert member.slot_history_sessions == 252
-    assert member.declared_memory_rows == declared_memory_rows(252, 1) == 525
+    # a panel_source member without orthogonalize has no S1 reach (runner._check_spec)
+    assert member.declared_memory_rows == member.slot_history_sessions == 252
     assert spec.panel.total_return is not None and spec.panel.total_return.suspect_yield == 0.10
     assert spec.horizon == 5 and spec.scoring.trading_start == "2007-03-01"
     assert spec.construction.direction == 1
+
+
+@pytest.mark.parametrize(
+    "name",
+    [p for pair in PAIRS for p in pair],
+)
+def test_runner_check_spec_accepts_every_registered_family_spec(name):
+    """The runner's own spec check on the real file: a declared memory the run would refuse
+    (family 9, 2026-11-23) fails here, not at launch."""
+    from src.intelligence.research import runner
+
+    runner._check_spec(_spec(name))
+
+
+def test_the_battery_and_the_run_take_L_from_the_slot_history_not_the_declared_rows():
+    """Both call e17_memory(slot history, horizon, bars, vol window): runner.py (the timing_test
+    call) and null_battery_high_anchor._score. Declared rows (252 here, 525 for the momentum
+    members) never enter L, so the pass certifies the run's L."""
+    import inspect
+
+    from src.intelligence.research import null_battery_high_anchor as battery
+    from src.intelligence.research import runner
+
+    assert "memories[m.name].sessions," in inspect.getsource(runner)
+    assert "e17_memory(memory," in inspect.getsource(battery._score)
+    assert "declared_memory_rows" not in inspect.getsource(battery)
 
 
 def test_the_family9_family_is_covered_by_its_battery():

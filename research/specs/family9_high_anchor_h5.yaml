@@ -18,13 +18,13 @@ panel:
   start: "2005-01-03"  # the NYSE calendar starts 2005-01-01 (daily residual prereg 10)
   end_exclusive: "2025-12-24"  # alpha.validation.oos_start; the forward span is never read
   total_return: {suspect_yield: 0.10}  # prereg 3: total-return closes (todo 428); NaN outside dividend coverage (ledger 2026-11-23d)
-members:  # prereg 3; declared memory = slot history + S1's 252 + 21 sessions = 525
+members:  # prereg 3; a panel_source member reads the close directly with no S1 reach: declared memory = slot history = 252 (runner._check_spec; corrected 2026-11-23 before any run)
   - name: high_distance_252  # F1: (c[d] - max(c[d-251..d])) / max(c[d-251..d]), NaN below 240 finite closes of 252, sign +1
     signal: src.intelligence.research.families.high_anchor.high_distance_member
     panel_source: close  # the panel's total-return close, not the S1 residual returns (todo 653)
     params: {window: 252, min_finite: 240}  # pinned, never swept (prereg 3, ledger 2026-11-23d point 4)
     slot_history_sessions: 252
-    declared_memory_rows: 525
+    declared_memory_rows: 252
 construction:  # prereg 4, R1
   name: rank_vol_neutral
   direction: 1  # the member's sign is applied inside it (prereg 3)
@@ -34,7 +34,7 @@ construction:  # prereg 4, R1
 scoring:
   timing_statistic: e17  # methodology-change-ledger E17 incl. the 2026-10-27 amendment (L = memory + h)
   session_scoring: true  # one P&L per session
-  trading_start: "2007-03-01"  # prereg 4: the first row with the 525-session memory (as the momentum members)
+  trading_start: "2007-03-01"  # prereg 4: declared before the memory correction; the first scored session is set by the data (252-session window, warmup, vol window), not by this date
   sub_periods:  # reported, not voted on
     - ["2007-03-01", "2011-12-31"]
     - ["2012-01-01", "2018-12-31"]

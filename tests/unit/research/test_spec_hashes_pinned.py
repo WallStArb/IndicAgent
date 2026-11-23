@@ -38,12 +38,13 @@ PINNED = {
     "seasonality_h5_core.yaml": (
         "57c0072c4ab37d49b45e7d2f2280659d3e040e100c7b5c4a9da5a5fa8fa2f563"
     ),
-    # Recorded 2026-11-23 (ledger 2026-11-23d) before any family 9 battery or real-data run.
+    # Recorded 2026-11-23 (ledger 2026-11-23d) before any real-data run; re-pinned the same day when declared_memory_rows
+    # moved 525 to 252 (the runner refuses 525 for a panel_source member: no S1 reach). No run row exists for the old hashes.
     "family9_high_anchor_h5.yaml": (
-        "ffc2a9952c3d5a2469d43aa96d4354b83476af9299ad9ab5f1d1d77c79189c54"
+        "1c8e5ed17525852c3c489d8f4d549d9f22acd61ae5e470c9c66c8963c5227d8d"
     ),
     "family9_high_anchor_h5_core.yaml": (
-        "89eac9fb11a881f0ed0a2fb1503f138eb1c0ca939bfbd1c3ea7816ffe4c07963"
+        "f1241b4970e14b1088373fcb109061fddc3c3d6dae321b3371327630cffe1ca4"
     ),
     "family2_overnight_intraday.yaml": (
         "e898745795b34ddc4b00f8de306c9f461d38f6e8b0112a8888d0f5f768c3d845"
