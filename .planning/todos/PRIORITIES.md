@@ -37,9 +37,9 @@ the pre-removal tree is the local tag `archive/v2x-ai-stack-2026-10`). History o
 git and in each todo's own closure note, not in this file. Durable reasoning behind this file (process rules,
 active sequencing decisions): `docs/research/priorities-decision-log.md`.
 
-## Critical path (current 2026-11-16)
+## Critical path (current 2026-11-23)
 
-Next actions in order: `.planning/STATE.md`, Handoff, "Next, in order" (the `d2_landed` pin gate, the E21 lift, the 1d-first corpus run and the daily residual family run, then the first counted tests). The dated Massive plan call (renew or lapse before about 2026-12-10) is in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
+Next actions in order: `.planning/STATE.md`, Handoff, "Queue" (lanes A to D: the StepM attestation and selection, the `reversal_21` replication, todo 653, then families 9 and 10; data integrity, corpus rerun and hygiene lanes follow). The dated Massive plan call (renew or lapse before about 2026-12-10) is in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
 
 Sequence: `docs/plans/2026-09-26-unified-research-to-production-design.md` section 16; session lanes
 and the lead's order in `.planning/STATE.md`. The goal is to test features, factors and regimes as
