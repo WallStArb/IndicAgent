@@ -230,6 +230,10 @@ L10 Meta
 
 Some batch services are deliberately not in `_DAG_ORDER` above and have no systemd unit or timer, for example `tag_calibrator.py`. `services/cross_sectional_spread_tracker.py` was deleted in 186-19 (as were `alpha_scorer.py` and `counterfactual_tracker.py`); the long-short construction role is the research package's R1 rule, and the decile spec is in `docs/research/summary-cards/legacy-ctf-momentum-decile-ls.md`.
 
+### Split feed auditor (daily, todo 649)
+
+`indicagent-split-feed-auditor.timer` (07:45 UTC, after the Alpaca nightly) runs `services/split_feed_auditor.py`: one read of the Alpaca corporate-actions feed (forward and reverse splits, ex-dates in the last `infra.split_feed_auditor.lookback_days`), active names only. A split with a matching `corporate_action_current` row is recorded. One without a row but with a matching restatement flag, inside `row_grace_days`, is a candidate: the warning `split_feed_auditor.candidates_written` and a row in `logs/split_candidates/split_candidates_<date>.csv` (the `calendar_market` row format; the Yahoo witness, review and apply stay manual). One with no row and no matching flag, or with no row past the grace, fails the unit (exit 1). A feed error or an unreadable payload also fails it. It never writes `corporate_action`. APR keys `infra.split_feed_auditor.*` (migration 612).
+
 ### Regime coverage auditor (nightly canary)
 
 `indicagent-regime-coverage-auditor.timer` (02:00) runs `services/regime_coverage_auditor.py`, which

@@ -1,0 +1,16 @@
+[Unit]
+Description=IndicAgent Split Feed Auditor (todo 649)
+After=network-online.target indicagent-infrastructure.target
+Wants=network-online.target
+Requires=indicagent-infrastructure.target
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/split_feed_auditor.py
+Environment=PYTHONUNBUFFERED=1
+TimeoutStartSec=10min
+
+[Install]
+WantedBy=multi-user.target

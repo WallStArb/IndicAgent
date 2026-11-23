@@ -1,0 +1,9 @@
+[Unit]
+Description=Split Feed Auditor Timer, daily 07:45 UTC (after the 04:40 UTC Alpaca nightly and the 06:00 UTC audits)
+
+[Timer]
+OnCalendar=*-*-* 07:45:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
