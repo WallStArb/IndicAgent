@@ -60,7 +60,7 @@ Run read-only on `origin/main` at ae309c4cf with `runner.static_gate(spec, requi
 - H-B low-risk (MAX, residual volatility, beta): reads stored feature columns from the corpus rerun, so it is a feature family and stays gated.
 - Dividend month premium: monthly horizon waits on todo 547 and covered names only.
 - Survivorship measured: a disclosure that rides on the first family; adds no selection look.
-- `reversal_21` pooled replication: pre-declared inside the daily residual sequence, not a new family.
+- `reversal_21` replication: retired as a phrase (ledger 2026-11-23b). R-1 is a non-gating sub-period disclosure of the recorded runs and R-2 is the forward confirmation at book freeze; neither is a new family.
 
 ## Recommendation
 

@@ -1,6 +1,6 @@
-# Draft pre-declaration: the `reversal_21` replication
+# Pre-declaration: the `reversal_21` replication (adopted, ledger 2026-11-23b)
 
-Status: DRAFT of 2026-11-23, not in force. Nothing here is launched, and no rule below binds until the lead rules and writes the ledger entry (owner veto reserved). Author: indicagent-d4, for the lead. The author read no sub-period statistic and no run output beyond what the ledger already records (the per-member t and p of ledger 2026-11-22c and the selection of 2026-11-23a), and every rule below is set from the preregistration and from power arithmetic, not from those numbers.
+Status: ADOPTED 2026-11-23 as ledger 2026-11-23b (lead ruling, owner veto reserved): R-1 as a non-gating disclosure charging 0 looks, R-2 as the forward confirmation at book freeze, R-3 rejected for now. The text below is the draft as submitted; the ledger entry governs. Author: indicagent-d4, for the lead. The author read no sub-period statistic and no run output beyond what the ledger already records (the per-member t and p of ledger 2026-11-22c and the selection of 2026-11-23a), and every rule below is set from the preregistration and from power arithmetic, not from those numbers.
 
 ## 1. What the existing documents say
 
