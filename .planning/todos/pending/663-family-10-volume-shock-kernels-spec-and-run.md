@@ -1,9 +1,8 @@
 ---
-status: pending
+status: in_progress
 priority: P2
 filed: 2026-11-22
 source: lead brief 2026-11-22 (indicagent-21), ranking in docs/plans/2026-11-22-next-counted-family-after-daily-residual.md section 3
-blocked_on: todo 653 for the spec, the member wrappers, the battery and the run (the member input change that gives a member a panel source plus the S1 residual e)
 ---
 
 # Family 10 (volume shock): kernels on main, spec, members, battery and run
@@ -27,3 +26,18 @@ Two volume-shock members on the daily clock (prereg `docs/plans/2026-11-15-famil
 ## Gates
 
 `black`, `ruff`, `tools/check_glossary.py`, targeted tests, suite exit 0, `/simplify`, independent review. After 653: `repro_frozen` bit-identical, record rebinds shown in the landing commit, ledger line from the lead that the run is registered.
+
+## Build 2026-11-23 (indicagent-fe; ledger 2026-11-23e rulings; 653 landed in 03ae3f770)
+
+Landed in the family 10 commit: `volume_rank_member` and `NULL_BATTERY` in `families/volume_shock.py`; `research/specs/family10_volume_shock_h5.yaml` and `_h5_core.yaml` (spec-hash pinned); `src/intelligence/research/null_battery_volume_shock.py`; tests (battery, wrapper, spec pins, the stage's causality and memory); the 43-event disclosure `docs/research/family10-gate5-near-factor-events.md`; the prereg amendments. No recorded spec hash or code key moved.
+
+Battery cells (in order, 8): `volume_gaussian`, `volume_static_means`, `volume_late_listings`, `volume_hostile`, `volume_hostile_no_static`, `volume_s1_hostile`, plus the diagnostic `volume_convex_stress` and `volume_unit_root_stress`. 300 names, 3,200 sessions per panel; gating sizes static sd 0.06 and market mean 0.04 (the daily and seasonality batteries' values), stress static sd 0.3.
+
+Generator constants (named in `null_battery_volume_shock.py`; log volume = name level + AR(1) per-name + AR(1) market + loadings on |u| + noise): name sd 0.5, AR(1) phi 0.9 (stress cell 0.99), per-name sd 0.3, market sd 0.2, loading on |u| same session 0.15 and previous session 0.15, noise sd 0.2 (Student t4 in the hostile cells), hostile cells: 1 percent holes (NaN), 30 percent of names with one permanent level step of ln 8; stress cell adds 0.3 x |u|^2. The hole rate was set at 1 percent because 5 percent leaves V2 mostly undefined (0.95^5 of the short means finite against the 37 of 46 floor), which also says V2's real coverage depends on the missing-bar rate, to be disclosed with the first run. Cost per simulation about 1 to 2 s, except `volume_s1_hostile` about 110 s (S1 on 300 names), so one 1,000-simulation block is about 2 hours on 16 workers.
+
+Driver, block 1 (heavy, lead launches; do not run beside another heavy job):
+`.venv/bin/python scripts/research/e17_null_battery.py logs/family10_battery_b1.json --battery src.intelligence.research.null_battery_volume_shock --sims 1000 --workers 16 --seed-base 11000000`
+Bind (one block): `.venv/bin/python scripts/research/bind_battery_pass.py --battery src.intelligence.research.null_battery_volume_shock --spec research/specs/family10_volume_shock_h5.yaml --spec research/specs/family10_volume_shock_h5_core.yaml --driver logs/family10_battery_b1.json --driver-commit <sha> --seed-base 11000000`.
+Fallback (only if block 1 fails; declared in 2026-11-23e): a second block `... --seed-base 12000000` to `logs/family10_battery_b2.json`, then bind with `--replication-driver logs/family10_battery_b2.json --seed-base 11000000 --seed-base 12000000`.
+
+Closure coupling (2026-11-23): family 9's battery imports `volume_shock` through `member_sources`, so any later edit to `families/volume_shock.py` changes family 9's battery code key and stales its pass (the family 10 landing does exactly that, so family 9's real runs go first), and family 10's own battery key depends on the same module in the same way.

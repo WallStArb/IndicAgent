@@ -46,6 +46,13 @@ PINNED = {
     "family9_high_anchor_h5_core.yaml": (
         "f1241b4970e14b1088373fcb109061fddc3c3d6dae321b3371327630cffe1ca4"
     ),
+    # Family 10 (todo 663, ledger 2026-11-23e), before any real-data number.
+    "family10_volume_shock_h5.yaml": (
+        "597a275c4579ba02054892b59e47f735f141a9c3546b1220e2914573659f7265"
+    ),
+    "family10_volume_shock_h5_core.yaml": (
+        "7d4dbf497ef62f0be35f807b5ad85e1abee7b1810d388e9d3276ec5245b143e1"
+    ),
     "family2_overnight_intraday.yaml": (
         "e898745795b34ddc4b00f8de306c9f461d38f6e8b0112a8888d0f5f768c3d845"
     ),

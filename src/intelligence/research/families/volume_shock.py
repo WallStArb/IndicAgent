@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import numpy as np
 
+NULL_BATTERY = "src.intelligence.research.null_battery_volume_shock"
+
 
 def _positive(volume: np.ndarray) -> np.ndarray:
     v = np.asarray(volume, dtype=float)
@@ -128,4 +130,26 @@ def volume_shock(
     )
     return residualize_rows(
         value, trailing_sum(np.asarray(resid, dtype=float), short), min_names=min_names
+    )
+
+
+def volume_rank_member(
+    volume: np.ndarray,
+    *,
+    bars_per_session: int,
+    coverage_floor: int,
+    window: int,
+    short: int,
+    min_finite: int,
+    min_finite_short: int,
+) -> np.ndarray:
+    """The member of a `panel_source: volume` spec: the volume rank value (V1 `short=1`, V2
+    `short=5`) before the orthogonalization stage, which `member_sources.orthogonalize_members`
+    applies after the membership mask (ledger 2026-11-22h). The member contract
+    (`families/common.py`) passes `coverage_floor` to every member; this statistic's own floors
+    are `min_finite` and `min_finite_short`, so it is accepted and unused. 1d clock only."""
+    if bars_per_session != 1:
+        raise ValueError(f"volume_rank_member needs the 1d book clock, got {bars_per_session}")
+    return volume_rank(
+        volume, window=window, short=short, min_finite=min_finite, min_finite_short=min_finite_short
     )

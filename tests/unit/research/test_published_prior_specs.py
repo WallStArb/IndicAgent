@@ -13,6 +13,7 @@ PAIRS = (
     ("daily_residual_h5", "daily_residual_h5_core"),
     ("seasonality_h5", "seasonality_h5_core"),
     ("family9_high_anchor_h5", "family9_high_anchor_h5_core"),
+    ("family10_volume_shock_h5", "family10_volume_shock_h5_core"),
 )
 
 
@@ -197,3 +198,25 @@ def test_every_declared_sub_period_has_tested_sessions_under_the_specs_own_e17_m
     for start, end in spec.scoring.sub_periods:
         inside = (tested >= np.datetime64(start)) & (tested <= np.datetime64(end))
         assert inside.sum() >= MIN_TESTED_SESSIONS, (name, start, end, int(inside.sum()))
+
+
+@pytest.mark.parametrize("name", ["family10_volume_shock_h5", "family10_volume_shock_h5_core"])
+def test_the_volume_shock_members_floors_and_memory_are_the_ruled_ones(name):
+    from src.intelligence.research import runner
+
+    spec = _spec(name)
+    assert [m.name for m in spec.members] == ["volume_shock_1_50", "volume_shock_5_50"]
+    for m in spec.members:
+        assert m.panel_source == "volume" and m.slot_history_sessions == 50
+        assert m.declared_memory_rows == declared_memory_rows(50, 1) == 323
+        assert (
+            m.orthogonalize.min_names == 200 and m.orthogonalize.sum_sessions == m.params["short"]
+        )
+        assert m.params["window"] == 50 and m.params["min_finite"] == 40
+    v1, v2 = spec.members
+    assert (v1.params["short"], v1.params["min_finite_short"]) == (1, 40)
+    assert (v2.params["short"], v2.params["min_finite_short"]) == (5, 37)  # ledger 2026-11-22e
+    assert spec.horizon == 5 and spec.scoring.trading_start == "2007-03-01"
+    runner._check_spec(spec)  # declared memory, resolvable members, certificate rules
+    gate = runner.static_gate(spec, require_pass=False)
+    assert gate.battery == "src.intelligence.research.null_battery_volume_shock"

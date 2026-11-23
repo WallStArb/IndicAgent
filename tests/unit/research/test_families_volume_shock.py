@@ -169,3 +169,17 @@ def test_short_means_floor_boundary_at_36_and_37():
     got36 = volume_rank(holey, window=50, short=5, min_finite=40, min_finite_short=36)
     assert np.isnan(got37[d, 0]) and np.isfinite(got36[d, 0])  # 36 finite means
     assert np.isfinite(got37[d, 3])  # 37 finite means passes the 37 floor
+
+
+def test_the_member_wrapper_is_the_rank_and_takes_the_1d_clock_only():
+    from src.intelligence.research.families.volume_shock import NULL_BATTERY, volume_rank_member
+
+    v = _volume(sessions=60)
+    kwargs = dict(window=50, short=5, min_finite=40, min_finite_short=37)
+    np.testing.assert_array_equal(
+        volume_rank_member(v, bars_per_session=1, coverage_floor=999, **kwargs),
+        volume_rank(v, **kwargs),
+    )  # coverage_floor is the construction's, never this statistic's
+    with pytest.raises(ValueError, match="1d book clock"):
+        volume_rank_member(v, bars_per_session=78, coverage_floor=20, **kwargs)
+    assert NULL_BATTERY == "src.intelligence.research.null_battery_volume_shock"

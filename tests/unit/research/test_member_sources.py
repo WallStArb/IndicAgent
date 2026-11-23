@@ -284,3 +284,30 @@ def test_member_recipe_params_see_the_source_and_the_stage():
         for m in (member, plain, other)
     }
     assert len(keys) == 3
+
+
+def test_stage_is_causal_and_reads_only_sum_sessions_rows_of_the_residual(stand_in):
+    """Row d of the stage depends on rows <= d of the member and on e over d-sum+1..d only."""
+    spec, member = _spec()
+    sum_sessions = member.orthogonalize.sum_sessions
+    panel = _panel(n=60)
+    rng = np.random.default_rng(8)
+    resid = rng.normal(0, 0.02, panel.close.shape)
+    members = member_sources.compute_panel_members(spec, panel, bars_per_session=1)
+    base = member_sources.orthogonalize_members(spec, members, resid, bars_per_session=1)["shock"]
+    d = 40
+    future = resid.copy()
+    future[d + 1 :] += rng.normal(0, 1.0, future[d + 1 :].shape)  # data after d changes
+    moved = member_sources.orthogonalize_members(spec, members, future, bars_per_session=1)["shock"]
+    np.testing.assert_array_equal(base[: d + 1], moved[: d + 1])  # causality
+    old = resid.copy()
+    old[: d - sum_sessions + 1] += 1.0  # before the trailing sum's reach: no effect on row d
+    aged = member_sources.orthogonalize_members(spec, members, old, bars_per_session=1)["shock"]
+    np.testing.assert_array_equal(base[d], aged[d])  # memory
+    inside = resid.copy()
+    inside[d - sum_sessions + 1 : d + 1] += 1.0  # inside the reach: it must move
+    assert not np.array_equal(
+        base[d],
+        member_sources.orthogonalize_members(spec, members, inside, bars_per_session=1)["shock"][d],
+        equal_nan=True,
+    )
