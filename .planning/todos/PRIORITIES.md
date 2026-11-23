@@ -125,6 +125,7 @@ Unverified against live state as of 2026-11-22 (checked only the P0 and P1 rows 
 
 | Todo | Why now |
 |---|---|
+| [663](pending/663-family-10-volume-shock-kernels-spec-and-run.md) | New 2026-11-22, P2, spec, members, battery and run blocked on todo 653 (member panel source plus S1 residual e). Kernels on main; data gates 563 and 560 cleared, prereg gates 4 and 5 open (heavy slot). |
 | [661](pending/661-store-the-hmm-segment-status.md) | New 2026-11-22, P2. Store the HMM segment status so a NaN `hmm_*` column (degenerate-occupation gate) is verifiable and `hmm_churn` can leave the parked state. |
 | [657](pending/657-d7-audit-follow-ups-from-the-live-test-deletion.md) | New 2026-11-22, P2. Follow-ups of 656 task 1: wire the `grid_recompute` verdict (stored 15m/1h rows against the 5m derivation; the pure check exists, nothing runs it), drop the IBKR 1d pairs from `CANONICAL_1D_SOURCES` after Part F, and decide the successor of the IBKR-based daily vs intraday check. |
 | [656](pending/656-integration-test-harness-redesign.md) | New 2026-11-22, P2, blocked on the residual run being counted. Integration harness redesign: a capped disposable test cluster on the production image (port 5433), a database per session copied from a hashed template, the six live-data tests deleted (monitoring belongs to the D7 audit), the schema sync kept behind `--live-catalog`, an interim session lock, a baseline bump that closes 655, CI after 654. |
