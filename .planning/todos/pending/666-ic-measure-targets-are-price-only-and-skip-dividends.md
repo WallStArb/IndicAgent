@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P3
+priority: P2
 filed: 2026-11-24
 source: indicagent-3d, readiness check of ic_measure against the rebuilt tables (lead item C)
 ---
@@ -10,6 +10,10 @@ source: indicagent-3d, readiness check of ic_measure against the rebuilt tables 
 ## What
 
 `build_target_panels` (`src/intelligence/measure/targets.py`) builds the S0 panels without the dividend grid (`dividends=False`) and the measure's panel digest leaves dividends out on purpose (`services/ic_measure.py`, `panels_digest`: a dividend revision cannot change an IC). The targets are therefore `panel.forward_returns` on price-only opens. CLAUDE.md says a spec that holds across a session boundary declares `panel.total_return`; every 1d horizon in `alpha.ic_measure.horizons` (1, 2, 5, 10) does. An ex-dividend drop enters the target as a negative return, which biases a feature correlated with the yield (`dividend_yield`, `size_proxy` and the like) on the ex-date rows and adds noise to the rest.
+
+## Deadline
+
+Decided before the first IC run after the corpus rerun: CLAUDE.md says a spec that holds across a session boundary declares `panel.total_return`, and every 1d horizon in `alpha.ic_measure.horizons` does. The measurement plan: on the 1d pilot rows, the IC of `dividend_yield`-linked columns (`dividend_yield`, `size_proxy`) and the rank correlation of the full per-column IC vector between the price-only and the total-return target at each horizon, plus the share of target rows that straddle an ex-date.
 
 ## Done when
 
