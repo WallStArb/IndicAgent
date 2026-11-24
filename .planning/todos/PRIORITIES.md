@@ -37,9 +37,9 @@ the pre-removal tree is the local tag `archive/v2x-ai-stack-2026-10`). History o
 git and in each todo's own closure note, not in this file. Durable reasoning behind this file (process rules,
 active sequencing decisions): `docs/research/priorities-decision-log.md`.
 
-## Critical path (current 2026-11-23)
+## Critical path (current 2026-11-24)
 
-Next actions in order: `.planning/STATE.md`, Handoff, "Queue" (lanes A to D: the StepM attestation and selection, the `reversal_21` R-1 disclosure, todo 653, then families 9 and 10; data integrity, corpus rerun and hygiene lanes follow). The dated Massive plan call (renew or lapse before about 2026-12-10) is in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
+Next actions in order: `.planning/STATE.md` Handoff and Queue. The heavy slot runs one job at a time under the DIMM watchdog (`docs/operations/guarded-run-runbook.md`): the block 2 rerun of the family 10 battery, then the corpus pilot (scope 1d, 4 workers), then the four family 10 counted runs, then `stage_1d` of the corpus rerun. The dated Massive plan call (renew or lapse before about 2026-12-10) is in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
 
 Sequence: `docs/plans/2026-09-26-unified-research-to-production-design.md` section 16; session lanes
 and the lead's order in `.planning/STATE.md`. The goal is to test features, factors and regimes as
@@ -50,13 +50,13 @@ not IBKR coverage.
 | Lane | Order |
 |---|---|
 | Data (phase 191 done, 192 Massive) | Raw loads 2026 to 2003 done and gated 2026-11-11; 8a checks done as the admission record (r5 pushed a0a9eb851, gates nothing per owner ruling; first verdicts 2014-2026 ok both timeframes) -> the placed-span load and the A11 witness gate -> step 7 done (2026-11-16) -> data gate 186-32 -> the 584 pin and one corpus rerun -> 186-28 fresh IC run. The IBKR deletion (Part F) lands only after the rebuild proves itself; todo 574 (Tradier removal) done 2026-11-12 |
-| Build (phase 186, 25/29) | 186-17 Task 2 unblocked (the fetcher-gap condition died with the IBKR fetcher); 186-26 rerun waits on the data gate (rows discarded 2026-11-04, migration 569); 186-27 landed (migration 570); 186-28 after the rerun, tf set from 471 |
-| Research inputs (phase 184) | Plans 01-10 landed; 12 (dry S0 on real data) waits on the rebuilt table; 13-14 on todo 482; admission holes are todo 588 |
-| Research core (phase 187) | Selection core plans 08-15; governance (16-18) after the first feature family; E17 v2 battery (todos 547, 586) before StepM selection and the book rule |
-| Testing | Waits on the clean-data rule (E21 adopted 2026-11-13): family 2, daily price-only families 441 + 423, then 440; feature and regime families after the rebuild and 184 |
-| Quick, independent | 443 (remaining item sequenced after the 186-26 rebuild; see its P2 row below) |
+| Build (phase 186, 25/29) | 186-26 is the corpus rerun on the new universe: pin `09708ae249f2`, pilot next (todo 584, `docs/operations/corpus-rerun-runbook.md`); 186-28 after it with `ic_tfs` = 1d only (todo 471, 15m and 5m wait on 667); 186-17 Task 2 unblocked |
+| Research inputs (phase 184) | Plans 01-10 landed; 12 (dry S0 on real data) waits on the rebuilt table (1h and 5m need a scope-all rerun); 13-14 on todo 482; admission holes are todo 588 |
+| Research core (phase 187) | Selection core plans 08-15; StepM attestation passed 2026-11-23; governance (16-18) after the first feature family; the S1-drift call on the momentum members is the owner's (todo 547) |
+| Testing | Counted: daily residual, seasonality and family 9 (null); family 10 counted runs pending (todo 663); feature and regime families after the corpus rerun and 184 |
+| Quick, independent | 554 landed (legacy feature_vectors readers deleted); P2 and P3 consolidation batches 1 to 4 done, batch 5 and the deferred todos not yet verified (`docs/research/priorities-decision-log.md`) |
 
-Unverified against live state: every P2 and P3 row (the P0 and P1 rows and the pre-rerun window rows 558, 466, 461, 470, 471, 448, 564, 583, 588 Part C and 608 were checked 2026-11-24). Treat the "why now" text of the unchecked rows as possibly stale.
+Verified against live state: the P0 and P1 rows 2026-11-22 (lead pass) and the pre-rerun window rows 2026-11-24; the P2 and P3 rows of consolidation batches 1 to 4 2026-11-24. Not yet verified: batch 5 (P2 rows 612, 038, 039, 420, 504, 513, 646; 512 is an owner rule, 520 and 522 owner ideas, report only) and the deferred todos. Treat the "why now" text of those rows as possibly stale.
 
 ## P0: Gates the data gate or the first counted test
 
