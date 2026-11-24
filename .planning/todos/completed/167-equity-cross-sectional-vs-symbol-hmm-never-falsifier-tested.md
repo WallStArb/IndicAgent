@@ -143,3 +143,7 @@ one full-corpus (equity + rates) `ic_engine` pass, which closes this todo as a s
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Deferred (per-feature regime stratification in ic_engine/lifecycle). Gate: reactivate if regime-stratified per-feature IC becomes part of a method in the research methods plan (todo 436). Thin regime x tf cells are the Phase 148 failure shape, so this does not restart by default.
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Merged into 135: falsifier-test cross-sectional versus per-symbol HMM conditioning if a counted method ever conditions on regime (the `ic_engine` routing it targeted was deleted, 2fea95291).

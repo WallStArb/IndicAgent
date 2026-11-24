@@ -100,3 +100,7 @@ made, per this todo's own gating.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Deferred (live-streaming bucket). Gate: reactivate when streaming ingestion restarts or a frozen book needs intraday forward data faster than the nightly batch. Live/batch parity is then the requirement (deferred todo 246).
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Closed as obsolete: the capped live `BarHistory` was deleted with the pipeline (62e65d0eb); the batch rebuild reads full history. The comment at `vp_sr.py:95` is stale.

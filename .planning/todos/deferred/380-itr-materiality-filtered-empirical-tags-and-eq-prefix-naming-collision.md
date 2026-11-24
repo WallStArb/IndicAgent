@@ -181,3 +181,7 @@ note requiring no fix, per the re-verification above.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Deferred (per-feature regime stratification in ic_engine/lifecycle). Gate: reactivate if regime-stratified per-feature IC becomes part of a method in the research methods plan (todo 436). Thin regime x tf cells are the Phase 148 failure shape, so this does not restart by default.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Verified 2026-11-24: part 2 was re-scoped to a doc note (b2bc962ee). Part 1 is open: `cross_sectional_regime_model.py:416` is human-only and `is_materiality_eligible` (`tag_calibrator.py:941`) has no outside reader; live `eq_*` tags are 539 human, 547 empirical. Deferred: switch the breadth and peer readers if regime labels enter a counted method.

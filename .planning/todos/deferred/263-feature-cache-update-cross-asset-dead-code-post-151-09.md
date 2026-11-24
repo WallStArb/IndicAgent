@@ -67,3 +67,7 @@ correctness risk.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Deferred (live-streaming bucket). Gate: reactivate when streaming ingestion restarts or a frozen book needs intraday forward data faster than the nightly batch. Live/batch parity is then the requirement (deferred todo 246).
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Verified 2026-11-24: `update_cross_asset` and `CrossAssetState` are called only from tests (`test_feature_factory.py:501,591`); `_cache_state.py` is in the rebuild closure (via `external_inputs.py:17`). Deferred, P3: delete the dead code and its tests at the next closure edit window, once the corpus run is quiet.

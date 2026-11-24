@@ -42,3 +42,7 @@ this has no live-data blast radius today -- same operational context as todos 26
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Deferred (live-streaming bucket). Gate: reactivate when streaming ingestion restarts or a frozen book needs intraday forward data faster than the nightly batch. Live/batch parity is then the requirement (deferred todo 246).
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Closed: `_guard_counted` existed only in `feature_factory.py`, deleted in 5708abeb7. Two stale comments remain at `feature_vector.py:54,375`.

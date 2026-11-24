@@ -63,3 +63,7 @@ A single, general daemon (shaped like the existing `*_auditor.py` services) that
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Now the parent of the live-streaming bucket deferred in triage (366, 177, 261, 264, 265, 344, 258, 263). 177 is a named case of live/batch divergence.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Verified 2026-11-24: streaming is dormant and no live feature producer exists after 62e65d0eb and 5708abeb7; the gate is still accurate. Live-versus-batch parity is a requirement of any future live producer; reopen when streaming restarts or a book needs intraday forward data faster than the nightly batch. Owner's own question, kept.

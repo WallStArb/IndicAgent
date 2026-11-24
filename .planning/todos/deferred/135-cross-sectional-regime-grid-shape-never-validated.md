@@ -79,3 +79,7 @@ anyway — solve it once, generically, rather than per-dimension).
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Deferred (per-feature regime stratification in ic_engine/lifecycle). Gate: reactivate if regime-stratified per-feature IC becomes part of a method in the research methods plan (todo 436). Thin regime x tf cells are the Phase 148 failure shape, so this does not restart by default.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Gate reworded: the old gate cites the deleted `ic_engine` (2fea95291). `services/cross_sectional_regime_model.py` is live and disclosure is in `src/intelligence/measure/regime_disclosure.py`. Deferred: validate the 9- and 6-cell grid shape if a counted family conditions on, or discloses by, `market_regimes` cells (thin cells are the Phase 148 failure shape). Absorbs 167.

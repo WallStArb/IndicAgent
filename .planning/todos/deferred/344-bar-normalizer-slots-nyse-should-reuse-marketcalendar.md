@@ -67,3 +67,7 @@ extended earlier than 2005, or fixed as part of whatever accessor 344's fix shap
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Deferred (live-streaming bucket). Gate: reactivate when streaming ingestion restarts or a frozen book needs intraday forward data faster than the nightly batch. Live/batch parity is then the requirement (deferred todo 246).
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Verified 2026-11-24: `_slots_nyse` (`bar_normalizer.py:109`) serves the batch gap planner (`gap_plan.py:44`) and the corpus rerun data gate, not the streaming path. Deferred, P3 batch refactor: route it through `MarketCalendar`, prove identical slots, after the corpus run is quiet.

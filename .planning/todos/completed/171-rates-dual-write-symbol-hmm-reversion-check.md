@@ -56,3 +56,7 @@ naturally happens anyway.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Deferred (per-feature regime stratification in ic_engine/lifecycle). Gate: reactivate if regime-stratified per-feature IC becomes part of a method in the research methods plan (todo 436). Thin regime x tf cells are the Phase 148 failure shape, so this does not restart by default.
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Closed as obsolete (not an owner idea): the flag's consumer (`ic_engine`) is gone, so `dual_write_symbol_hmm` has no reader in src or services. Follow-up, unfiled: strip the dead field from `alpha.regime.groups` in a migration (it is still true on all four groups).
