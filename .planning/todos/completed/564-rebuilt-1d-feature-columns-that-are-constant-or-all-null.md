@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-10-29
 source: data lane check of the 186-26 stage 1 output (feature_vectors_v2, tf 1d)
@@ -107,3 +107,7 @@ moves the code pin - apply in the batch, not between stages.
 3. A check in the rebuild's completion record screens each stage's output for constant and
    all-NULL columns per timeframe, so a dead column is named when it appears; run it for the
    later intraday stage as well.
+
+## Closure 2026-11-24
+
+Done: `hma_slope_z` fixed (20c1dcddc); 40 outputs declared not applicable on 1d and refused at the research read (`feature_inputs.py`, B1e); zero states and the hma warmup declared (c409bc86c, 5c8461d81, 2aa04d1d4); the corpus rerun screens each tf in its completion step. Residual pilot findings belong to 652 and 662.

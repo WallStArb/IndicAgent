@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-26
 source: phase 183 session council review of the unified design against the research lane
@@ -42,3 +42,7 @@ source: phase 183 session council review of the unified design against the resea
 ## Done when
 
 Each item is in the phase 186 or 187 plan that owns it, or closed with a reason.
+
+## Closure 2026-11-24
+
+All four items landed: `repro_frozen.py` promoted (186-03), `book_memory` is the one source of a book's L (`book.py:92`, 59c6c44fb, 7daede4b7), the runner uses the features causality probe (`runner.py`, 2e2ec9487), and StepM went through the E17 H0 battery (attestation passed, methodology-change ledger 2026-11-23a).
