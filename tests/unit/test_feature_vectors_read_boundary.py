@@ -42,11 +42,6 @@ _TABLE_PATTERN = re.compile(
 _SEARCH_DIRS = ("services", "src", "scripts")
 _LEGACY_DIR = "scripts/research/"
 _REMOVAL_TODO_PATTERN = re.compile(r"^[0-9]+-remove-legacy-feature-vectors-research-readers\.md$")
-_REMOVAL_TODO = "554-remove-legacy-feature-vectors-research-readers.md"
-_LEGACY = (
-    "LEGACY research reader: pre-184 exploratory reader, existing; new research must use the "
-    f"runner (S0). Removal: todo {_REMOVAL_TODO}."
-)
 
 # (file, reason): every `feature_vectors` reference in the tree must appear here.
 _ALLOW_LIST: dict[str, str] = {
@@ -96,18 +91,11 @@ _ALLOW_LIST: dict[str, str] = {
     "scripts/ops/alpha/ops_dependence_length_diagnostic.py": (
         "OPS: feature autocorrelation dependence-length diagnostic, no returns."
     ),
-    "scripts/ops/corpus/ops_oos_holdout_eval.py": (
-        "LEGACY evaluation reader: reads features against forward opens outside the runner, an "
-        f"uncounted look. Removal: todo {_REMOVAL_TODO}."
-    ),
     # Research S0.
     "src/intelligence/research/feature_inputs.py": (
         "RESEARCH S0: the research S0 read; every research read goes through the runner and is "
         "counted (184 B1e)."
     ),
-    # Legacy research scripts.
-    "scripts/research/feature_matrix.py": _LEGACY,
-    "scripts/research/todo445_5m_incremental_ic.py": _LEGACY,
 }
 
 

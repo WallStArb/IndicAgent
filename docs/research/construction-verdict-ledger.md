@@ -160,7 +160,7 @@ The `scripts/analysis/*.py` files cited in the rows above were deleted in 186-16
   BH-significant at q=0.05, but only `ret_autocorr_1` (t 2.65-2.72) and `sweep_detected` (t 2.60-2.75) cleared
   the cost hurdle at every grid point. Decision: keep 5m in the rebuild, scoped to those two features. A
   scoping measurement, not a verdict; the other 174 cells are too small or too high-turnover to trade alone,
-  not evidence against those features.
+  not evidence against those features. (The script was deleted 2026-11-24, todo 554: `git log --diff-filter=D -- scripts/research/todo445_5m_incremental_ic.py` names the commit and the file stays in history; the look is recorded in `.planning/gate_look_log.jsonl`.)
 - **Corpus feature IC by timeframe and horizon, 2026-09-25 (disclosure for families 1b, 9, 10).** From
   `feature_ic_scores` (pooled, raw IC, vintage 1). The largest ICs are one mechanism, price position within
   its recent range at 1d h 10 (`vwap_dev_sigma` -0.061, `high_52w_dist` -0.058, `rsi_slow` -0.052,

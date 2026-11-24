@@ -69,7 +69,6 @@ _.get_concept  # unused method (src/intelligence/concept_registry_service.py:875
 _.update_cross_asset  # unused method (src/intelligence/features/kernels/_cache_state.py:777)
 config_revert  # unused function (services/config_service.py:214)
 _.current_partial  # unused method (src/core/bar_accumulator.py:230)
-_oos_mask  # unused function (scripts/ops/corpus/ops_oos_holdout_eval.py:73)
 _.expected_bars_for_date  # unused method (src/core/models.py:150)
 get_instrument  # unused function (src/api/routes/instruments.py:88)
 format_tier_label  # unused function (src/observability/metrics.py:55)
@@ -119,7 +118,6 @@ all_1d  # unused variable (scripts/research/determinism/results.py:32) - frozen 
 sleeve_features  # unused variable (scripts/research/determinism/results.py:33) - frozen Snapshot dataclass field, same as all_1d
 sleeve_has_row  # unused variable (scripts/research/determinism/results.py:34) - frozen Snapshot dataclass field, same as all_1d
 equity_labels  # unused variable (scripts/research/determinism/results.py:37) - frozen Snapshot dataclass field, same as all_1d
-n_bar_ts  # unused variable (scripts/research/feature_matrix.py:112) - result field of fetch_feature_matrix (186-04); only caller was a script deleted by 186-16
 _.family_stat  # unused method (scripts/research/date_panel.py:136) - tested public API of the promoted date panel (186-04); only caller was a script deleted by 186-16
 _.bootstrap_ci  # unused method (scripts/research/date_panel.py:145) - tested public API of the promoted date panel (186-04); only caller was a script deleted by 186-16
 _.sync_shift_null_p  # unused method (scripts/research/date_panel.py:173) - tested public API of the promoted date panel (186-04); only caller was a script deleted by 186-16
@@ -402,7 +400,6 @@ estimate_cs_spreads  # unused function (scripts/research/cost_hurdle.py:70)
 _.checkpoint  # unused method (src/core/resource_lease.py:201)
 evaluate_study  # unused function (src/intelligence/bars/venue_study.py:166)
 evaluate_name  # unused function (src/intelligence/bars/venue_study.py:97)
-fetch_feature_matrix  # unused function (scripts/research/feature_matrix.py:146)
 onboard_instrument  # unused function (src/config/instrument_onboarding.py:197)
 BaseProvider  # unused class (src/providers/base_provider_agent.py:44)
 

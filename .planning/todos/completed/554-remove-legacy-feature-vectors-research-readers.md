@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-10-27
 source: plan 184-04 (B1k read boundary, 184-REVIEWS row 18)
@@ -51,3 +51,8 @@ stays with this todo.
 ## Status 2026-11-24 (todo consolidation pass)
 
 All three scripts still exist and are allow-listed (`test_feature_vectors_read_boundary.py:99,109-110`); the corpus rerun repopulates feature_vectors, which reopens the uncounted-look risk. Removing the dead constant would move the pin.
+
+## Closure 2026-11-24
+
+Deleted `scripts/research/feature_matrix.py`, `scripts/research/todo445_5m_incremental_ic.py` and `scripts/ops/corpus/ops_oos_holdout_eval.py` with their three test files, their allow-list entries in `tests/unit/test_feature_vectors_read_boundary.py` and their vulture whitelist entries. `repro_frozen` depends on none of them (grep of `scripts/research/determinism` and its tests). The one recorded result that cited a script (the todo 445 look) keeps a provenance note in the verdict ledger. The dead constant in `services/batch_support/config.py` stays for the post-rerun code window (it is inside the rebuild closure and would move the pin); the docstrings in `src/intelligence/statistics/ic_math.py` that name the deleted script are left because a statistics edit needs `repro_frozen` and a comment is not worth it.
+
