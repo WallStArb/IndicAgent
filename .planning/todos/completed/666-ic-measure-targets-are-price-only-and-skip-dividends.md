@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-11-24
 source: indicagent-3d, readiness check of ic_measure against the rebuilt tables (lead item C)
@@ -22,3 +22,8 @@ On Massive ex-dates inside stage 2 member months (2003-09-10 to 2025-12-23): 194
 ## Done when
 
 The materiality is read on return-free facts first (Musk step 1; owner ruling 2026-11-20): on the 1d pilot rows, the IC of `dividend_yield` and two unrelated columns with and without a total-return target at each horizon, and the share of target rows that straddle an ex-date inside `dividend_event_coverage`. If the difference is below the noise of the IC, record the price-only choice in the ledger as a disclosed property and close; if not, the target moves to total return for covered names (outside coverage dividends are unknown, never zero) under a methodology-change entry before the first IC run that is counted.
+
+## Closure 2026-11-24 (lead ruling, ledger 2026-11-24e)
+
+Decided on the return-free facts above and no IC comparison (that would be a counted look): the first IC run uses price-only targets as a screening measure; counted families declare `panel.total_return`. The first IC run's report spec carries the straddle table (share of 1d target rows whose window straddles an ex-date, by horizon: about 1, 2, 5 and 10 percent at h 1, 2, 5 and 10, from the 2026-11-24 counts) and the flag list (`dividend_yield` and its linked columns, `size_proxy`), and the yield distribution (median 0.49 percent, p90 1.56, p99 4.5; 327 events above 10 percent).
+
