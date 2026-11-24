@@ -43,3 +43,7 @@ segments are skipped, which bears on todos 289 (1d `regime_volatility` coverage)
 ETHA, IBIT all-NULL); re-measure there.
 
 2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). The 303/304 benchmark rerun follows the corpus rerun.
+
+## Status 2026-11-24
+
+The annotations are done: a note under the ledger table and a caveat on each of the two summary cards. Open: rerun the 303/304 benchmark comparison on the corpus rerun's regime columns.

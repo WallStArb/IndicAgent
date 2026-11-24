@@ -103,3 +103,7 @@ walk-forward folds span the full history including data at or after 2025-12-24, 
 distinct test statistics were produced (1d N1-a, 1d N1-b, 1d capped, 1h capped at 0.10, 1h
 capped at 0.05). The 2026-09-01 reruns reproduced the same numbers on the same data and are not
 counted as new looks. No other card counts these.
+
+## Caveat 2026-11-24 (todo 461)
+
+The stored `gap_z` column this run read carried a one-bar lookahead (built from `open[T+1]`, fixed in plan 186-12, db4ef4e80). The fold 1 G1 breach on `gap_z` (0.248, 0.210) is what a leaking column dominating a fold looks like, so the inconclusive result may reflect the leak rather than the combiner. Re-measure on the corpus rerun's rows.

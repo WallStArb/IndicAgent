@@ -35,3 +35,7 @@ Neither doc was edited in plan 186-12 (research-lane files); annotate both when 
 Code: done (186-12). Open: annotate the two dependents, re-measure `gap_z` on the rebuilt matrix,
 add the defect to the `cache-feature-vectors-v1` card (done in 186-12) and confirm the rebuild
 drift report (186-27) shows `gap_z` moving.
+
+## Status 2026-11-24
+
+The two annotations are done: ledger note after the corpus gap features entry and a caveat on the n1 combiner card. Open: re-measure `gap_z` IC on the corpus rerun's rows and confirm the rebuild drift report shows `gap_z` moving.

@@ -121,3 +121,7 @@ The span start follows the 186-01 corpus start convention and the end (2026-08-1
 date ingestion delivered bars per the statistical factor residual doc. `forward_span_looks` is 0
 on this card because the shared Stage 3 run read data at or after 2025-12-24 once, and that look
 is counted on the todo 303 card.
+
+## Caveat 2026-11-24 (todo 466)
+
+The orthogonality and `regime_volatility`-stratified checks read the stored `regime_volatility` column, which carried a label-mask lookahead until the corpus rerun (todo 451, fixed in 186-13). A lookahead benchmark can only make the candidates look worse, so the DEAD verdict is biased toward dead. Rerun the benchmark on the rerun's columns before treating it as final.
