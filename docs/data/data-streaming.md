@@ -247,7 +247,7 @@ Consumer({
 ### Schema evolution
 
 Topics use JSON schemas without Schema Registry (currently):
-- Schemas defined in `src/intelligence/schemas.py`
+- Schemas defined in the v2.x schema module (deleted 2026-11-24; the pre-removal tree is the local tag `archive/v2x-ai-stack-2026-10`)
 - Core types: `BarEvent`, `IntelligenceEvent`, `SignalEvent`, `LifecycleEvent`, `LLMCallEvent`, `NarrativeEvent`
 - Redpanda Schema Registry (port 8081 (internal), 18081 (external)) is available for future backward/forward compatibility enforcement.
 
@@ -545,7 +545,7 @@ docker exec redpanda rpk topic stats <topic-name>
 - **Data foundation (TimescaleDB tables):** `docs/data/data-foundation.md`
 - **Data provider (IBKR integration):** `docs/data/data-provider.md`
 - **Stream key source of truth:** `src/core/stream_keys.py`
-- **Typed event schemas:** `src/intelligence/schemas.py`
+- **Typed event schemas:** the v2.x schema module (deleted 2026-11-24; the pre-removal tree is the local tag `archive/v2x-ai-stack-2026-10`)
 - **Stream schemas reference:** `docs/reference/schemas/stream-schemas.md`
 - **Infrastructure operations:** `docs/operations/operations-infrastructure.md`
 - **Self-healing and service auditor:** `docs/platform/platform-self-healing.md`

@@ -41,8 +41,6 @@ src/core/database_manager.py:0: error: Returning Any from function declared to
 src/core/market_calendar.py:0: error: Returning Any from function declared to
 src/core/retry_utils.py:0: error: Returning Any from function declared to
 src/core/schemas/bar_message.py:0: error: Parameter 1 of Literal[...] is
-src/core/state_serializer.py:0: error: Returning Any from function declared to
-src/core/state_serializer.py:0: error: Returning Any from function declared to
 src/intelligence/bars/complete_bars.py:0: error: Name "complete" already
 src/intelligence/bars/complete_bars.py:0: error: Returning Any from function
 src/intelligence/bars/digest.py:0: error: Argument 1 to "float" has

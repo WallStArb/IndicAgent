@@ -5,7 +5,7 @@
 **Last Updated:** 2026-09-04
 **Status:** current
 
-This document defines IndicAgent's live Kafka/Redpanda data contracts, plus the archived v2.x schemas still present in code for historical traceability. Verified 2026-09-04 against `src/intelligence/schemas.py`, `src/core/stream_keys.py`, and the live TimescaleDB schema.
+This document defines IndicAgent's live Kafka/Redpanda data contracts, plus the archived v2.x schemas, whose code was deleted (the pre-removal tree is the local tag `archive/v2x-ai-stack-2026-10`). Verified 2026-09-04 against `src/core/stream_keys.py` and the live TimescaleDB schema.
 
 **v2.x/v3.0 split (read this before citing anything below as "live"):** Per root `CLAUDE.md`, the v2.x typed bus — `IntelligenceEvent` (tiered JSONB i1/i3/i4/i5/smc/i6), `SignalEvent`/I7 signals, and everything published to `intelligence.journal`/`intelligence.i7.signals` — is **archived, no live consumer as of 2026-07-02**. `intelligence-pipeline` and `feature-writer` services are `failed`/`inactive`; `intelligence_features` and `signal_events` are confirmed empty (0 rows, live-checked 2026-09-04). v3.0's live path is `FeatureVectorPipeline` (compute, in-process) → `FeatureVectorRecord` on `topic_feature_vectors` → `FeatureVectorWriter` → `feature_vectors` (106M+ rows) → `forward_return_writer`/`ic_engine`/`ensemble_trainer` → `AlphaPublisher` → `alpha.events` → `alpha_events` (70M+ rows, sole writer `AlphaPublisher`). If you are documenting or debugging something that touches Kafka today, it is almost certainly on the v3.0 path.
 
@@ -61,7 +61,7 @@ The `alpha.events` topic and its `alpha_events` payload were removed in phase 18
 
 ## Archived v2.x Schemas (no live consumer since 2026-07-02)
 
-These remain defined in `src/intelligence/schemas.py` and are wired into `sse.py`'s topic list (see [SSE Protocol](../api/sse-protocol.md)), but their producing service (`indicagent-intelligence-pipeline`) is `failed` with an `ExecStart` pointing at a deleted file, and their target tables (`intelligence_features`, `signal_events`) are confirmed at 0 rows. Kept here for historical/debugging traceability only — do not build new work against them.
+Their code (the v2.x schema module) was deleted 2026-11-24 (the pre-removal tree is the local tag `archive/v2x-ai-stack-2026-10`); they were wired into `sse.py`'s topic list (see [SSE Protocol](../api/sse-protocol.md)), but their producing service (`indicagent-intelligence-pipeline`) is `failed` with an `ExecStart` pointing at a deleted file, and their target tables (`intelligence_features`, `signal_events`) are confirmed at 0 rows. Kept here for historical/debugging traceability only — do not build new work against them.
 
 ### `IntelligenceEvent`
 

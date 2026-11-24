@@ -34,7 +34,6 @@ ignore = [
 "tests/integration/**/*.py" = ["F821"]  # references to deleted topics in legacy e2e tests
 "tests/integration/*.py" = ["E402"]
 "tests/unit/indicators/test_incremental_manager.py" = ["E402"]
-"src/intelligence/schemas.py" = ["E741"]  # 'l' is intentional for OHLCVBar low field
 "tests/unit/providers/test_base.py" = ["E402"]
 
 [tool.ruff.lint.isort]

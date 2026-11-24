@@ -90,3 +90,7 @@ pattern in `src/intelligence/schemas.py` specifically, 276 of the 833).
 ## Status 2026-11-24 (todo consolidation pass)
 
 The whitelist is 1,061 entries; 455 are in dead `src/intelligence/schemas.py` (importers: `state_serializer.py` and two tests).
+
+## Done 2026-11-24
+
+Deleted `src/intelligence/schemas.py`, `src/core/state_serializer.py` and their three test files (neither is in the rebuild writer, kernel, research or ic_measure import closures), 456 whitelist entries and 2 mypy baseline lines; docs that named the module now say it was deleted. Remaining: triage the functions and methods (about 163) and 465's dead `LANGGRAPH_*` metrics.

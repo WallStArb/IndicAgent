@@ -136,7 +136,7 @@ Without this, asyncpg returns JSONB as raw strings and comparisons like `float <
 
 ## Typed Intelligence Bus
 
-The canonical event type flowing through warm-tier streams is **`IntelligenceEvent`** (`src/intelligence/schemas.py`). It carries all tier outputs in typed JSONB sub-fields:
+The canonical event type flowing through warm-tier streams is **`IntelligenceEvent`** (the v2.x schema module, deleted 2026-11-24; the pre-removal tree is the local tag `archive/v2x-ai-stack-2026-10`). It carries all tier outputs in typed JSONB sub-fields:
 
 ```python
 IntelligenceEvent:
