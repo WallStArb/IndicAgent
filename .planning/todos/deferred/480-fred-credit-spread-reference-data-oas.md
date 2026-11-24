@@ -196,3 +196,7 @@ another owner-approved source.
 - TLT and IEF history start 2016-02 and 2017-08 while HYG starts 2007-04: check whether this is an
   intraday-campaign (449) or 185 backfill gap before treating it as the provider's limit.
 - Policy regime idea doc: its provider plumbing section (FRED client) is this todo's step 3.
+
+## Status 2026-11-24 (deferred todo re-check)
+
+Gate confirmed. Tier 1 is stored (235,212 rows, 54 series, last write 2026-10-01); the daily timer `indicagent-economic-series-writer.timer` is still disabled; no consumer reads the table yet (only the writer and `service_auditor`). Tier 2 waits on a named consumer and on todo 482. Kept.

@@ -58,3 +58,7 @@ No consumer reads the table until phase 184 B8.
   values.
 - A unit test per availability rule, including a Friday, a holiday weekend and a monthly series.
 - Audit counts appear in the run log and the outcome counter.
+
+## Status 2026-11-24 (deferred todo re-check)
+
+Gate confirmed. Plan 184-13 (the economic block in S0) is unchecked in ROADMAP.md and 235,198 of 235,212 rows still carry `availability_basis` `assumed_lag`, so the reload is still owed and costs the same until B8 starts. Kept.

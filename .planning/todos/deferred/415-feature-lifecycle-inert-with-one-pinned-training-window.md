@@ -19,3 +19,7 @@ Related: 414 (guard statistic, needs >= 2 windows), 405 (trainer reads must pin 
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Deferred (per-feature regime stratification in ic_engine/lifecycle). Gate: reactivate if regime-stratified per-feature IC becomes part of a method in the research methods plan (todo 436). Thin regime x tf cells are the Phase 148 failure shape, so this does not restart by default.
+
+## Status 2026-11-24 (deferred todo re-check)
+
+Gate reworded. The old gate (regime-stratified per-feature IC becomes part of a method) is met in part: the unified design generalizes regime-stratified IC through `stratified_ic` (E21 amendment 2026-11-09, adopted 2026-11-13). Still deferred: `feature_lifecycle` runs on the one pinned training window and the guard statistic needs at least two windows, so reactivate when the walk-forward cadence (todo 415) yields a second window. Kept; the guard-fraction code (`ic_math.evaluate_guard_fraction`) is still live.

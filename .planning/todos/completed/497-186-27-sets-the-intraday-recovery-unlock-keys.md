@@ -25,3 +25,7 @@ Add both writes to the rerun's close-out and its verification, with config_histo
 ## Deferred 2026-11-12
 
 Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.
+
+## Closed 2026-11-24 (deferred todo re-check)
+
+Closed as obsolete. `ops_intraday_venue_recovery.py`, the only consumer that refuses on `infra.bar_derivation.intraday_recovery_unlocked`, no longer exists under `scripts/`, and IBKR venue fallback is deleted (IBKR removed 2026-11-13). The audit only reports the key as informational (`services/bar_reconciliation_audit.py:481`). The corpus rerun close-out has no recovery step to wire.

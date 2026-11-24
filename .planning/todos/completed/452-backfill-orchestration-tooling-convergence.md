@@ -45,3 +45,7 @@ with the sleeve-directory deletion (todo 448), not to this cleanup.
 Blocked until no lane loop is running: the todo 449 chain completes ~mid-October 2026,
 and the 185-09/185-12 cutover stops are earlier safe moments. Never edit or move a lane
 script while its loop runs: bash reads scripts incrementally.
+
+## Closed 2026-11-24 (deferred todo re-check)
+
+Closed as obsolete. The lane wrappers this todo would have merged (`intraday_htf_lane.sh`, `intraday_5m_lane.sh`, `backfill_retry_loop.sh`) and `logs/backfill_ops/` no longer exist in the tree, and the IBKR backfill chain they served is deleted (IBKR removed 2026-11-13). Nothing remains to converge; the deletions are in git history.
