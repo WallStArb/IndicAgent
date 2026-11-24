@@ -41,3 +41,7 @@ fewest dependents.
    new domain-named instrument fails it.
 2. Move the two 186 instruments to `src/intelligence/measure/` or a `feature_lifecycle` module in
    Ring 1 and drop their allow-list entries.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+`metrics.py` now holds 55 instruments; `SIGNAL_*` and `REGIME_*` are gone; `LANGGRAPH_*` has no users.

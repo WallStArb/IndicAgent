@@ -32,3 +32,7 @@ Stored equivalent: `price_percentile_fast`/`_slow` (`kernels/price.py` `_price_p
 ## Done when
 
 No research kernel duplicates a registry concept; `research_kernels` holds this family no longer.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Gate met: the 186-27 swap landed 2026-11-04; the stored kernel is NaN-cold (`kernels/price.py:538-556`) but still loops once per bar.

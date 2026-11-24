@@ -86,3 +86,7 @@ pattern in `src/intelligence/schemas.py` specifically, 276 of the 833).
 - `tools/vulture_whitelist.py` — the frozen baseline
 - `pyproject.toml`'s `[tool.vulture]` — config (paths, exclude, min_confidence)
 - `.github/workflows/ci.yml`'s "Vulture (dead code)" step — the gate itself
+
+## Status 2026-11-24 (todo consolidation pass)
+
+The whitelist is 1,061 entries; 455 are in dead `src/intelligence/schemas.py` (importers: `state_serializer.py` and two tests).

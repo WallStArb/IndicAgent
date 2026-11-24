@@ -47,3 +47,7 @@ read them through `FeatureFactoryConfig`, and let the golden stay byte-identical
 equal today's numbers. Decide the `1e-10` floors with the other numerical guards
 (`EPS` in `_primitives.py`) rather than as tunables. Migration number above the highest file in
 `production/migrations` at the time.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+The HMM half is obsolete: `ctf_regime_align` was deleted (f396f9e27) and todo 476 is done; the CTF window is now `feature.ctf.vwap_window`.

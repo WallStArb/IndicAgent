@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-09-18
 source: manual investigation of STATE.md's recurring staleness pattern (already flagged
   3x in STATE.md's own "## Session" section, 2026-07-31/2026-08-09/2026-08-14, and in
@@ -87,3 +87,7 @@ phases exist only as rows in ROADMAP's milestone table and in the edge-proof pla
 176 and added 1. It fails silently into a duplicate ID. The phase was re-added by hand as 182.
 Fix: derive the next number from every phase reference (milestone table, sections, directories,
 archived milestone dirs), or refuse when the result collides with any reference.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Tier corrected to P3 (the row already sat in P3).
