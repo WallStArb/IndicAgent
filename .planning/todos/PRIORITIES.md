@@ -39,7 +39,24 @@ active sequencing decisions): `docs/research/priorities-decision-log.md`.
 
 ## Critical path (current 2026-11-24)
 
-Next actions in order: `.planning/STATE.md` Handoff and Queue. The heavy slot runs one job at a time under the DIMM watchdog (`docs/operations/guarded-run-runbook.md`): the block 2 rerun of the family 10 battery, then the corpus pilot (scope 1d, 4 workers), then the four family 10 counted runs, then `stage_1d` of the corpus rerun. The dated Massive plan call (renew or lapse before about 2026-12-10) is in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
+Next actions in order: `.planning/STATE.md` Handoff and Queue. The heavy slot runs one job at a time under the DIMM watchdog (`docs/operations/guarded-run-runbook.md`). Block 2 of the family 10 battery is done (ledger 2026-11-24g); the corpus pilot (run 7c5612f0) stopped at the data gate on one name (BKH, indicagent-fb). Then the four family 10 counted runs, then `stage_1d` to `feature_complete`. IC measure waits on todos 670 and 671 (ledger 2026-11-24f). The dated Massive plan call (renew or lapse before about 2026-12-10) is in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
+
+Ranked P0 and P1 order by the path to a counted test (lead pass 2026-11-24; "code key" = the todo edits code a live or resumable run imports, so it lands only when that run is quiet):
+
+| Rank | Todo | Blocker | Owner | Size | Code-key note |
+|---|---|---|---|---|---|
+| 1 | 584 | BKH data gate, then pilot, family 10 runs, `stage_1d` | lead, indicagent-fb | heavy slot, hours | is the pin |
+| 2 | 649 | timer `indicagent-split-feed-auditor.timer` is built but not installed (`systemctl` reports not-found); install before the Massive lapse removes `massive_reference` | ops session | small, no code edit | none |
+| 3 | 600 | owner decision: renew or lapse by 2026-12-10, filings sizing by 2026-12-01 | owner | decision | none |
+| 4 | 669 | after the four family 10 runs and the StepM read; one route plus new battery cells | research session | medium | edits `src/intelligence/research`: `repro_frozen` bit-identical, rebinds, never beside a live counted run; before the pin of any counted corpus test |
+| 5 | 588 | part C (real-data dry S0) needs the scope-all rerun; item (e) `volume_basis` in S0 | research session | medium | S0 code: after the pilot |
+| 6 | 636 | StepM across the counted looks, then the `reversal_21` pooled read; the 547 ruling shapes the final cut | lead, owner for 547 | small | none |
+| 7 | 471 | width-pin measurement runs only after the pilot and with no heavy job live | lead | one heavy run | none |
+| 8 | 547, 586 | owner rulings (S1 drift; persistence statistic, branch `wip/586-persistence-statistic`) | owner | decision then medium | `statistics/`: `repro_frozen` |
+| 9 | 558, 461, 466, 583, 571 | all after the corpus rerun lands the rebuilt columns; 461 and 466 ledger and card annotations are docs only and can land now | worker sessions | small each | 571 and 583 write the DB after the rerun |
+| 10 | 614 rows 3, 9, 10, 11, 13, 16 | step 7 proved itself; rows 3 to 13 touch modules the rebuild imports, so after `stage_1d`; row 16 per file | worker session | medium | yes, after `stage_1d` |
+| 11 | 439 part 2, 435, 441, 423, 440, 442, 601, 603 | the corpus rerun and phase 186-28 IC run; 442 is paused and owned by phase 183 | after the rerun | per todo | research edits wait for quiet |
+| 12 | 609, 615, 622, 624 | 609 has nothing left but 584; 615, 622 and 624 are data-quality items under the 2026-11-20 materiality rule | lead | none to small | none |
 
 Sequence: `docs/plans/2026-09-26-unified-research-to-production-design.md` section 16; session lanes
 and the lead's order in `.planning/STATE.md`. The goal is to test features, factors and regimes as
