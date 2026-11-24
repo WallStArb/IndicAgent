@@ -81,7 +81,6 @@ Unverified against live state as of 2026-11-22 (checked only the P0 and P1 rows 
 | [624](pending/624-reused-ticker-history-in-canonical-sn.md) | New 2026-11-17, P1. SN canonical mixes Sanchez Energy (2016 to 2019) with SharkNinja (from 2023-07-31): a reused ticker. Ruling: the pit ticker map owns identity, no proven-start floor. SNEX and RTX are applied; open: SW and the SLM identity contradiction, which wait on the pit map's identity. |
 | [627](pending/627-sweep-bad-bar-pairs-2007-06-13.md) | New 2026-11-17, P2. Five names show a one-day reversal pair on 2007-06-13 and 2007-06-14 (A3 sweep); a vendor day-file bad bar per name; measure the class, list the bars or a day rule. |
 | [631](pending/631-void-the-gsat-2021-02-08-operator-row.md) | New 2026-11-17, P3. The GSAT 2021-02-08 operator row (0.609687, Alpaca route) contradicts every vendor's 2021 move; measure, then void and reselect GSAT. |
-| [610](pending/610-massive-1d-is-the-served-day-file.md) | New 2026-11-12, P1. Reverses its first version: Massive 1d stays the served day file (official close, agrees with IBKR 1d at 99.9 percent from 2014); the RTH-minute build is rejected (the minutes cannot reproduce the official close). Open: the 2003 to 2007 close convention needs a third witness before those eras feed a daily test. Does not gate step 7. |
 
 **Pre-rerun window (lands before the corpus rerun at the new pin; 571 right after it)**
 

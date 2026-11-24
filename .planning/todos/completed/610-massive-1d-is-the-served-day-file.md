@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-11-12
 source: todo 600 step 6, 8a day-file-against-minute check; reversed by the lead 2026-11-12 after measuring the close convention
@@ -62,3 +62,7 @@ Witness: Yahoo `Close` (split-adjusted, not dividend-adjusted), the official clo
 - Second witness (tape plus a vendor) was not run; Yahoo alone is the one witness here, and the rule treats a Yahoo-only call as the incumbent-defect floor, not a defect finding.
 
 Proposal for the lead (no rule is needed on this evidence): record the 2005 to 2007 closes as the official close, agreeing with Yahoo, and let family 9's 2005 to 2007 inputs read canonical as is; disclose the 2007 residual (7 of 63 sampled names below 90 percent) with the sample size. Re-open only if the 2007 residual grows on a larger sample.
+
+## Closed (lead ruling 2026-11-24)
+
+The 2026-11-23 measurement is the third witness: canonical Massive closes agree with Yahoo's official close at 99.7 percent in 2005 and 2006 and 97.2 percent in 2007, the same band as the control years, so there is no 2003-to-2007 seam in the canonical table; the IBKR dispute is IBKR's last-trade close (ruling 2026-11-13). Ruling: 2005 to 2007 closes are the official close, and daily tests may read canonical across the 2007/2008 seam, which lifts the restriction in "Open" above. The 2007 residual (7 of 63 sampled names between 84 and 89 percent) is disclosed with its sample size, not gated: at most about 0.4 percent of scope C name-years, and a robust statistic absorbs a one-name-year miss (materiality rule, owner 2026-11-20). Name-years with no Massive close before a name's first day are holes (todo 632), not a convention question. Reopen only if the 2007 residual grows on a larger sample.
