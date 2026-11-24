@@ -129,9 +129,43 @@ sudo systemctl restart indicagent-intelligence-pipeline
 - Monitor plugin execution times per tier
 - Planned batch processing will address sequential tier bottleneck
 
+### DIMM overheating: `DimmTemperatureCritical` (above 100 C for 1 minute) and `DimmTemperatureHigh` (above 90 C for 2 minutes, warning)
+
+**Symptoms:**
+- `node_hwmon_temp_celsius` of an spd5118 chip (DIMM sensor, chips `i2c_2_2_0050` and `i2c_2_2_0051`) above the threshold; rated max 55 C, critical limit 85 C, normal heavy load 80 to 88 C
+- 2026-11-23: a 16-worker battery block drove the sensors to 117 C and a counted run died with corrupted memory
+
+**Delivery (2026-11-23):** no receiver delivers. The Alertmanager `default` receiver is a no-op (`production/alertmanager.yml`) and the Grafana contact points carry placeholder webhook and chat ids, so these alerts show only at `localhost:9090/alerts` and in the Alertmanager UI until the owner supplies credentials.
+
+**Diagnosis:**
+```bash
+sensors | grep -A3 spd5118
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=node_hwmon_temp_celsius{chip=~"i2c_2_2_005.*"}'
+```
+
+**Resolution:** stop or reduce the running research workers, check case airflow, and treat results of a run that held the critical state as untrustworthy until a memory test passes (`memtester`).
+
+Rules are in group `dimm_temperature` of `production/alertmanager-rules.yml`, tested by `production/alertmanager-rules.dimm.test.yml`:
+```bash
+cd production && docker run --rm -v "$PWD":/p -w /p --entrypoint promtool prom/prometheus:v3.16.0 \
+  test rules alertmanager-rules.dimm.test.yml
+```
+
 ---
 
 ## Warning Alerts
+
+### DIMM sensor missing: `DimmSensorMissing` (fewer than two spd5118 chips with a temperature reading for 10 minutes)
+
+**Symptoms:**
+- The two DIMM overheating alerts above cannot fire: node_exporter's hwmon collector or the spd5118 driver stopped publishing
+
+**Diagnosis:**
+```bash
+sensors | grep -A3 spd5118
+docker logs indicagent-node-exporter --tail 20
+curl -s localhost:9100/metrics | grep 'node_hwmon_chip_names.*spd5118'
+```
 
 ### Watchdog Suppression — `rate(watchdog_notify_suppressed_total[5m])` > 0
 

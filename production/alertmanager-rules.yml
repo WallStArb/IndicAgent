@@ -220,6 +220,50 @@ groups:
           description: "Suppression rate {{ $value | humanize }} — unit file missing NotifyAccess=main. Check {{ $labels.agent }} systemd config."
 
 
+  # DIMM temperature (2026-11-23 memory fault: the spd5118 sensors read 117 C under a 16-worker
+  # battery block, against a 55 C rating and an 85 C critical limit, and a counted run died with
+  # corrupted memory). node_exporter's hwmon collector publishes one series per DIMM; the join on
+  # node_hwmon_chip_names selects the spd5118 chips by type, so a different slot address still
+  # matches. Normal heavy load runs the DIMMs at 80 to 88 C, so the warning sits above it.
+  - name: dimm_temperature
+    rules:
+      - alert: DimmTemperatureHigh
+        expr: >
+          max by (instance, chip) (node_hwmon_temp_celsius
+          * on (instance, chip) group_left () node_hwmon_chip_names{chip_name="spd5118"}) > 90
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DIMM {{ $labels.chip }} above 90 C for 2 minutes (normal heavy load 80 to 88 C)"
+          description: "{{ $value | humanize }} C on {{ $labels.chip }}. Reduce the research worker count and check the case airflow before a run corrupts memory (2026-11-23 fault: 117 C)."
+
+      - alert: DimmTemperatureCritical
+        expr: >
+          max by (instance, chip) (node_hwmon_temp_celsius
+          * on (instance, chip) group_left () node_hwmon_chip_names{chip_name="spd5118"}) > 100
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DIMM {{ $labels.chip }} above 100 C for 1 minute"
+          description: "{{ $value | humanize }} C on {{ $labels.chip }}, past the 85 C critical limit. Stop the running research jobs now; results from a run in this state are not trustworthy (2026-11-23 fault)."
+
+      - alert: DimmSensorMissing
+        # The host has two DIMMs (chips i2c_2_2_0050 and i2c_2_2_0051). Counting the joined
+        # series (a chip with a temperature reading) catches a lost chip listing and a lost
+        # reading alike, and matches by chip type, not address.
+        expr: >
+          (count(node_hwmon_temp_celsius
+          * on (instance, chip) group_left () node_hwmon_chip_names{chip_name="spd5118"})
+          or vector(0)) < 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fewer than two spd5118 DIMM temperature sensors visible to node_exporter"
+          description: "DIMM overheating alerts are blind. Check indicagent-node-exporter (hwmon collector), the spd5118 kernel driver (`sensors`), and the node scrape."
+
   # ubuntu2 backup and mirror (metrics from production/standby/standby_probe.sh). Alerting is
   # not wired to a pager; these rules turn the Grafana panel red and show on /alerts.
   - name: standby_backup
