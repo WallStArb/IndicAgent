@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-10-28
 source: scope guard of the todo 555 change
@@ -83,3 +83,7 @@ bar's own row masked, largest deviation after it `vwap_dev_sigma` at median 0.2%
   NULL. Live and legacy paths that still feed NaN volume to the cache (`feature_vector_pipeline`
   into `update_wk_vwap`, legacy `feature_factory` helpers, `ops_ctf_columns_recompute_15m`) are
   off the 186-26 rebuild path and stay as they are.
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Merged into 588 item (e): the seam it described is gone (the NULL-volume path is deleted, 17cfe233b; both canonical vendors are consolidated volume).

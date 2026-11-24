@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-09-29
 source: family 1 iteration 4 (2026-09-29): the edge sits at the two auction prints
@@ -41,3 +41,7 @@ slot's after 15:50 (a move into the closing print). Two open questions follow, i
 
 Todo 457 (rerun the slot subsets through the runner so they are counted), todo 458 (overlay
 route, the alternative if the hold fails).
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Merged into 457 (the auction-print check on a Massive source); the IBKR comparison it assumed is gone.

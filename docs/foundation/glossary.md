@@ -2322,7 +2322,7 @@ revision, and a revision ratio is measured against the same vendor's own stored 
 How the feature kernels treat a change of volume basis and a missing volume. Code:
 `src/intelligence/features/contract/registry.py` (`_guard_volume`, `_guard_downstream`,
 `require_finite_volume`); history and measurements:
-`.planning/todos/pending/560-volume-kernels-span-the-volume-basis-seam.md`.
+`.planning/todos/completed/560-volume-kernels-span-the-volume-basis-seam.md`.
 
 ### `dropped bar`
 

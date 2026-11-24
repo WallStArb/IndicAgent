@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-10-06
 source: interactive session (189 session), found during the 189-06 cutover smoke run
@@ -38,3 +38,7 @@ oneshot is dark. Silent wrong answers are worse than loud crashes.
   the docker log caps.
 - Do not rename metrics without sweeping `production/grafana/` dashboards and alert rules (the operations
   dashboard has uncommitted edits from another session at filing time).
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+The collector fix landed (729870eda): the Prometheus exporter drops any metric whose data point carries a `job` label, so the collector now renames the oneshot attribute `job` to `job_name` (`production/otel-collector-config.yaml`); emitters still pass `job`. Verified 2026-11-24: `job_completed_total{job_name=...}` series exist for bar-derivation, bar-reconciliation-audit, regime-coverage-auditor, dividend-event-writer, split-feed-auditor and corpus_rerun.canary. CLAUDE.md line 117 still says `{job, status}`, which is the emitter's attribute; the queryable Prometheus label is `job_name`.

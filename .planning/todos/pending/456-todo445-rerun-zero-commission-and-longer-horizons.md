@@ -39,3 +39,7 @@ narrowed that set more than the owner intends:
 - Statistics stay gross; costs gate only the name set and promotion (E18).
 - Research attempts are paused until 185 and 186 land; Part A is a re-derivation and can run
   sooner, Part B waits.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Verified 2026-11-24: `name_set_5m` is read by no code (only the deleted `todo445_5m_incremental_ic.py` wrote it); commission is zero at Alpaca (437 note). Owner review item: not closed.

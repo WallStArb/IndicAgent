@@ -95,3 +95,7 @@ await the owner's one-line freeze lift and stay the open item. A separate declut
 (2026-10-31) applies the same hierarchy to the rest of docs/plans and the old archive.
 
 2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). The reset follow-ups ride the rerun; the owner's freeze lift remains the gate.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Verified 2026-11-24: the six candidates and the todo sweep are done; the ledger is frozen 2026-10-28 and superseded by the generated `research-ledger.md`. The freeze lift is an owner decision (listed to the lead for STATE).

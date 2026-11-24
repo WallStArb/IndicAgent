@@ -61,3 +61,7 @@ Before CTVA's hold is released and before the 186-26 rebuild reads CTVA (it read
 today, which freshness_1d names).
 
 2026-11-09 vehicle note (lead indicagent-d8): the 186-26 rebuild is superseded by the 186-30/31 corpus rerun at the new pin (rows discarded, migration 569). Gate: before the rerun reads CTVA - same pre-rerun window as the kernel promotions.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Verified 2026-11-24: item 3 fixed in fe47d2f0a; item 2 obsolete (ELE, IESC, MSM and TIGO each hold 225 Massive-served 1d bars in 2026); CTVA hold `72cc2b5e` is current and CTVA has no canonical 1d bars and no membership.

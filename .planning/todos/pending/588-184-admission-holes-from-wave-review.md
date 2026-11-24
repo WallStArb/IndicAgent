@@ -94,3 +94,7 @@ the statistic is immune to static means in this form, the static gate certifies 
 deletion candidate; if real panels carry a static component the battery's injection does not
 model (a per-name mean correlated with a persistent signal), the battery needs that cell instead.
 Decide with a measured real-data example, not by argument.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Merged from 560 (2026-11-24): the NULL-volume path is deleted (17cfe233b) and canonical holds only Massive and Alpaca, both `VOLUME_BASIS_CONSOLIDATED` (`vendor_kind.py:249`), so there is no seam. The only open item of 560 is item (e): S0 supplying `volume_basis`.

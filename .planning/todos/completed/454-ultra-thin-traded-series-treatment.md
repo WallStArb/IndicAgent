@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-09-28
 source: phase 185 plan 10 historical scrub pass (docs/research/scrub-historical-pass.md, todo 052 defect-class sweep)
@@ -43,3 +43,7 @@ flag the class and let research decide.
 - Blocked by: nothing.
 - Do not: delete or quarantine any RCAT-class bar (D-09; they are real
   trades, just tiny).
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Done by the stage 2 universe preregistration (`docs/plans/2026-11-13-stage2-universe-preregistration.md`, line 21): a $1M median dollar-volume floor to enter and $0.5M to exit. RCAT is a member only from 2021-07-30 (minimum median about $614k), so its thin era is excluded.

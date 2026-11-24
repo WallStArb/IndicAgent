@@ -30,3 +30,7 @@ to cover it first).
 
 Cost is a promotion gate, not a discovery gate (E18): the edge results stand. Measured cost:
 `docs/research/family1-spread-sample-2026-09-29.csv`.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Merged from 460 (2026-11-24): 460's step 1 compared against IBKR's official open and close, and IBKR is deleted; the auction-print check moves here on a Massive source (whether Massive serves auction prints is unclear). No family 1 `research_run` rows survive the reset.
