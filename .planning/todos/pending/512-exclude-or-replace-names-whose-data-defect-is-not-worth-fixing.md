@@ -77,3 +77,8 @@ Source: `logs/massive_step7/a11_amend_20261114_v2/coverage_remaining_by_name.csv
 4. Replacement: by the stage 2 universe rule (todo 609, point-in-time liquidity rank in the same classification node), never hand-picked, entering with no look at history or returns.
 
 Amendment 2026-11-14 (lead, owner: no one cares about these names, remove them if they are missing data). Supersedes items 1 and 2 above: the 10 percent line is deleted (Musk step 2), because it only guards eight names nobody wants. All eight (BWXT, EXP, HWM, PIPR, RGA, SPXC, UHAL, USAU) leave the compute set with reason code `identity_unresolved`. The mechanism is exclusion (`compute_eligible` and `compute_eligible_1d` false, tombstone fields written through the one registry writer the implementing step names), not deletion: the raw rows are 20 years of good data for these names, disk is at 13 percent, and a delete adds a manifest, a transaction per name and an irreversible step for no gain. The delete variant of item 3 stays available if the owner asks for it. Done before the rebuild (after B4), so the one-pass rebuild never computes them; replacement by the 609 rule as in item 4.
+
+## Status 2026-11-24 (lead ruling, ledger 2026-11-24f)
+
+The eight `identity_unresolved` names (BWXT, EXP, HWM, PIPR, RGA, SPXC, UHAL, USAU) stay in the 1d compute set: the amendment's premise was an IBKR identity gap and Massive now serves them. Tombstone status read from the database 2026-11-24: none written, by decision. All eight are `is_active` true, `compute_eligible` false (5m excluded) and `compute_eligible_1d` true, and all eight are in `universe_membership`; there is no `identity_unresolved` code in `controlled_vocabulary` and no reason column on `instruments`. Disclosed with the corpus run.
+

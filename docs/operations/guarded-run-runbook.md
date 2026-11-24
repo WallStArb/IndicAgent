@@ -5,7 +5,7 @@ Scripts in `scripts/ops/`: `guarded_run_common.sh` (host gate, DIMM watchdog, RS
 ## Order (lead ruling 2026-11-24)
 1. Block 2 rerun to `block2 compare: IDENTICAL` in `logs/family10_run_status.txt`.
 2. This pilot (65 names, 4 workers, DIMM watchdog), done before the 04:40Z Alpaca nightly (23:40 EST).
-3. Four family 10 counted runs. 4. If the pilot passed, `stage_1d` after the counted runs, on the same pin.
+3. Four family 10 counted runs. 4. If the pilot passed, `stage_1d` after the counted runs, on the same pin, `--through feature_complete` and no further until todos 670 and 671 exist (ledger 2026-11-24f).
 
 ## Facts checked
 - `sudo -n true` exits 0 on this host, so `--quiesce` (`sudo -n systemctl disable|stop`) and `--release` work.
@@ -16,7 +16,7 @@ Scripts in `scripts/ops/`: `guarded_run_common.sh` (host gate, DIMM watchdog, RS
   it is still quiesced and released.
 - `--quiesce` records the enabled and active set in `logs/corpus_rerun_quiesce.json`, refuses while a corpus
   rerun, ic_measure or rebuild process is live, keeps the first record on a repeat; `--release` restores
-  exactly that set. After the pilot the launcher releases; re-quiesce before `stage_1d`.
+  exactly that set. After a clean pilot (exit 0) the launcher releases; on any other exit with a run id (a watchdog abort is 143) it keeps the timers quiesced and logs `timers held: run <id>`, because a resumed run needs the bars unchanged under it. Re-quiesce before `stage_1d` if they were released.
 - `infra.feature_factory.workers` is 12 (version 1, no `config_history` rows). It is a throughput key: not in
   `rebuild_apr_keys()`, so it is not pinned and may be set before or after `--new-run`; the pilot reads it
   live (`corpus_rerun.py:1404`). `ConfigService.set(key, value, changed_by, expected_version, reason)` validates
@@ -47,9 +47,9 @@ Scripts in `scripts/ops/`: `guarded_run_common.sh` (host gate, DIMM watchdog, RS
 
 ## Run
 `setsid -f bash scripts/ops/corpus_pilot.sh <expected_rebuild_code_key_prefix> [commit_sha]` (the key prefix is `rebuild_code_key()` on the pinned commit). It: quiesces; `--new-run --data-gate-scope 1d`;
-reads the run id; runs `--run-id <id> --through pilot` from the run's worktree under `run_guarded` (watchdog:
+reads the run id; runs `--run-id <id> --through pilot` from the run's worktree (the corpus run walks only `--through feature_complete` until todos 670 and 671 exist: ic_measure cells count as attempts under E21, ledger 2026-11-24f) under `run_guarded` (watchdog:
 STOP at 92 C, CONT at 80 C, TERM and ABORT at 100 C or 20 minutes paused); writes `rss_mb` of the whole process
-group every 20 s; releases the timers on every exit path after the run exists. Status lines go to
+group every 20 s; releases the timers on a clean exit (rc 0) or on a failure before the run exists, and holds them on any other exit once the run exists. Status lines go to
 `logs/family10_run_status.txt`; the pilot's output to `logs/corpus_pilot_<run id>.out`; run log
 `logs/corpus_rerun.log`.
 
@@ -61,7 +61,7 @@ group every 20 s; releases the timers on every exit path after the run exists. S
   workers 4 versus 8).
 
 ## Abort and rollback
-- Watchdog abort or any non-zero exit: the launcher releases the timers; confirm with
+- Watchdog abort or any non-zero exit with a run id: the launcher keeps the timers quiesced (`timers held: run <id>` in the status file); after resuming to a clean pilot or abandoning the run, `services.corpus_rerun --release`; confirm with
   `systemctl is-enabled indicagent-alpaca-nightly.timer` (expect enabled) and that `logs/corpus_rerun_quiesce.json`
   is gone.
 - A killed pilot resumes with `--run-id <id> --through pilot` (completed units are skipped); follow the worker-kill

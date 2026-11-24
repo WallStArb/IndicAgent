@@ -35,4 +35,9 @@ log "run $RUN worktree $WT"
 cd "$WT" || { $CR --release >> "$STATUS" 2>&1; fail "cd worktree"; }
 run_guarded "$REPO/logs/corpus_pilot_$RUN.out" "$PY" -m services.corpus_rerun --run-id "$RUN" --through pilot
 rc=$?; log "pilot exit=$rc run=$RUN (rss_mb per 20 s is in $TEMPLOG)"
-cd "$REPO" && $CR --release >> "$STATUS" 2>&1; log "timers released"
+cd "$REPO" || exit 3
+if [ "$rc" -eq 0 ]; then
+  $CR --release >> "$STATUS" 2>&1; log "timers released"
+else
+  log "timers held: run $RUN (pilot exit=$rc); resume with --run-id $RUN --through pilot, release with --release after the run is abandoned"
+fi
