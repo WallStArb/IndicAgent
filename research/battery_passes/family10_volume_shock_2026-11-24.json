@@ -1,0 +1,2073 @@
+{
+  "battery": "src.intelligence.research.null_battery_volume_shock",
+  "binding": {
+    "battery_code_key": "0c1c6a6059f757a0e0bdb78b0875d90b0f6815b1c4ff40b9176904cb49749db9",
+    "battery_input_hash": "c0cce8d1f4ef48c13d364bb858f04413187fd880727b1d383f266dda5f08585a",
+    "family": "family10_volume_shock",
+    "recorded": "2026-11-24",
+    "spec_hashes": [
+      "597a275c4579ba02054892b59e47f735f141a9c3546b1220e2914573659f7265",
+      "7d4dbf497ef62f0be35f807b5ad85e1abee7b1810d388e9d3276ec5245b143e1"
+    ]
+  },
+  "blocks": [
+    {
+      "battery": "src.intelligence.research.null_battery_volume_shock",
+      "failures": [
+        "volume_hostile_no_static/volume_shock_5_50 at 0.05: 69 > 67"
+      ],
+      "report": [
+        {
+          "arm": "book_equal",
+          "cell": "volume_convex_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.001,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.012,
+              "rejected": 12
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.05,
+              "rejected": 50
+            }
+          },
+          "mean_t": -0.01800857563976068,
+          "sd_t": 1.0114704000385062,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_convex_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.009,
+              "rejected": 9
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.057,
+              "rejected": 57
+            }
+          },
+          "mean_t": -0.030046167622489718,
+          "sd_t": 1.0332879082810327,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_convex_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.003,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.016,
+              "rejected": 16
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.048,
+              "rejected": 48
+            }
+          },
+          "mean_t": 0.0015884792782376938,
+          "sd_t": 1.0037346365281412,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.011,
+              "rejected": 11
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.047,
+              "rejected": 47
+            }
+          },
+          "mean_t": 0.04641956437466372,
+          "sd_t": 0.9700848416497267,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.001,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.012,
+              "rejected": 12
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.045,
+              "rejected": 45
+            }
+          },
+          "mean_t": 0.049386510451300596,
+          "sd_t": 0.9631103632217117,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.001,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.011,
+              "rejected": 11
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.053,
+              "rejected": 53
+            }
+          },
+          "mean_t": 0.0405964922657744,
+          "sd_t": 0.9806213487455286,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.009,
+              "rejected": 9
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.046,
+              "rejected": 46
+            }
+          },
+          "mean_t": -0.0009856933520895018,
+          "sd_t": 1.0234644475762869,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.001,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.008,
+              "rejected": 8
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.042,
+              "rejected": 42
+            }
+          },
+          "mean_t": -0.002092139385431503,
+          "sd_t": 1.0080515154677572,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.001,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.01,
+              "rejected": 10
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.055,
+              "rejected": 55
+            }
+          },
+          "mean_t": 0.0079231921366566,
+          "sd_t": 1.022897854775753,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.003,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.014,
+              "rejected": 14
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.064,
+              "rejected": 64
+            }
+          },
+          "mean_t": 0.023077168791475495,
+          "sd_t": 1.0286279890061478,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.005,
+              "rejected": 5
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.015,
+              "rejected": 15
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.053,
+              "rejected": 53
+            }
+          },
+          "mean_t": 0.008561392848545256,
+          "sd_t": 1.0154580287994532,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.004,
+              "rejected": 4
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.012,
+              "rejected": 12
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.069,
+              "rejected": 69
+            }
+          },
+          "mean_t": 0.030475767937513127,
+          "sd_t": 1.0412033374073832,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.005,
+              "rejected": 5
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.011,
+              "rejected": 11
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.05,
+              "rejected": 50
+            }
+          },
+          "mean_t": -0.01606998556031778,
+          "sd_t": 1.0065810946117046,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.012,
+              "rejected": 12
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.047,
+              "rejected": 47
+            }
+          },
+          "mean_t": -0.0014038806177747907,
+          "sd_t": 1.0120654123416815,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.004,
+              "rejected": 4
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.011,
+              "rejected": 11
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.043,
+              "rejected": 43
+            }
+          },
+          "mean_t": -0.02953531758188751,
+          "sd_t": 1.0026992133175774,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.009,
+              "rejected": 9
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.05,
+              "rejected": 50
+            }
+          },
+          "mean_t": 0.02183382010041295,
+          "sd_t": 1.0224786670395398,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.014,
+              "rejected": 14
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.064,
+              "rejected": 64
+            }
+          },
+          "mean_t": 0.009860358985413927,
+          "sd_t": 1.0519420487241538,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.003,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.008,
+              "rejected": 8
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.052,
+              "rejected": 52
+            }
+          },
+          "mean_t": 0.03180346629546177,
+          "sd_t": 1.0076461629617528,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.009,
+              "rejected": 9
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.052,
+              "rejected": 52
+            }
+          },
+          "mean_t": -0.016495865105295365,
+          "sd_t": 1.032551203364634,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.005,
+              "rejected": 5
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.047,
+              "rejected": 47
+            }
+          },
+          "mean_t": -0.0074362583858890345,
+          "sd_t": 1.0192869073311173,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.001,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.011,
+              "rejected": 11
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.059,
+              "rejected": 59
+            }
+          },
+          "mean_t": -0.026623950849568756,
+          "sd_t": 1.045104242280568,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_unit_root_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.001,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.008,
+              "rejected": 8
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.053,
+              "rejected": 53
+            }
+          },
+          "mean_t": -0.012507015236092895,
+          "sd_t": 1.0023297137815603,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_unit_root_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.001,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.009,
+              "rejected": 9
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.048,
+              "rejected": 48
+            }
+          },
+          "mean_t": -0.011089296530778801,
+          "sd_t": 0.9955941204810576,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_unit_root_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.001,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.007,
+              "rejected": 7
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.051,
+              "rejected": 51
+            }
+          },
+          "mean_t": -0.0116894085465097,
+          "sd_t": 1.0001803238079283,
+          "sims": 1000
+        }
+      ],
+      "scenarios": [
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.0,
+          "hole_fraction": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "volume_gaussian",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.0,
+          "step_fraction": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false,
+          "volume_phi": 0.9,
+          "volume_t4": false
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.0,
+          "hole_fraction": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "volume_static_means",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.06,
+          "step_fraction": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false,
+          "volume_phi": 0.9,
+          "volume_t4": false
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.0,
+          "hole_fraction": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "volume_late_listings",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.0,
+          "step_fraction": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false,
+          "volume_phi": 0.9,
+          "volume_t4": false
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.5,
+          "hole_fraction": 0.01,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "volume_hostile",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.06,
+          "step_fraction": 0.3,
+          "t4_noise": true,
+          "vol_clustering": true,
+          "volume_phi": 0.9,
+          "volume_t4": true
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.5,
+          "hole_fraction": 0.01,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "volume_hostile_no_static",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.0,
+          "step_fraction": 0.3,
+          "t4_noise": true,
+          "vol_clustering": true,
+          "volume_phi": 0.9,
+          "volume_t4": true
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.5,
+          "hole_fraction": 0.01,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "volume_s1_hostile",
+          "names": 300,
+          "s1": true,
+          "sessions": 3200,
+          "static_sd": 0.06,
+          "step_fraction": 0.3,
+          "t4_noise": true,
+          "vol_clustering": true,
+          "volume_phi": 0.9,
+          "volume_t4": true
+        },
+        {
+          "bars_per_session": 1,
+          "convex": true,
+          "factor_sd": 0.0,
+          "hole_fraction": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "volume_convex_stress",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.06,
+          "step_fraction": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false,
+          "volume_phi": 0.9,
+          "volume_t4": false
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.0,
+          "hole_fraction": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "volume_unit_root_stress",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.06,
+          "step_fraction": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false,
+          "volume_phi": 0.99,
+          "volume_t4": false
+        }
+      ],
+      "schema": "e17_null_battery_v1",
+      "seed_base": 11000000,
+      "seed_base_recorded": true,
+      "sims_per_cell": 1000
+    },
+    {
+      "battery": "src.intelligence.research.null_battery_volume_shock",
+      "failures": [],
+      "report": [
+        {
+          "arm": "book_equal",
+          "cell": "volume_convex_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.009,
+              "rejected": 9
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.038,
+              "rejected": 38
+            }
+          },
+          "mean_t": 0.019120088904739346,
+          "sd_t": 0.9612625231036956,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_convex_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.003,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.006,
+              "rejected": 6
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.049,
+              "rejected": 49
+            }
+          },
+          "mean_t": 0.034434684163049886,
+          "sd_t": 0.9502264777324846,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_convex_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.003,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.009,
+              "rejected": 9
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.046,
+              "rejected": 46
+            }
+          },
+          "mean_t": 0.013945021398371756,
+          "sd_t": 0.9765472408421915,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.001,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.016,
+              "rejected": 16
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.06,
+              "rejected": 60
+            }
+          },
+          "mean_t": 0.040338512844276427,
+          "sd_t": 1.005900555571553,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.013,
+              "rejected": 13
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.064,
+              "rejected": 64
+            }
+          },
+          "mean_t": 0.04424435491469051,
+          "sd_t": 0.9983358878676302,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_gaussian",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.013,
+              "rejected": 13
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.058,
+              "rejected": 58
+            }
+          },
+          "mean_t": 0.03458328167708609,
+          "sd_t": 1.0109918563437934,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.01,
+              "rejected": 10
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.052,
+              "rejected": 52
+            }
+          },
+          "mean_t": -0.01850025647723745,
+          "sd_t": 1.020540719078604,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.007,
+              "rejected": 7
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.051,
+              "rejected": 51
+            }
+          },
+          "mean_t": -0.029706996381319278,
+          "sd_t": 1.052001729917008,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.005,
+              "rejected": 5
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.011,
+              "rejected": 11
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.047,
+              "rejected": 47
+            }
+          },
+          "mean_t": -0.01617693042957124,
+          "sd_t": 1.0115210549728728,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.008,
+              "rejected": 8
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.047,
+              "rejected": 47
+            }
+          },
+          "mean_t": -0.005219813466991955,
+          "sd_t": 0.977321773287513,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.011,
+              "rejected": 11
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.043,
+              "rejected": 43
+            }
+          },
+          "mean_t": -0.04465043014909268,
+          "sd_t": 0.975574512178657,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_hostile_no_static",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.001,
+              "rejected": 1
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.009,
+              "rejected": 9
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.041,
+              "rejected": 41
+            }
+          },
+          "mean_t": -0.004407294692372796,
+          "sd_t": 0.9812996988763575,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.007,
+              "rejected": 7
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.057,
+              "rejected": 57
+            }
+          },
+          "mean_t": -0.01092643840677447,
+          "sd_t": 0.9953727519805353,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.008,
+              "rejected": 8
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.051,
+              "rejected": 51
+            }
+          },
+          "mean_t": -0.018065906042639947,
+          "sd_t": 1.000593629537509,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_late_listings",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.005,
+              "rejected": 5
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.051,
+              "rejected": 51
+            }
+          },
+          "mean_t": -0.004715479744898298,
+          "sd_t": 0.9947854210857902,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.002,
+              "rejected": 2
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.007,
+              "rejected": 7
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.039,
+              "rejected": 39
+            }
+          },
+          "mean_t": 0.0011474887082603502,
+          "sd_t": 0.9981625920467786,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.003,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.01,
+              "rejected": 10
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.053,
+              "rejected": 53
+            }
+          },
+          "mean_t": -0.0073107146181863175,
+          "sd_t": 0.9846004308496653,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_s1_hostile",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.003,
+              "rejected": 3
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.007,
+              "rejected": 7
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.039,
+              "rejected": 39
+            }
+          },
+          "mean_t": -0.001869479302865378,
+          "sd_t": 0.9968711605048463,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.007,
+              "rejected": 7
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.049,
+              "rejected": 49
+            }
+          },
+          "mean_t": -0.006779796613507286,
+          "sd_t": 0.989746192666961,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.006,
+              "rejected": 6
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.046,
+              "rejected": 46
+            }
+          },
+          "mean_t": -0.016239448663971236,
+          "sd_t": 0.9905501487446774,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_static_means",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.007,
+              "rejected": 7
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.044,
+              "rejected": 44
+            }
+          },
+          "mean_t": -0.00029739616071382366,
+          "sd_t": 0.9891075602695973,
+          "sims": 1000
+        },
+        {
+          "arm": "book_equal",
+          "cell": "volume_unit_root_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.011,
+              "rejected": 11
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.048,
+              "rejected": 48
+            }
+          },
+          "mean_t": -0.015028629629503977,
+          "sd_t": 1.0228829774032149,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_1_50",
+          "cell": "volume_unit_root_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.013,
+              "rejected": 13
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.045,
+              "rejected": 45
+            }
+          },
+          "mean_t": -0.011593322071568973,
+          "sd_t": 1.0256846187719295,
+          "sims": 1000
+        },
+        {
+          "arm": "volume_shock_5_50",
+          "cell": "volume_unit_root_stress",
+          "levels": {
+            "0.00167": {
+              "bound": 5,
+              "rate": 0.0,
+              "rejected": 0
+            },
+            "0.01": {
+              "bound": 18,
+              "rate": 0.01,
+              "rejected": 10
+            },
+            "0.05": {
+              "bound": 67,
+              "rate": 0.05,
+              "rejected": 50
+            }
+          },
+          "mean_t": -0.01478764115440957,
+          "sd_t": 1.0161046711072774,
+          "sims": 1000
+        }
+      ],
+      "scenarios": [
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.0,
+          "hole_fraction": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "volume_gaussian",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.0,
+          "step_fraction": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false,
+          "volume_phi": 0.9,
+          "volume_t4": false
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.0,
+          "hole_fraction": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "volume_static_means",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.06,
+          "step_fraction": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false,
+          "volume_phi": 0.9,
+          "volume_t4": false
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.0,
+          "hole_fraction": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "volume_late_listings",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.0,
+          "step_fraction": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false,
+          "volume_phi": 0.9,
+          "volume_t4": false
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.5,
+          "hole_fraction": 0.01,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "volume_hostile",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.06,
+          "step_fraction": 0.3,
+          "t4_noise": true,
+          "vol_clustering": true,
+          "volume_phi": 0.9,
+          "volume_t4": true
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.5,
+          "hole_fraction": 0.01,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "volume_hostile_no_static",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.0,
+          "step_fraction": 0.3,
+          "t4_noise": true,
+          "vol_clustering": true,
+          "volume_phi": 0.9,
+          "volume_t4": true
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.5,
+          "hole_fraction": 0.01,
+          "horizon": 5,
+          "late_fraction": 0.4,
+          "late_name": true,
+          "market_mean": 0.04,
+          "name": "volume_s1_hostile",
+          "names": 300,
+          "s1": true,
+          "sessions": 3200,
+          "static_sd": 0.06,
+          "step_fraction": 0.3,
+          "t4_noise": true,
+          "vol_clustering": true,
+          "volume_phi": 0.9,
+          "volume_t4": true
+        },
+        {
+          "bars_per_session": 1,
+          "convex": true,
+          "factor_sd": 0.0,
+          "hole_fraction": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "volume_convex_stress",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.06,
+          "step_fraction": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false,
+          "volume_phi": 0.9,
+          "volume_t4": false
+        },
+        {
+          "bars_per_session": 1,
+          "convex": false,
+          "factor_sd": 0.0,
+          "hole_fraction": 0.0,
+          "horizon": 5,
+          "late_fraction": 0.0,
+          "late_name": false,
+          "market_mean": 0.04,
+          "name": "volume_unit_root_stress",
+          "names": 300,
+          "s1": false,
+          "sessions": 3200,
+          "static_sd": 0.06,
+          "step_fraction": 0.0,
+          "t4_noise": false,
+          "vol_clustering": false,
+          "volume_phi": 0.99,
+          "volume_t4": false
+        }
+      ],
+      "schema": "e17_null_battery_v1",
+      "seed_base": 12000000,
+      "seed_base_recorded": true,
+      "sims_per_cell": 1000
+    }
+  ],
+  "commit": "48a65742d44e5357b181a042d495c4d38a6d946f",
+  "diagnostic_cells": [
+    "volume_convex_stress",
+    "volume_unit_root_stress"
+  ],
+  "failures": [],
+  "report": [
+    {
+      "arm": "book_equal",
+      "cell": "volume_convex_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 3
+        },
+        "0.01": {
+          "rejected": 21
+        },
+        "0.05": {
+          "rejected": 88
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_1_50",
+      "cell": "volume_convex_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 5
+        },
+        "0.01": {
+          "rejected": 15
+        },
+        "0.05": {
+          "rejected": 106
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_5_50",
+      "cell": "volume_convex_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 6
+        },
+        "0.01": {
+          "rejected": 25
+        },
+        "0.05": {
+          "rejected": 94
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "volume_gaussian",
+      "levels": {
+        "0.00167": {
+          "rejected": 3
+        },
+        "0.01": {
+          "rejected": 27
+        },
+        "0.05": {
+          "rejected": 107
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_1_50",
+      "cell": "volume_gaussian",
+      "levels": {
+        "0.00167": {
+          "rejected": 3
+        },
+        "0.01": {
+          "rejected": 25
+        },
+        "0.05": {
+          "rejected": 109
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_5_50",
+      "cell": "volume_gaussian",
+      "levels": {
+        "0.00167": {
+          "rejected": 1
+        },
+        "0.01": {
+          "rejected": 24
+        },
+        "0.05": {
+          "rejected": 111
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "volume_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 4
+        },
+        "0.01": {
+          "rejected": 19
+        },
+        "0.05": {
+          "rejected": 98
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_1_50",
+      "cell": "volume_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 1
+        },
+        "0.01": {
+          "rejected": 15
+        },
+        "0.05": {
+          "rejected": 93
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_5_50",
+      "cell": "volume_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 6
+        },
+        "0.01": {
+          "rejected": 21
+        },
+        "0.05": {
+          "rejected": 102
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "volume_hostile_no_static",
+      "levels": {
+        "0.00167": {
+          "rejected": 5
+        },
+        "0.01": {
+          "rejected": 22
+        },
+        "0.05": {
+          "rejected": 111
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_1_50",
+      "cell": "volume_hostile_no_static",
+      "levels": {
+        "0.00167": {
+          "rejected": 5
+        },
+        "0.01": {
+          "rejected": 26
+        },
+        "0.05": {
+          "rejected": 96
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_5_50",
+      "cell": "volume_hostile_no_static",
+      "levels": {
+        "0.00167": {
+          "rejected": 5
+        },
+        "0.01": {
+          "rejected": 21
+        },
+        "0.05": {
+          "rejected": 110
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "volume_late_listings",
+      "levels": {
+        "0.00167": {
+          "rejected": 5
+        },
+        "0.01": {
+          "rejected": 18
+        },
+        "0.05": {
+          "rejected": 107
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_1_50",
+      "cell": "volume_late_listings",
+      "levels": {
+        "0.00167": {
+          "rejected": 4
+        },
+        "0.01": {
+          "rejected": 20
+        },
+        "0.05": {
+          "rejected": 98
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_5_50",
+      "cell": "volume_late_listings",
+      "levels": {
+        "0.00167": {
+          "rejected": 4
+        },
+        "0.01": {
+          "rejected": 16
+        },
+        "0.05": {
+          "rejected": 94
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "volume_s1_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 4
+        },
+        "0.01": {
+          "rejected": 16
+        },
+        "0.05": {
+          "rejected": 89
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_1_50",
+      "cell": "volume_s1_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 5
+        },
+        "0.01": {
+          "rejected": 24
+        },
+        "0.05": {
+          "rejected": 117
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_5_50",
+      "cell": "volume_s1_hostile",
+      "levels": {
+        "0.00167": {
+          "rejected": 6
+        },
+        "0.01": {
+          "rejected": 15
+        },
+        "0.05": {
+          "rejected": 91
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "volume_static_means",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 16
+        },
+        "0.05": {
+          "rejected": 101
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_1_50",
+      "cell": "volume_static_means",
+      "levels": {
+        "0.00167": {
+          "rejected": 0
+        },
+        "0.01": {
+          "rejected": 11
+        },
+        "0.05": {
+          "rejected": 93
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_5_50",
+      "cell": "volume_static_means",
+      "levels": {
+        "0.00167": {
+          "rejected": 1
+        },
+        "0.01": {
+          "rejected": 18
+        },
+        "0.05": {
+          "rejected": 103
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "book_equal",
+      "cell": "volume_unit_root_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 1
+        },
+        "0.01": {
+          "rejected": 19
+        },
+        "0.05": {
+          "rejected": 101
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_1_50",
+      "cell": "volume_unit_root_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 1
+        },
+        "0.01": {
+          "rejected": 22
+        },
+        "0.05": {
+          "rejected": 93
+        }
+      },
+      "sims": 2000
+    },
+    {
+      "arm": "volume_shock_5_50",
+      "cell": "volume_unit_root_stress",
+      "levels": {
+        "0.00167": {
+          "rejected": 1
+        },
+        "0.01": {
+          "rejected": 17
+        },
+        "0.05": {
+          "rejected": 101
+        }
+      },
+      "sims": 2000
+    }
+  ],
+  "scenarios": [
+    {
+      "bars_per_session": 1,
+      "convex": false,
+      "factor_sd": 0.0,
+      "hole_fraction": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "volume_gaussian",
+      "names": 300,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.0,
+      "step_fraction": 0.0,
+      "t4_noise": false,
+      "vol_clustering": false,
+      "volume_phi": 0.9,
+      "volume_t4": false
+    },
+    {
+      "bars_per_session": 1,
+      "convex": false,
+      "factor_sd": 0.0,
+      "hole_fraction": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "volume_static_means",
+      "names": 300,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.06,
+      "step_fraction": 0.0,
+      "t4_noise": false,
+      "vol_clustering": false,
+      "volume_phi": 0.9,
+      "volume_t4": false
+    },
+    {
+      "bars_per_session": 1,
+      "convex": false,
+      "factor_sd": 0.0,
+      "hole_fraction": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "volume_late_listings",
+      "names": 300,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.0,
+      "step_fraction": 0.0,
+      "t4_noise": false,
+      "vol_clustering": false,
+      "volume_phi": 0.9,
+      "volume_t4": false
+    },
+    {
+      "bars_per_session": 1,
+      "convex": false,
+      "factor_sd": 0.5,
+      "hole_fraction": 0.01,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "volume_hostile",
+      "names": 300,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.06,
+      "step_fraction": 0.3,
+      "t4_noise": true,
+      "vol_clustering": true,
+      "volume_phi": 0.9,
+      "volume_t4": true
+    },
+    {
+      "bars_per_session": 1,
+      "convex": false,
+      "factor_sd": 0.5,
+      "hole_fraction": 0.01,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "volume_hostile_no_static",
+      "names": 300,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.0,
+      "step_fraction": 0.3,
+      "t4_noise": true,
+      "vol_clustering": true,
+      "volume_phi": 0.9,
+      "volume_t4": true
+    },
+    {
+      "bars_per_session": 1,
+      "convex": false,
+      "factor_sd": 0.5,
+      "hole_fraction": 0.01,
+      "horizon": 5,
+      "late_fraction": 0.4,
+      "late_name": true,
+      "market_mean": 0.04,
+      "name": "volume_s1_hostile",
+      "names": 300,
+      "s1": true,
+      "sessions": 3200,
+      "static_sd": 0.06,
+      "step_fraction": 0.3,
+      "t4_noise": true,
+      "vol_clustering": true,
+      "volume_phi": 0.9,
+      "volume_t4": true
+    },
+    {
+      "bars_per_session": 1,
+      "convex": true,
+      "factor_sd": 0.0,
+      "hole_fraction": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "volume_convex_stress",
+      "names": 300,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.06,
+      "step_fraction": 0.0,
+      "t4_noise": false,
+      "vol_clustering": false,
+      "volume_phi": 0.9,
+      "volume_t4": false
+    },
+    {
+      "bars_per_session": 1,
+      "convex": false,
+      "factor_sd": 0.0,
+      "hole_fraction": 0.0,
+      "horizon": 5,
+      "late_fraction": 0.0,
+      "late_name": false,
+      "market_mean": 0.04,
+      "name": "volume_unit_root_stress",
+      "names": 300,
+      "s1": false,
+      "sessions": 3200,
+      "static_sd": 0.06,
+      "step_fraction": 0.0,
+      "t4_noise": false,
+      "vol_clustering": false,
+      "volume_phi": 0.99,
+      "volume_t4": false
+    }
+  ],
+  "schema": "e17_null_battery_v1",
+  "seed_bases": [
+    11000000,
+    12000000
+  ],
+  "sims_per_cell": 2000
+}
