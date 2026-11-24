@@ -48,3 +48,7 @@ Whichever direction: update `docs/foundation/controlled-vocabulary-registry.md`'
 `VocabularyDriftAuditor` section to state the chosen scope explicitly, so a future reader doesn't
 assume windowed coverage means complete coverage (which is exactly the wrong assumption this
 3-year gap proves people can and do make).
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Still windowed (`vocabulary_drift.py:152-200`); the auditor has no timer and last ran 2026-09-10. The blind spot matters once it runs regularly.

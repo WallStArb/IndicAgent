@@ -26,3 +26,7 @@ source: cleanup review 2026-11-15; follow-up of 619
 ## Boundaries
 
 No deletion while any step 7 writer, timer or resumable job is live. The IBKR raw rows are handled by Part F, not here.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Part F is closed (eb734e451). `logs/massive_step7` is 1.2 GB; no top-level README exists. 619's remaining scope is folded in here.

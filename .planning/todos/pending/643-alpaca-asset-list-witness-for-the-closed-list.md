@@ -19,3 +19,7 @@ The nightly writes the asset list to raw (one row per asset per capture, last-wi
 ## Not blocking
 
 The closed-list build itself does not need it; the amendment accepts undetected reuse for the forward span.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+No Alpaca asset-list capture code exists; the amendment calls B-A optional.

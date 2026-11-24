@@ -373,14 +373,14 @@ with any pair migration. Update `.planning/STATE.md`'s universe line with the ne
    soft-deleted or deactivated: not through the API (`DELETE /instruments/{symbol}` sets
    `is_active = false`), not by hand. Its bars stop and it stays in every panel; rule 6 is the
    only protection.
-2. **Classification mapping has no tool** (todo 444). Stage 3's IBKR-industry-to-node mapping was manual.
+2. **Classification mapping has no tool** (todo 444, closed 2026-11-24 as obsolete: the IBKR contract details are deleted and the closed list takes no new names). Stage 3's IBKR-industry-to-node mapping was manual.
    A reproducible mapper (IBKR fields -> candidate node, review CSV out, manifest columns in)
    would make stage 3 a command.
 3. **Second writer, resolved** (todo 431): the stratified-sourcing script's `--commit` path
    is deleted; draw scripts only draw. The manifest onboarder is the sole write path.
 4. **`spread_leg` pairs**, resolved (todo 444): the manifest's `spread_leg_pair` column and the
    onboarder's in-transaction reciprocal write remove the hand migration.
-5. **No orchestrator** (todo 444). Stages 5-10 are separate commands. Once the next batch has run cleanly
+5. **No orchestrator** (todo 444, closed 2026-11-24 with the manifest onboarder deleted). Stages 5-10 are separate commands. Once the next batch has run cleanly
    through this SOP, one resumable command (`universe_onboard.py --manifest ...`) that runs
    stages 5-9 in order, stops at every hold, and writes the verify report is the automation
    step. Build it from the scripts above; do not reimplement them.

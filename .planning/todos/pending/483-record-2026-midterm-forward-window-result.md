@@ -26,3 +26,7 @@ After 2027-05-03, once the close is stored:
    `docs/research/construction-verdict-ledger.md`.
 
 Do not use the look 3 best cell (1 month before, 9 months); the committed window is the definition.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Ruling 2026-11-24 (lead): the economic series end 2026-09-30 by design (todo 480: a context layer loaded by hand, timer disabled); the feature rebuild does not read it. A refresh (run the oneshot by hand or enable `indicagent-economic-series-writer.timer`, an owner sudo step) happens before the 2027 midterm window needs `YAHOO_GSPC_CLOSE`. Nothing enabled now.

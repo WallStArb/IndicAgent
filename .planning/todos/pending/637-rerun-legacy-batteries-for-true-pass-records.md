@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-11-18
 source: stored battery pass records (todo 635 review, lead ruling 2026-11-18): the legacy families run under a waiver table, not a record
 ---
@@ -19,3 +19,7 @@ source: stored battery pass records (todo 635 review, lead ruling 2026-11-18): t
 ## Not before
 
 A real run of any of these families. Not on the critical path of the first counted daily family (the daily residual and H-C records come from todos 636 and 635); the first real run of family 1, periodicity or family 2 needs its record first.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+`LEGACY_WAIVERS` has been `{}` since it was created (`battery_pass.py:89`, b522cc3fd), so the waiver-row condition is met. Tier corrected to P3: the next counted families are H-C, 9 and 10.

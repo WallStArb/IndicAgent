@@ -33,3 +33,7 @@ accessor removes the duplication that existed; this makes the next one impossibl
 ## Gate
 
 None. Opportunistic, before the next universe-expansion phase adds readers.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+`dimension_where_clause` is still at `settings.py:185`; research reads `universe_membership` (`corpus_universe.py`), so the risk is smaller; views would edit `settings.py`.

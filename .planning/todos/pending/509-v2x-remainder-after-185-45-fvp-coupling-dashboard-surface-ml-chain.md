@@ -121,3 +121,7 @@ no lane now and sits below the build lanes as cleanup.
 
 Supersedes the remaining scope of todos 056 and 223 (both written before the owner's 2026-10-07
 "clean it" decision, which replaced their archive-in-tree approach with the tag-plus-dumps archive).
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Still open: the I7 step at `ci.yml:114-116`, pre-commit check 3, the allow-list lines at `tools/duplicate_test_allowlist.txt:11-23`, `scan_binary_patterns.py:32`. The warm-up asymmetry is moot (the `feature_vector_pipeline` service is deleted).

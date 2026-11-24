@@ -104,3 +104,7 @@ group — needed since e.g. `mid` is shared across `speed_horizon_3` and `magnit
   `currency_strength`, `risk_sentiment`, `volatility_state`).
 - **Lookup workflow:** "what term set for a 3-level scale?" → `vocab.group_codes("gradient_scale",
   "speed_horizon_3")`, sorted by `sort_order`.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+The stated blocker is moot: `assert_namespace_coverage` (`vocabulary_drift.py:106`) only checks that queried namespaces exist in the registry; six namespaces already sit there with no live-source query. No `gradient_scale` exists. Source carries owner pushback, so not deleted.

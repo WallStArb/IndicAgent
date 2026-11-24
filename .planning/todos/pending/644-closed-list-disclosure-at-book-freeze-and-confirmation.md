@@ -15,3 +15,7 @@ The adopted amendment requires, at every book freeze and every forward confirmat
 ## Done when
 
 The freeze and confirmation reports print both numbers per month-end after L from the ledger (`rule_id = 'stage2-closed-list'` rows) and the captured asset list, and a test pins the section.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+No freeze or confirmation report code exists. Tier raised to P2: the first book freeze needs it. Owner-adopted.

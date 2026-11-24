@@ -43,3 +43,7 @@ field additions to `FeatureFactoryConfig` then touch one file instead of 15+.
 
 Not urgent (each site fails loudly, not silently, if forgotten) -- but worth doing before the next
 Phase adds more fields and the file count grows further.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+The streaming FeatureFactory is deleted (5708abeb7); the config is in `feature_factory_config.py`; 6 test files still hand-type the literal, not 15 or more.

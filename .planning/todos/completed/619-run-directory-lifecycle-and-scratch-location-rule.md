@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-11-15
 amended: 2026-11-15
@@ -26,3 +26,7 @@ Measured 2026-11-15 (read-only dry run of the proposed GC rules): rotated logs 5
 ## Boundaries
 
 Never deletes tracked files, raw data, backups or anything under `data/massive`. Tracked-file cleanup stays with the repo-simplify lane.
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Closed: scopes 1 and 2 landed in 3d16de8ec (gotchas.md). The remaining scope (README stubs for the phase179, phase181 and massive_step7 run dirs) is folded into 621.

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-09-26
 source: instrument onboarding SOP (docs/foundation/instrument-onboarding-sop.md, gaps 3, 5, 6)
@@ -27,3 +27,7 @@ The SOP's stages 3-9 work, but three steps are manual:
 
 Build 3 only after the next batch has run cleanly through the SOP by hand (automate what is
 proven). 1 and 2 have no gate. Todo 431 (delete the second instrument writer) goes first.
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Closed as obsolete (lead guardrail: source is the onboarding SOP, not an owner idea). Item 2 was done (42d522f1e); items 1 and 3 assumed IBKR contract details and the manifest onboarder, both deleted in 778a9f06c, and the closed list means no new names. The idea kept: a vendor-sector-to-`indicagent_v1` node mapper with a review CSV, if onboarding reopens (also in the SOP gaps list).
