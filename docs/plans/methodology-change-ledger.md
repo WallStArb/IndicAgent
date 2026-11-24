@@ -140,7 +140,7 @@ last month's weights is a silent methodology choice too.
   site. Migration 222 reactivated the 6 `alpha.ic.bootstrap_*` APR keys (migrations
   161/165/177), dead since the 2026-06-26 removal.
 - **Scope boundary (explicit, not an oversight):** `services/ensemble_ic_engine.py`'s EIC-04
-  gate CI computation (~line 778) and `scripts/ops/corpus/ops_oos_holdout_eval.py` (~line 213)
+  gate CI computation (~line 778) and `ops_oos_holdout_eval.py` (deleted 2026-11-24, todo 554; the file stays in git history) (~line 213)
   intentionally STAY ON `_fisher_z_ci` this phase — deferred per 143.1-CONTEXT.md resolved
   item 3 / RESEARCH.md Open Question 1. `_fisher_z_ci` itself is not deleted; it remains the
   production CI for those two call sites.
@@ -569,7 +569,7 @@ last month's weights is a silent methodology choice too.
 **What result was observed before the change?** `services/cross_sectional_regime_model.py`
 (the live Phase 144 cross-sectional regime writer, feeding `market_regimes`, which `ic_engine`
 stratifies IC on), `services/counterfactual_tracker.py` (feeding `alpha_frames`'
-true-range/MFE/MAE/exit-determination, Phase 142B), and `scripts/ops/corpus/ops_oos_holdout_eval.py`
+true-range/MFE/MAE/exit-determination, Phase 142B), and `ops_oos_holdout_eval.py`
 (a live diagnostic reading `m.open` for OOS feature-IC scoring, found via a CI-guard regex
 widening mid-implementation — its JOIN-based read was invisible to the guard's first draft,
 which only matched `FROM`) all read `market_data_ohlcv` with zero filtering of placeholder bars.

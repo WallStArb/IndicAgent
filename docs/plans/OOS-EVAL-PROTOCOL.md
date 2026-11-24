@@ -72,7 +72,7 @@ Degradation rules:
 
 ### Interim scorer (available today)
 
-`scripts/ops/corpus/ops_oos_holdout_eval.py` — a strictly READ-ONLY
+`ops_oos_holdout_eval.py` (deleted 2026-11-24, todo 554; the file stays in git history) — a strictly READ-ONLY
 feature-IC scorer over the holdout window. It composes the existing
 `ic_engine.py` pure IC helpers (`_vectorized_ic`, `_fisher_z_ci`,
 `_p_values_from_ic`, `_nan_to_none`) and reuses the canonical

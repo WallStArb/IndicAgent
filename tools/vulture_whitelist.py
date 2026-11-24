@@ -640,3 +640,8 @@ _panel_source_rules  # pydantic model_validator, called by the framework: src/in
 _panel_sources_are_declared  # pydantic model_validator, called by the framework: src/intelligence/research/spec.py
 volume_rank_member  # family 10 member, resolved by its dotted spec path (research/specs/family10_volume_shock_h5*.yaml): src/intelligence/research/families/volume_shock.py
 sweep_strength  # FeatureVector field filled by dict key from the SMC kernel row: src/intelligence/features/feature_vector.py
+LOOKAHEAD_FALLBACKS_BY_TF  # left unused by the todo 554 deletion of the legacy readers; inside the rebuild closure, removed after the corpus rerun pin: services/batch_support/config.py
+_nan_to_none  # left unused by the todo 554 deletion; src/intelligence/statistics edits wait for the next planned research edit (repro_frozen): src/intelligence/statistics/ic_math.py
+_fisher_z_ci  # left unused by the todo 554 deletion; same statistics rule as _nan_to_none: src/intelligence/statistics/ic_math.py
+ic_min  # left unused by the todo 554 deletion of todo445_5m_incremental_ic.py: scripts/research/cost_hurdle.py
+rank_turnover  # left unused by the todo 554 deletion of todo445_5m_incremental_ic.py: scripts/research/cost_hurdle.py
