@@ -33,3 +33,7 @@ D-191-D `pair_d1_series` rule; the observation table is dropped since plan 16), 
 "cutover rides 533 step 6" dependency is satisfied. The source registry (a `DividendSource`
 protocol, pairwise reconciliation, CVR-registered sources) and the per-symbol failure policy
 (APR threshold instead of one bad symbol failing the unit) remain open as designed above.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Verified 2026-11-24: failure policy (68f836774, `threshold.dividend.max_failure_fraction`); Massive added as a third source without a registry (806c06f20); no IBKR dividend input since Part F. Owner-requested, so only the status is corrected, nothing retired.

@@ -79,6 +79,6 @@ Batch 4 verdicts (P2 rows 460 456 457 560 437 516 498 454 589 597 606 568 598 44
 - Keep: 457 (P3, blocked: no slot-subset mask or keep gate in the runner), 437 (P2; a P1 candidate the moment a book is certified, because promotion needs positive net expectation and no spread-cost code exists: Corwin-Schultz and Roll kernels exist, Abdi-Ranaldo does not), 589 (P3; edits `bulk_load.py`, inside the closure, so after the rerun), 597 (P2; the grid derivation does not scrub the new 5m and derived bars, due before the first intraday forward span), 598 (P3; the nightly does not call `setup_service_logging`).
 - Leftovers to fix: CLAUDE.md line 117 says `job_completed_total{job, status}` and should say `job_name`; the `indicagent-alpaca-nightly.timer` description still names the deleted IBKR backfill; CTVA (an S&P 500 name) is absent from 1d canonical and from membership and should be disclosed with the rerun.
 
-Batch 5 (P2: 612 038 039 420 504 513 646, with 512, 520 and 522 report-only) was not yet verified.
+Batch 5 (P2: 612 038 039 420 504 513 646) applied 2026-11-24: 612 and 646 closed, 039 merged into 038, 038, 420, 504 and 513 rewritten (513 to P2); 512, 520 and 522 are report only and untouched.
 
 Not yet verified, start here in the next session: batch 5 (P2 rows 612 038 039 420 504 513 646; 512 report only, 520 and 522 owner ideas) and the 25 deferred todos (gates re-checked, deferred more than two weeks). Then a proposed P0 and P1 ordering for the lead.

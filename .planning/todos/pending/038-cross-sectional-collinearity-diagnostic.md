@@ -59,3 +59,7 @@ Held, not closed: under the research methods plan (todo 436) per-feature IC is o
 ## Unified design adopted 2026-09-26
 
 Adopted unified design (todo 436): held under the `ic_proposal` and `in_fold_selection` methods (section 6); feeds contribution accounting's uniqueness and effective-breadth outputs (section 13).
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Verified 2026-11-24: `ic_engine`, the 58-ETF universe and `regime_writer` are gone and `feature_ic_scores` has 0 rows; the section 13 outputs it fed exist (`effective_breadth` and uniqueness, 0c32e1278; `participation_ratio`). Origin was a question the owner held in the 2026-09-26 triage, so kept.

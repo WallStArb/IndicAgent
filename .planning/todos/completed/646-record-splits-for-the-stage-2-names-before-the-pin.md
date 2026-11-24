@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-11-19
 source: lane 2 of the 609 chain (1d canonical for the all-ticker names), lead ruling
@@ -31,3 +31,7 @@ Still open before the pin: the corrections batch, the one combined derivation fo
 ## Gate scope ruling 2026-11-20 (lead 7c, owner veto reserved)
 
 The strict sweep over members is gated on the breaks that have a Yahoo witness. The 3,551 members' breaks with no Yahoo history (1,516 names, mostly dead names) are disclosed as unwitnessed, never counted as confirmed. A second witness counts only as tape plus a vendor agreeing. The five date corrections Yahoo cannot judge (ACGN, ETS, ICA, REV, VIP) stay refused and open; the witness rule is not loosened. Detail and class counts: todo 629.
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Done: the corrections batch (4140d1557), the lone-bar fixes and member audit with 0 findings (6119545af), 629 closed by disclosure and readiness row 10 met (0224036b6), and the pin and data gate passed (8ce1f033c). 629 and 647 are in `completed/`.

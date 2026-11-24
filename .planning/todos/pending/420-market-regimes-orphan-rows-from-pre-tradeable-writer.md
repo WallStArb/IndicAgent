@@ -91,3 +91,7 @@ decision is appended to `market_regimes_override` in the same transaction. Obser
 fractions today: equity 5m 0.089, 15m 0.179, 1h 0.167, 1d 0.675; commodity 15m 0.727, 1h 0.719, 1d
 0.960 (5m 0.0006); fx 1h 0.012; rates 0. The 186-26 executor's plan text still says
 `--accept-orphan-delete` without a count: use the form above.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Verified 2026-11-24: `market_regimes_override` has 0 rows; the weekend orphans match the filed counts (equity 5m 595,008, rates 1d 912); nothing in the rebuild closure or `research/` reads `market_regimes`; 248 is completed.

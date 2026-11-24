@@ -86,3 +86,7 @@ Held, not closed: under the research methods plan (todo 436) per-feature IC is o
 ## Unified design adopted 2026-09-26
 
 Adopted unified design (todo 436): held under the `ic_proposal` method (section 6).
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Merged into 038: its target `_compute_cross_sectional_tf` in `ic_engine.py` is deleted, the 2026-07-19 population check is done, and what survives (a stratified cell needs symbol breadth, not bar count) is the breadth measure 038 holds.
