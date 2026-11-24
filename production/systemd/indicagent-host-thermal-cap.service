@@ -1,0 +1,15 @@
+[Unit]
+Description=IndicAgent host thermal cap: CPU boost off and a balanced energy preference (docs/operations/operations-infrastructure.md, Host thermal cap)
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Sysfs writes need root, so no User=. amd_pstate active mode lists only the performance
+# preference while the governor is performance, so the governor moves to powersave first.
+# set -e makes a failed write fail the unit; ExecStopPost restores the defaults after a failed
+# start as well as on stop.
+ExecStart=/bin/sh -c 'set -e; echo 0 > /sys/devices/system/cpu/cpufreq/boost; for p in /sys/devices/system/cpu/cpufreq/policy*; do echo powersave > "$$p/scaling_governor"; echo balance_performance > "$$p/energy_performance_preference"; done'
+ExecStopPost=/bin/sh -c 'for p in /sys/devices/system/cpu/cpufreq/policy*; do echo performance > "$$p/scaling_governor"; done; echo 1 > /sys/devices/system/cpu/cpufreq/boost'
+
+[Install]
+WantedBy=multi-user.target

@@ -311,6 +311,18 @@ IBKR_PORT=7497
 
 Host sysctls live in `/etc/sysctl.d/99-indicagent.conf` on each server (not in the repo); a rebuilt host must reproduce these values. Memory-related lines on ubuntu1 (verified 2026-11-14): `vm.dirty_background_bytes = 1073741824`, `vm.dirty_bytes = 4294967296`, `vm.max_map_count = 1048576` and `vm.swappiness = 10` (added 2026-11-14; the Ubuntu default of 60 had pushed 4 of 8 GB of idle pages, including dormant redpanda, into swap while 36 GiB of RAM was available; `sudo sysctl -p /etc/sysctl.d/99-indicagent.conf` applies it, no reboot). Pending, scheduled by the lead after step 7: huge pages for `shared_buffers`, runbook `docs/operations/massive-step7-runbook.md` Part G.
 
+## Host thermal cap
+
+ubuntu1 is a mini PC whose SODIMMs share the CPU's heat path. On 2026-11-23 a one-hour 16-worker run held the CPU at 89 to 93 C (its daily maximum was 92 to 93 C on every heavy day of the previous 11) and both DIMM sensors (`spd5118`, max 55 C, critical 85 C) read 114 to 118 C. Memory corrupted at 19:01 EST and the counted runs died; the data scan was clean, so the damage was in memory only. The DIMMs fell to 54 C ten minutes after the load stopped.
+
+The cap lives in `production/systemd/indicagent-host-thermal-cap.service` (oneshot, runs as root): boost off (`/sys/devices/system/cpu/cpufreq/boost` = 0), governor `powersave` (amd_pstate active mode offers only the `performance` preference under the `performance` governor) and `energy_performance_preference` = `balance_performance` on every policy. Raise the cap to `balance_power` only if a measured run still holds a DIMM above 85 C.
+
+Install (ubuntu1 only): `sudo cp production/systemd/indicagent-host-thermal-cap.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now indicagent-host-thermal-cap.service`.
+
+Rollback, live and persistent: `sudo systemctl disable --now indicagent-host-thermal-cap.service` (ExecStopPost restores boost 1 and the `performance` governor, which was the governor before the cap).
+
+Worker count: counted and battery runs use 4 workers until a run at that setting holds both DIMM sensors under 85 C for its whole duration (samples in `logs/family10_dimm_temp.log` while the watchdog runs); only then raise to 8. Never 16.
+
 ## Docker Infrastructure
 
 ### Containers
