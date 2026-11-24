@@ -56,7 +56,7 @@ not IBKR coverage.
 | Testing | Counted: daily residual, seasonality and family 9 (null); family 10 counted runs pending (todo 663); feature and regime families after the corpus rerun and 184 |
 | Quick, independent | 554 landed (legacy feature_vectors readers deleted); consolidation of the pending P2 and P3 rows is done (batches 1 to 5) and 13 of the 25 deferred todos are re-checked; the remaining deferred todos are listed in `docs/research/priorities-decision-log.md` |
 
-Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22 and the pre-rerun window), every pending P2 and P3 row (consolidation batches 1 to 5; 512, 520 and 522 are owner rules and ideas, reported only), and 13 deferred todos (020 026 135 167 171 177 246 261 263 264 265 344 380). Not yet re-checked: the deferred todos 020, 026, 135, 246, 263, 344, 380, 414, 415, 452, 480, 482, 497, 525, 527, 535, 565, 567, 596. Treat the "why now" text of those as possibly stale.
+Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22 and the pre-rerun window), every pending P2 and P3 row (consolidation batches 1 to 5; 512, 520 and 522 are owner rules and ideas, reported only), and every deferred todo. All deferred todos were re-checked against live state 2026-11-24 (batches D1 to D3); 527, 565, 567 and 596 stay deferred until the corpus rerun finishes.
 
 ## P0: Gates the data gate or the first counted test
 
