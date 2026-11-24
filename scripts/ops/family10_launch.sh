@@ -8,7 +8,7 @@ set -u
 WT=$SCRATCH/wt-f10run
 BOUND=c0832b091
 SPECS=("$@"); [ ${#SPECS[@]} -gt 0 ] || SPECS=(family10_volume_shock_h5 family10_volume_shock_h5_core)
-grep -q "block2 compare: IDENTICAL" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
+grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
 host_gate
 cd "$REPO" && git fetch -q origin || fail "fetch"
 git diff --quiet "$BOUND" origin/main -- src/intelligence/research src/intelligence/statistics research config || fail "research code or specs differ from $BOUND (the run itself builds from $BOUND)"

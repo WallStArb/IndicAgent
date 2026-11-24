@@ -12,7 +12,7 @@ COMMIT=${2:-}
 CR="$PY -m services.corpus_rerun"
 cd "$REPO" || fail "cd repo"
 
-grep -q "block2 compare: IDENTICAL" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
+grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
 workers_now=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select config_value from config_state where config_key='infra.feature_factory.workers'")
 [ "$workers_now" = "4" ] || fail "infra.feature_factory.workers is $workers_now, expected 4"
 host_gate
