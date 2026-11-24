@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-11-21T20:00:00.000Z"
+last_updated: "2026-11-24T12:00:00.000Z"
 progress:
   total_phases: 9
   completed_phases: 3
@@ -70,6 +70,9 @@ dirty. Never two backfills at once; kill by PID only; never edit a module a live
 
 ## Decisions waiting on the owner
 
+- Host cooling (ledger 2026-11-24b): clean or repaste the ubuntu1 unit and add airflow over the DIMMs; the software cap, watchdog and alerts are in place but the relaunch gate (DIMMs 60 C or less at start) and any move from 4 to 8 workers depend on it. Alert delivery needs Discord or Telegram credentials (the Alertmanager receiver is a no-op).
+- Corpus rerun directive (relayed by a peer 2026-11-24, not heard by the lead): confirm it should start right after the family 10 counted runs, 4 workers, scope 1d.
+- More sessions: the backlog supports a session for todos 667 and 668 (ic_measure time chunks and checkpoint grain), one for the 558 candidate list, and the next session starts the todo consolidation at batch 5 and the 25 deferred todos (`docs/research/priorities-decision-log.md`, 2026-11-24).
 - Accept the 2004-2015 member shortfall (about 2,000 against the 2,950 floor, plus three empty months in 2003) as a disclosed property of the early years rather than a gate (lead recommendation: disclose).
 - The E21 clean-data lift for price-derived 1d families, the 27 compute_eligible_1d=false names and the entity classes.
 - Todo 600: renew or lapse the Massive plan before about 2026-12-10, and keep or drop the HX370 copy of the archive.
