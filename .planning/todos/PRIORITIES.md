@@ -54,9 +54,9 @@ not IBKR coverage.
 | Research inputs (phase 184) | Plans 01-10 landed; 12 (dry S0 on real data) waits on the rebuilt table (1h and 5m need a scope-all rerun); 13-14 on todo 482; admission holes are todo 588 |
 | Research core (phase 187) | Selection core plans 08-15; StepM attestation passed 2026-11-23; governance (16-18) after the first feature family; the S1-drift call on the momentum members is the owner's (todo 547) |
 | Testing | Counted: daily residual, seasonality and family 9 (null); family 10 counted runs pending (todo 663); feature and regime families after the corpus rerun and 184 |
-| Quick, independent | 554 landed (legacy feature_vectors readers deleted); P2 and P3 consolidation batches 1 to 4 done, batch 5 and the deferred todos not yet verified (`docs/research/priorities-decision-log.md`) |
+| Quick, independent | 554 landed (legacy feature_vectors readers deleted); consolidation of the pending P2 and P3 rows is done (batches 1 to 5) and 13 of the 25 deferred todos are re-checked; the remaining deferred todos are listed in `docs/research/priorities-decision-log.md` |
 
-Verified against live state: the P0 and P1 rows 2026-11-22 (lead pass) and the pre-rerun window rows 2026-11-24; the P2 and P3 rows of consolidation batches 1 to 4 2026-11-24. Not yet verified: batch 5 (P2 rows 612, 038, 039, 420, 504, 513, 646; 512 is an owner rule, 520 and 522 owner ideas, report only) and the deferred todos. Treat the "why now" text of those rows as possibly stale.
+Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22 and the pre-rerun window), every pending P2 and P3 row (consolidation batches 1 to 5; 512, 520 and 522 are owner rules and ideas, reported only), and 13 deferred todos (020 026 135 167 171 177 246 261 263 264 265 344 380). Not yet re-checked: the deferred todos 020, 026, 135, 246, 263, 344, 380, 414, 415, 452, 480, 482, 497, 525, 527, 535, 565, 567, 596. Treat the "why now" text of those as possibly stale.
 
 ## P0: Gates the data gate or the first counted test
 
