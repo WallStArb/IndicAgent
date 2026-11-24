@@ -73,7 +73,7 @@ instead. `corpus_run.measured.apr_keys` lists the pinned keys.
 2. Quiesce the blocking timers:
 
    ```
-   .venv/bin/python -m services.corpus_rerun --quiesce [--wait-seconds N]
+   .venv/bin/python -m services.corpus_rerun --quiesce (the wait comes from the quiesce APR keys)
    ```
    For each unit in `infra.corpus_rerun.blocking_timers` it records the enabled and active state
    to `logs/corpus_rerun_quiesce.json`, runs `sudo -n systemctl disable` and `stop`, and waits

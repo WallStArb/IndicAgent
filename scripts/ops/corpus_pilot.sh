@@ -24,7 +24,7 @@ key=$($PY -c "import sys; sys.path.insert(0,'.'); from services.backfill_feature
 case "$key" in "$EXPECT"*) ;; *) fail "rebuild_code_key $key does not start with $EXPECT; the pin would not match the plan";; esac
 log "pilot preflight ok: commit $SHA code key ${key:0:12}"
 
-log "quiesce"; $CR --quiesce --wait-seconds 900 >> "$STATUS" 2>&1 || { log "quiesce failed"; $CR --release >> "$STATUS" 2>&1; fail "quiesce failed"; }
+log "quiesce"; $CR --quiesce >> "$STATUS" 2>&1 || { log "quiesce failed"; $CR --release >> "$STATUS" 2>&1; fail "quiesce failed"; }
 out=$($CR --new-run --data-gate-scope 1d --commit "$SHA" 2>&1) || { echo "$out" >> "$STATUS"; $CR --release >> "$STATUS" 2>&1; fail "new-run failed"; }
 echo "$out" >> "$STATUS"
 RUN=$(echo "$out" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
