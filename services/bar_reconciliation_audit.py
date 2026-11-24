@@ -16,8 +16,8 @@ with the venue study):
   former-venue span (D6, plan 185-24).
 - unconfirmed_empty: an ohlcv_empty_history row no set of every-route answers confirms.
 - dividend_freshness: Yahoo dividend coverage trailing the last session.
-- nightly_skipped: the last IBKR history fetcher run (its status file) did not finish with
-  success recently.
+- nightly_skipped: the newest Alpaca nightly fetch run (its ohlcv_request rows) holds a failed
+  request or ended long ago; a run still answering is unjudged, never a finding (todo 513).
 - stray_sources: 1d/15m/1h rows with a (vendor, kind) the derivation does not write.
 - switches: venue switches differing from the venue study verdict.
 - isolated_wick: bars the tradeable view serves on 1d, 1h, 15m or 5m whose wick the scrub rule
@@ -486,9 +486,9 @@ def check_switches(apr: Mapping[str, bool], verdict: Mapping[str, bool]) -> Chec
 def check_nightly_skipped(
     last_nightly_status: Mapping[str, Any] | None, *, now: datetime, max_age_hours: int
 ) -> CheckResult:
-    """The nightly's last status file: anything but a recent success is a finding.
+    """The newest nightly run (`nightly_run_status`): anything but a recent success is a finding.
 
-    A missing file, a run that never finished (status 'started'), a failure (a leg's
+    No run in the window, a run that never finished (status 'started'), a failure (a leg's
     failed_lease_timeout included, D-29) or a success older than `max_age_hours` (a
     skipped night) each count once.
     """
@@ -506,6 +506,26 @@ def check_nightly_skipped(
     if finished is None or now - finished > timedelta(hours=max_age_hours):
         return CheckResult(1, (f"stale|finished_at={finished_raw}",))
     return CheckResult(0, ())
+
+
+def nightly_run_status(
+    run: Mapping[str, Any] | None, *, now: datetime, running_minutes: int
+) -> Mapping[str, Any] | None | str:
+    """The newest nightly run as `check_nightly_skipped` reads it, or "running".
+
+    `run` is the newest run's row (finished_at, n_requests, n_failed) or None when no run is in
+    the window. A run whose last answer is within `running_minutes` of `now` may still be
+    answering, so it is "running" and the caller leaves it unjudged; a run with failed requests is
+    a failure; any other run is a success finished at its last answer.
+    """
+    if run is None:
+        return None
+    finished = run["finished_at"]
+    if now - finished < timedelta(minutes=running_minutes):
+        return "running"
+    if run["n_failed"]:
+        return {"status": f"failed({run['n_failed']} of {run['n_requests']})"}
+    return {"status": "success", "finished_at": finished.isoformat()}
 
 
 def check_held_names(holds: Mapping[str, Sequence[Hold]]) -> CheckResult:
@@ -740,8 +760,21 @@ def confirmed_spans_from_requests(
 
 _MONITOR_TYPE = "bar_reconciliation"
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-# Written by the IBKR history fetcher at the end of every run (service identity, APR-exempt).
-NIGHTLY_STATUS_FILE = _REPO_ROOT / "logs" / "ibkr_history_fetcher_status.json"
+# The Alpaca nightly's runs, read from its request ledger rows (service identity, APR-exempt):
+# one fetch_run_id per run, a failed or timed-out request is an error outcome. The IBKR fetcher's status file
+# this check used to read is gone (todo 513).
+NIGHTLY_SOURCE = "alpaca"
+NIGHTLY_CALLER = "alpaca-nightly%"
+_NIGHTLY_RUN_SQL = """
+SELECT max(answered_at) AS finished_at,
+       count(*) AS n_requests,
+       count(*) FILTER (WHERE outcome IN ('failed', 'timeout')) AS n_failed
+FROM ohlcv_request
+WHERE source = $1 AND caller LIKE $2 AND answered_at >= $3
+GROUP BY fetch_run_id
+ORDER BY max(answered_at) DESC
+LIMIT 1
+"""
 _VERDICT_FILE = _REPO_ROOT / "config" / "bars" / "venue_study_verdict.json"
 # bar_derivation's flag rule for a derived bar with an unanswered constituent slot.
 _PARTIAL_RULE = "partial_constituents"
@@ -1199,6 +1232,7 @@ class _Params:
     completeness_min_share: float
     completeness_years: int
     nightly_max_age_hours: int
+    nightly_running_minutes: int
     venues: tuple[str, ...]
     venue_timeframes: tuple[str, ...]
     switches: dict[str, bool]
@@ -1221,6 +1255,7 @@ class _Params:
             completeness_min_share=float(_cfg(apr, key + "completeness_min_share", 0.996)),
             completeness_years=int(_cfg(apr, key + "completeness_years", 1)),
             nightly_max_age_hours=int(_cfg(apr, key + "nightly_max_age_hours", 26)),
+            nightly_running_minutes=int(_cfg(apr, key + "nightly_running_minutes", 30)),
             venues=tuple(
                 _cfg(
                     apr,
@@ -1898,7 +1933,7 @@ class BarReconciliationAudit(BaseBatch):
                 "unconfirmed_empty": await self._unconfirmed_empty(conn, params),
                 "partial_daily": await self._partial_daily(conn, window, active),
                 "dividend_freshness": await self._dividend_freshness(conn, params, window),
-                "nightly_skipped": self._nightly_skipped(params, now),
+                "nightly_skipped": await self._nightly_skipped(conn, params, now),
                 "stray_sources": await self._stray_sources(conn, window),
                 "switches": self._switches(params),
                 "isolated_wick": await self._isolated_wick(conn),
@@ -2116,13 +2151,12 @@ class BarReconciliationAudit(BaseBatch):
         return _Judged(result, len(coverage))
 
     @staticmethod
-    def _nightly_skipped(params: _Params, now: datetime) -> _Judged:
-        try:
-            status = json.loads(NIGHTLY_STATUS_FILE.read_text())
-        except FileNotFoundError:
-            status = None
-        except (OSError, ValueError) as error:
-            status = {"status": f"unreadable:{type(error).__name__}"}
+    async def _nightly_skipped(conn: Any, params: _Params, now: datetime) -> _Judged:
+        since = now - timedelta(hours=params.nightly_max_age_hours * 3)
+        row = await conn.fetchrow(_NIGHTLY_RUN_SQL, NIGHTLY_SOURCE, NIGHTLY_CALLER, since)
+        status = nightly_run_status(row, now=now, running_minutes=params.nightly_running_minutes)
+        if status == "running":
+            return _Judged(CheckResult(0, ()), 0)  # still answering: unjudged, not a finding
         result = check_nightly_skipped(status, now=now, max_age_hours=params.nightly_max_age_hours)
         return _Judged(result, 1)
 

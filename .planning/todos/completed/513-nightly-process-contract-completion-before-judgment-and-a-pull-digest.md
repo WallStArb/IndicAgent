@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-10-08
 source: end-to-end process review of ingest, backfill and nightly runs (185 session, 2026-10-08)
@@ -26,3 +26,8 @@ D7 reports unjudged, not failed, for an incomplete run (tested); the nightly con
 ## Status 2026-11-24 (todo consolidation pass)
 
 Verified 2026-11-24: the IBKR fetcher, Tradier and the gateway are deleted (6b2ec7ffc); `logs/ibkr_history_fetcher_status.json` does not exist; `integrity_monitor` shows `nightly_skipped` with a finding on 2026-11-21 and 2026-11-24. No digest and no contract doc exist. Tier raised to P2 on the standing false finding (the lead may rule otherwise).
+
+## Closure 2026-11-24
+
+D7's `nightly_skipped` now reads the newest Alpaca nightly run from its `ohlcv_request` rows (`NIGHTLY_SOURCE`, `NIGHTLY_CALLER`, grouped by `fetch_run_id`): a failed request is a finding, a run older than `threshold.bar_reconciliation.nightly_max_age_hours` is a skipped night, no run in three windows is `no_status`, and a run whose last answer is younger than `threshold.bar_reconciliation.nightly_running_minutes` (30, migration 615) is unjudged. The deleted IBKR fetcher's status file is no longer read. Not done and no longer needed: the digest and a stage contract document (the premise was the IBKR fetch lane and the 2FA gateway, both deleted). Read-only check against live rows: the newest run (2026-11-24 04:44Z to 05:00Z, 3,058 requests, 0 failed) passes.
+

@@ -29,6 +29,7 @@ from services.bar_reconciliation_audit import (
     check_unexplained_seams,
     completeness_cells,
     confirmed_spans_from_requests,
+    nightly_run_status,
     session_slots,
 )
 from src.intelligence.bars.daily_rule import RULE_VERSION
@@ -371,6 +372,73 @@ class TestNightlySkipped:
         assert check_nightly_skipped(status, now=self.NOW, max_age_hours=26).n_findings == 1
 
 
+class TestNightlyRunStatus:
+    """Todo 513: D7 reads the Alpaca nightly's request rows, not the deleted IBKR status file."""
+
+    NOW = datetime(2026, 11, 24, 6, 0, tzinfo=UTC)
+
+    def _run(self, hours_ago, n_failed=0, n_requests=3058):
+        return {
+            "finished_at": self.NOW - timedelta(hours=hours_ago),
+            "n_requests": n_requests,
+            "n_failed": n_failed,
+        }
+
+    def _judge(self, run):
+        status = nightly_run_status(run, now=self.NOW, running_minutes=30)
+        assert status != "running"
+        return check_nightly_skipped(status, now=self.NOW, max_age_hours=26)
+
+    def test_a_clean_recent_run_passes(self):
+        assert self._judge(self._run(1.0)).n_findings == 0
+
+    def test_a_failed_request_is_a_finding_with_its_count(self):
+        result = self._judge(self._run(1.0, n_failed=2))
+        assert result.samples == ("status=failed(2 of 3058)",)
+
+    def test_a_run_older_than_the_window_is_a_skipped_night(self):
+        result = self._judge(self._run(30.0))
+        assert result.samples[0].startswith("stale|finished_at=")
+
+    def test_no_run_in_the_window_is_a_finding(self):
+        assert self._judge(None).samples == ("no_status",)
+
+    def test_the_check_reads_the_run_through_fetchrow_and_leaves_a_running_run_unjudged(self):
+        params = audit._Params.from_apr({})
+
+        class _Conn:
+            def __init__(self, row):
+                self.row, self.args = row, None
+
+            async def fetchrow(self, sql, *args):
+                assert "FILTER (WHERE outcome IN ('failed', 'timeout'))" in sql
+                self.args = args
+                return self.row
+
+        import asyncio
+
+        def judge(row, now=self.NOW):
+            return asyncio.run(
+                audit.BarReconciliationAudit._nightly_skipped(_Conn(row), params, now)
+            )
+
+        running = {"finished_at": self.NOW - timedelta(minutes=5), "n_requests": 9, "n_failed": 1}
+        assert judge(running).n_judged == 0 and judge(running).result.n_findings == 0
+        assert judge(self._run(1.0)).n_judged == 1
+        failing = judge(self._run(1.0, n_failed=1)).result
+        assert failing.n_findings == 1
+
+    def test_a_run_still_answering_is_unjudged_not_a_finding(self):
+        recent = {
+            "finished_at": self.NOW - timedelta(minutes=5),
+            "n_requests": 100,
+            "n_failed": 3,
+        }
+        assert nightly_run_status(recent, now=self.NOW, running_minutes=30) == "running"
+        just_done = {**recent, "finished_at": self.NOW - timedelta(minutes=31)}
+        assert nightly_run_status(just_done, now=self.NOW, running_minutes=30) != "running"
+
+
 # ---------------------------------------------------------------------------
 # Completeness and masked slots (todo 462)
 # ---------------------------------------------------------------------------
@@ -581,6 +649,7 @@ def test_the_1d_verdict_names_are_the_backfill_dimension(monkeypatch):
         "_unconfirmed_empty",
         "_partial_daily",
         "_dividend_freshness",
+        "_nightly_skipped",
         "_stray_sources",
         "_isolated_wick",
         "_report",
