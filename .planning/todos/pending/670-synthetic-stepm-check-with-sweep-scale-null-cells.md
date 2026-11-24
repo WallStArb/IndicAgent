@@ -43,3 +43,21 @@ Gates: unit tests by exit code, ruff, black, glossary, `/simplify` and `/review`
 
 1. E21 rule 6 says `n_looks` equals the cells the batch measures, while this todo's old text said the check "sets n_looks". The spec above reads it as a go or no-go on the batch size. Confirm.
 2. The decision rule constants (90 percent, the replicate count, the tail setting) are proposals.
+
+## Ruling aid for Q3 (2026-11-24, indicagent-94; the lead decides)
+
+What the text says:
+- `docs/plans/methodology-change-ledger.md:1300-1302` (E21 rule 6): "`n_looks`. Declared in the ledger before each measurement batch and equal to the cells the batch measures across all levels. Universe bookkeeping, never a cap (E18's counting-is-a-price doctrine); correlated cells cost little under the joint draw."
+- This todo's earlier text (replaced by the spec above): "The result sets `n_looks` for the sweep declaration."
+- `docs/foundation/adaptive-parameter-registry.md:330` (exempt list): pre-registered gate constants take "A dated constants table in the design doc, mirrored as named module constants", "Declared before the run they judge; a tunable threshold invites tuning after seeing results, so a change is a dated design amendment, never a `config_state` write".
+- E21 rule 6 is a count, E18 is "never a cap", and the volume gate at `methodology-change-ledger.md:1309` measures rows and bytes of one block before a full sweep. Nothing in the text lets a synthetic check shrink the batch.
+
+The two readings differ:
+- R1, `n_looks` is bookkeeping equal to the cells measured (E21 as written). The check is then informational: it states what the sweep will cost `reversal_21` and every other recorded selection, and the lead decides in the ledger line whether to run the sweep at that price.
+- R2, the check is a go or no-go on batch size. This needs a rule that can refuse or shrink a batch, which E21 does not contain; it must be declared as a gate constants table first.
+
+Do the replicate counts and the 90 percent rule need a declared table? If R2: yes, by the APR exemption above (the 90 percent threshold is a gate constant that judges a result; the replicate count R = 8, the n_eff settings 8, 50, all-independent, the tail setting (Student t, 5 degrees of freedom) and the seed base all change what the check can show). Declare them in a dated table in `docs/plans/` (a methodology ledger line holds the table) before the run, mirrored as named constants in the script, never in `config_state`. If R1: the replicate counts and settings are still tuning knobs of a disclosure, so declare them in the same line for the same reason (a check that was rerun until it passed would be an uncounted look), but there is no gate to fail.
+
+Cost of each reading (from the table in todo 671, "Ruling aid for Q1 and Q2"): the sweep raises the step-1 critical t from about 2.7 (16 series) to 3.1 to 3.9 depending on cell correlation (rho 0.7 down to 0), and to 3.3 to 4.1 with two attempts per cell. A pass or fail threshold at 90 percent of replicates at n_eff = N_cells would be binding at rho 0 for any series with t below about 4: at that setting it fails unless `reversal_21`'s t is above the critical value, so R2 would likely shrink the sweep (for example to horizons 1 and 5 only, 554 cells; its critical t was not measured here). Under R1 the sweep runs at the full count and the lead accepts that `reversal_21` may be dropped from the selection set.
+
+Recommendation: R1 with the full declaration. Keep E21's count as written (nothing capped, the doctrine intact), run the check as a disclosure that is written into the ledger line before the sweep ("what the sweep costs the recorded selection, by effective correlation"), and declare the settings and seed table in that same dated line. This changes no statistic and needs no new gate. If the lead wants a refusal rule (R2), that is a new E21 amendment with its own constants table; the 90 percent figure here is a placeholder for it, not a proposal to adopt.
