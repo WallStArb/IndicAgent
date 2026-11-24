@@ -1,7 +1,7 @@
-# 529: Test-suite cleanup: delete remnants of deleted systems, consolidate redundancy, cut runtime
+# 529 (closed): Test-suite cleanup: delete remnants of deleted systems, consolidate redundancy, cut runtime
 
 Filed: 2026-10-10
-Owner: pending
+Owner: closed 2026-11-23
 Priority: P1 (owner directive; the suite burns time and tokens every session)
 Evidence: /tmp/test_suite_audit.md (2026-10-10 audit; regenerate before deleting)
 
@@ -67,6 +67,20 @@ Deliverables:
   parity loops (one mutator order, compute() once with a per-fixture cache-purity check, a
   per-group nonzero vacuity guard; it caught the FVG test comparing 0.0 with 0.0, now on an open
   gap). 6,680 passed, 60 s wall.
-- Next: the slowest survivors (`--durations=40` on 2026-10-26: swing/fib live-batch parity 11 s,
-  probe_registry_statuses 9 s x2, families_intraday synthetic guards 6-7 s x4, regime goldens
-  6 s x2, runner_book/order 3-4 s each).
+- Batch 6, 2026-11-23 (indicagent-af), closing pass. Baseline before: 8,431 passed, 17 skipped, 226 s
+  wall at `-n 4` (a memtester run held the host). Remnant audit: no test imports a deleted
+  module (CI is green, every deleted subject fails import), and the remaining mentions of
+  `ensemble_trainer`, `EnsembleICEngine`, `forward_return_writer` and the like are docstring
+  history, absence guards or the live `CorpusManifest`. Three files test nothing of the repo and
+  are deleted: `test_bh_fdr_mapping.py` (5 tests) and `test_ic_bh_fdr.py` (3 tests) call only
+  statsmodels `multipletests` on literals, for the deleted old ic_engine; the repo's own
+  `apply_bh_fdr` keeps its four tests in `test_ic_math.py`, which also keeps the Fisher-z, p-value
+  and circular-shift tests. `scripts/test_nightly_overlap.py` held a constant block and no test
+  function. Speed: `mtf_fixtures.session_bounds` called `nyse_sessions(day, day)` per day, so a
+  long grid thrashed that function's 32-entry cache and rebuilt the pandas calendar schedule for
+  each day (0.15 s a day); it now builds one schedule per year. `test_runner_feature_members.py`
+  went from 68 s to 7 s serial, and the same fixture serves three other research test files.
+  Left alone as load-bearing and not redundant: the stepm family-wise error simulation (15 s),
+  the probe registry statuses (13 s and 10 s), the regime goldens (7 s each).
+  After: 8,422 passed, 17 skipped (8 deleted tests; one more test collected than the arithmetic
+  gives because the earlier run counted a dirty-tree skip), 128 s wall at `-n 4`, exit 0.

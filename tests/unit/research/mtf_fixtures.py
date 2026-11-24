@@ -12,6 +12,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
+from functools import cache
 
 import numpy as np
 
@@ -46,9 +47,16 @@ def bars(times_utc: Sequence, closes: Sequence[float]):
     return ts, c - 0.5, c, np.full(len(c), 100.0)
 
 
+@cache
+def _year_sessions(year: int) -> dict[date, tuple[datetime, datetime]]:
+    # One calendar build per year: nyse_sessions(day, day) per day rebuilt the schedule for each
+    # of a long grid's days and thrashed its 32-entry cache (about 0.15 s a day).
+    return nyse_sessions(date(year, 1, 1), date(year, 12, 31))
+
+
 def session_bounds(day: date) -> tuple[datetime, datetime]:
     """The calendar's (open, close) for `day`, UTC-aware."""
-    return nyse_sessions(day, day)[day]
+    return _year_sessions(day.year)[day]
 
 
 def slot_starts(day: date, tf: str) -> list[datetime]:
