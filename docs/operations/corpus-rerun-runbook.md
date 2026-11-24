@@ -29,7 +29,7 @@ the run's identity, spans, caveats, data gate result and measured figures live i
 | `infra.corpus_rerun.data_gate.max_missing_1d_session_fraction` | 0.01 | data gate, 1d sessions per name-year |
 | `infra.corpus_rerun.data_gate.min_session_bar_fraction` | 0.9 | data gate, a session's 5m bars over its own slots |
 | `infra.corpus_rerun.data_gate.held_name_years` | the two POWI years (migration 607) | data gate named exceptions: JSON list of `{symbol, year, evidence}`; a held name-year that would fail does not gate and is reported with its evidence. Unseeded it reads empty (the strict side) |
-| `infra.corpus_rerun.blocking_timers` | four bar-moving timers | pin gate |
+| `infra.corpus_rerun.blocking_timers` | six bar-moving timers (alpaca-nightly, bar-derivation daily and grid, bar-reconciliation-audit, dividend-event-writer-yahoo, regime-coverage-auditor; read the live key) | pin gate |
 | `infra.corpus_rerun.max_null_fraction` | 0.05 | feature_complete's G6: post-warmup NULL share per (tf, column) (migration 582) |
 
 The 1d residual tolerance is not an APR key: `RESIDUAL_1D_MISSING_FRACTION` (5 percent) in
@@ -118,7 +118,7 @@ retaken). Follow the worker-kill procedure in `docs/reference/gotchas.md` first.
 Named decision before the rerun (round 7 review, 2026-11-10): the event columns'
 none-mask counts every hole-censored row present-and-NaN (the ruled knowability intent), so G6's
 null share for `bars_since_extreme_move_*` absorbs the corpus's hole density. On hole-dense
-pre-2016 IBKR 5m spans that share can exceed `infra.corpus_rerun.max_null_fraction` and fail `feature_complete`
+pre-2016 Massive 5m spans that share can exceed `infra.corpus_rerun.max_null_fraction` and fail `feature_complete`
 loudly - the design, not a defect. The pilot measures the actual failure volume on real units
 before the full stages run; if hole-era names fail in numbers, the answer is a per-era floor
 amendment through the methodology ledger, never a mask change.

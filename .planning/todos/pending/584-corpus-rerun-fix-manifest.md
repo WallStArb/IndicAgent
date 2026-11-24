@@ -10,11 +10,11 @@ source: lead orchestrator (indicagent-4f), owner sequence 2026-11-01: data -> al
 ## Decision (2026-11-04, owner and lead): complete data first, one table name
 
 1. **No corpus compute until the data is complete.** The rerun (pilot included) starts only when
-   the 5m coverage target is met: every active name whose 1d history starts before 2016 has IBKR
-   5m back to its 1d start, or a recorded empty-history answer for the missing span (the vendor
-   has none), and Alpaca 5m from 2016 is at its vendor ceiling (already true). Measured from
-   `ohlcv_raw` and the fetcher's empty-history records, not inferred. Todo 534 is the lane; the
-   Massive flat files (todo 600) are the lever that shortens it. Fixes keep landing on main meanwhile; the pin moves once, when the gate passes.
+   the data gate passes (restated 2026-11-21: the 2026-11-04 wording named IBKR 5m coverage, and
+   IBKR is removed). The data is Massive 1d and 5m from 2003-09-10 to the 2026-11-16 seam, then
+   Alpaca SIP, over the stage 2 membership; the gate is the plan-only data gate on the rebuilt
+   universe (see "Pin readiness" below). Measured from `ohlcv_raw` and the verdict facts, not
+   inferred. Fixes keep landing on main meanwhile; the pin moves once, when the gate passes.
 2. **The 186-26 rows are gone.** Migration 569 (596942155) truncated `feature_vectors_v2`
    (298 GB, uncompressed because `compress_completed_chunks` runs only at a finished run's end)
    and flipped its 1,647 provenance records to `superseded`. Nothing resumes on pin `92e588385`.
@@ -838,8 +838,6 @@ Lead ruling 2026-11-20 stands: no prefix-sum port (`volume.py`, `price.py`) befo
 - STATE.md (Handoff, stage 2) says todo 648 "waits on the owner adopting the 2026-11-21 amendment". The preregistration marks it ADOPTED 2026-11-21 and commit e93b62f15 recorded it. Todo 648 "Remaining" repeats the old wording.
 - STATE.md says "Step 7 rebuild ... done" (the Massive step 7) while todo 648 and the stage 2 runbook call the membership rebuild and repin "step 7". Two different step 7s; the table above uses runbook step names.
 - Todo 609 sections "Blocker I1" and "Blocker I2" read as open. Both are built on main (`UNIVERSE_SOURCE` set in `services/ic_measure.py:150` and `snapshot.py:534`; `corpus_universe(intraday=True)`, `services/corpus_universe.py:40`; the data gate judges the 5m term on the tier only).
-- This file's decision 1 still names IBKR 5m coverage as the data target; IBKR is removed and canonical is Massive to the 2026-11-16 seam, then Alpaca (`config/bars/massive_archive_end.json`). Todo 534 as the lane is superseded by the stage 2 chain above.
-- The corpus rerun runbook APR table says `infra.corpus_rerun.blocking_timers` holds "four bar-moving timers"; the live key holds six. Its hole-density note still says "pre-2016 IBKR 5m spans"; the pre-2016 source is Massive.
 - The 2026-11-20 pin table (replaced) showed `universe_membership` "built" at 858,454 rows as met. That build is the one migration 605 resets, and the 645 pin (`17c9ca02f`) is superseded by `730622ae` and moves again at the repin. Its strict sweep row ("undecided APTV, PNR, SW") predates the scoped rerun `20261120c`.
 - STATE.md says the Massive archive runs "to 2026-11-18"; that is the manifest's last file day. The pinned archive end and seam is 2026-11-16.
 
