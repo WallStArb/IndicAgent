@@ -300,6 +300,30 @@ def _kernel_and_inputs(name: str, bars: dict, tf: str = "1d"):
     return kernel, inputs
 
 
+@pytest.mark.parametrize("family", FAMILIES)
+@pytest.mark.parametrize("case", ["synthetic", "collapsing"])
+def test_numeric_columns_are_object_dependent_on_a_written_segment(family, case):
+    """Todo 661: the HMM numeric columns declare presence = the segment is written (status 1), so
+    the rebuild's unit_stats count the rows a segment exists on and the NaN among them. The mask
+    changes no stored value: every numeric column is already NaN where no segment is written."""
+    spec = FAMILY_SPECS[family]
+    bars = (
+        make_synthetic_regime_bars(3000, 42)
+        if case == "synthetic"
+        else (make_collapsing_segment_bars())
+    )
+    kernel, inputs = _kernel_and_inputs(f"hmm_{family}_walk_forward", bars)
+    out = kernel.compute(inputs, _config())
+    status = out[spec.status_output]
+    assert kernel.object_dependent == frozenset(spec.numeric_outputs)
+    for column in spec.numeric_outputs:
+        mask = out[f"_{column}_is_none"]
+        assert np.array_equal(mask, (status != _hmm.STATUS_WRITTEN).astype(float))
+        assert np.isnan(out[column][mask == 1.0]).all(), column
+    if case == "synthetic":
+        assert (status == _hmm.STATUS_WRITTEN).any()
+
+
 def test_segment_gate_verdict_does_not_depend_on_bars_after_t():
     """RED against the whole-segment gate: on the full 939 bars the first segment (bars 639..938)
     decodes into one state for its last rows, so the gate rejects it and bar 660 is unlabeled;
@@ -588,6 +612,8 @@ def test_duration_and_churn_restart_across_a_skipped_segment(family):
 
     assert list(result.status[width : 2 * width]) == [_hmm.STATUS_DEGENERATE_OCCUPATION] * width
     assert not np.isnan(result.code[width - 1]) and np.isnan(result.code[width])
+    # a skipped segment stores nothing, so the presence mask (todo 661) hides no stored value
+    assert np.isnan(result.numeric[:, width : 2 * width]).all()
     duration, churn = result.numeric[-2], result.numeric[-1]
     assert duration[width - 1] == width  # segment 1: A held four bars
     assert duration[2 * width] == 1.0  # first bar after the gap restarts, not 5

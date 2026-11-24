@@ -42,6 +42,7 @@ from src.intelligence.features.kernels._hmm import (
     RegimeEventRecord,
     RegimeFamilySpec,
 )
+from src.intelligence.features.kernels._primitives import none_mask_name
 
 if TYPE_CHECKING:
     from src.intelligence.features.feature_factory_config import FeatureFactoryConfig
@@ -194,7 +195,13 @@ def _heavy_compute(spec: RegimeFamilySpec):
             spec,
             DEFAULT_ROLLING_BLOCK_ROWS,
         )
-        return _heavy_columns(spec, result)
+        out = _heavy_columns(spec, result)
+        # presence of the numeric columns: a segment is written at the row (todo 661). The
+        # rebuild counts present and NaN-among-present rows into each unit's provenance
+        # unit_stats, so a NaN HMM column is judged only where a segment exists.
+        none = (result.status != _hmm.STATUS_WRITTEN).astype(np.float64)
+        out.update({none_mask_name(column): none for column in spec.numeric_outputs})
+        return out
 
     compute.__name__ = f"_compute_{spec.family}_walk_forward"
     return compute
@@ -213,7 +220,13 @@ def _kernels_for(family: str) -> tuple[Kernel, Kernel]:
     spec = FAMILY_SPECS[family]
     heavy = Kernel(
         name=f"hmm_{family}_walk_forward",
-        outputs=(spec.code_output, spec.status_output, *spec.numeric_outputs),
+        outputs=(
+            spec.code_output,
+            spec.status_output,
+            *spec.numeric_outputs,
+            *(none_mask_name(column) for column in spec.numeric_outputs),
+        ),
+        object_dependent=frozenset(spec.numeric_outputs),
         inputs=spec.inputs,
         memory=lambda config: 0,
         compute=_heavy_compute(spec),
