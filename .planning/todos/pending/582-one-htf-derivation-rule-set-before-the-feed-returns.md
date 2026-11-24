@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-11-01
 source: owner question 2026-11-01 ("why aren't batch and real-time sharing infrastructure, a bar is a bar"); coordinator code check
 ---
@@ -27,3 +27,7 @@ recovery unlock keys (todo 497) so the feed never publishes a second truth.
 
 Done when: one rule set constructs HTF bars for both paths, or the streaming path is
 documented base-bars-only in the reactivation note, with a test proving the boundary.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+`bar_accumulator.py` is unchanged and its unit is inactive (no live feed; todo 497 is deferred). From closed todo 473: a revived live path runs `compute_kernels` over the buffered tail with the batch alignment builders. Tier corrected to P3.

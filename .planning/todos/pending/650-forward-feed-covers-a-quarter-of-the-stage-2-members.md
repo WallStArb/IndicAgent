@@ -29,3 +29,7 @@ A frozen book trades and is confirmed on its own forward span, so the forward fe
 ## Not blocking
 
 The first counted run (data horizon 2026-11-01) and the 1d-first corpus rerun read the Massive archive and do not need the forward feed. Block this before the first book freeze, not before the pin.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Verified 2026-11-24: 1,529 active and 33,859 inactive; 1,514 symbols have a 1d bar after 2026-11-16; `corpus_universe` does not read `is_active` (`services/corpus_universe.py:49`), so the rerun is unaffected.

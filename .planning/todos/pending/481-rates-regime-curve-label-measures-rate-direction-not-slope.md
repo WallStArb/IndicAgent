@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-10-01
 source: interactive session, check of the curve_credit signal against stored FRED series
 ---
@@ -56,3 +56,7 @@ four-quadrant rate regime") resolves this todo as option 3: a rate-direction mar
 measured series (mean of the `DGS2` and `DGS10` changes) and a slope margin from `T10Y2Y`,
 crossed into four joint labels. The scheduling constraint stands (with the 186 regime rebuild)
 and every new label set still clears the null-arm control.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+`curve_credit.py:6` still labels the TLT-SHY high end steep; `market_regimes` rates was last written 2026-08-11. Outside the closure. Tier corrected to P3.

@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-09-30
 source: plan 186-15 review (altitude, no_fill invariant)
 ---
@@ -55,3 +55,7 @@ the cold window, and `_vol_trend_ratio_series_full` (`kernels/volume.py`) return
 (products such as `vol_skew_product` inherit the mask): no stored value is wrong, which is why
 they did not ride 584. The hazard is any consumer that reads `compute_kernels` output without
 the warmup mask. Fix: NaN for the cold prefix, the 4b-1 cold doctrine.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+VP, S/R, sweep and pool fallbacks are now None (8df1ac702, `vp_sr.py:57,222`, `smc.py:462`); `zero_is_state` exists (ac32408ab). Open: `cross_tf.py:118,294-300`, `price.py:315,334`. Tier corrected to P3.

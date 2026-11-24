@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-09-29
 source: 186 debt pass B5a
@@ -50,3 +50,7 @@ history predating SPY/TLT/SHY) does not exist in any test file. No phase plan ca
 `92e588385`); the fix MUST wait for the post-rebuild code window (the same window as todo
 564's kernel batch, owned by indicagent-93). The missing first-date values are then covered
 by a follow-up derive of the affected series (derived data is cache).
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Done: the skip branch advances all six trackers (`macro.py:245-251`, aee2404d9, `test_cross_asset_prev_close.py`) and the golden was regenerated.

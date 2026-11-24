@@ -47,3 +47,7 @@ todo only while a legacy entry exists).
 count read the ic_engine-era `feature_ic_scores`, and the 413 table under that name has no
 like-for-like population (POOLED rows only, CI and FDR at the proposer horizon alone). Its removal
 stays with this todo.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+All three scripts still exist and are allow-listed (`test_feature_vectors_read_boundary.py:99,109-110`); the corpus rerun repopulates feature_vectors, which reopens the uncounted-look risk. Removing the dead constant would move the pin.

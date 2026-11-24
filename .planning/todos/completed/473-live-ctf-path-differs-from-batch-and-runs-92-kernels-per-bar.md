@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-09-30
 source: plan 186-15 review (altitude, reuse); tie to streaming revival and 186-25
@@ -47,3 +47,7 @@ is not part of this.
 2. Build the live tail call on `compute_kernels` with the batch alignment builders.
 3. Delete `_get_cache`, the `update_*` replay and `_update_ctf_cache_from_htf_bar`.
 4. Record the per-bar latency before and after.
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Closed as obsolete (source is a plan review, not an owner idea): `services/feature_vector_pipeline.py` and the FeatureCache replay were deleted (62e65d0eb). The idea worth keeping moved to todo 582: a revived live path runs `compute_kernels` over the buffered tail with the batch alignment builders.

@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-11-14
 source: server tuning survey 2026-11-14 (pg_stat_statements temp_blks_written), ruled by the lead 2026-11-14
 ---
@@ -30,3 +30,7 @@ work_mem is not the fix (it is already 256 MB; a spill this size means the plan 
 ## Also (lead survey 2026-11-14, from the deleted storage wave todo)
 
 Disk is 13 percent used and compression already holds (`ohlcv_raw` 126 to 16 GB, `market_data_ohlcv` 90 to 13 GB), so no storage wave is owed. After step 7 only: `VACUUM (ANALYZE)` on `bar_quality_flag` (14.9 percent dead tuples) and `ohlcv_revision`; the other items (exporter scrape 443, huge pages runbook Part G, recompress 589) keep their own rows. Index drops, hypertable conversions and image pruning were judged not worth the risk and effort.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+Since the 2026-11-24 stats reset the 1d-scoped variant spilled 0 in 1,516 calls; the symbol-scoped rebuild variant wrote 2.47M temp blocks (about 19 GB) in 2 calls. Off the counted path; tier corrected to P3.

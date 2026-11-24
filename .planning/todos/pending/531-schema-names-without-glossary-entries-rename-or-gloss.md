@@ -33,3 +33,7 @@ new raw-layer names only (plan 191-01: `ohlcv_raw`, the vendor and kind
 vocabularies, the revision extension). The `market_data_5m` naming pass is
 the explicit deferral D-191-H (planner decision, owner acknowledgement
 pending); the other eight relations above are untouched and stay open here.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+`setup_performance`, `cis_weights` and `drift_state` are gone; `parity_certification_state` exists with no code reference; `integrity_monitor` has 18 code files and the rebuild reads it, so a rename would move the pin. Tier corrected to P3.

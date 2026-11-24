@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-09-29
 source: 186 debt pass B5b (cross-asset no_fill)
@@ -77,3 +77,7 @@ or it is deleted when the feed returns (todo 582 sets that path's fate).
 
 Also on this path (584 item 6, 47f35b440): `minute_of_hour_sin/cos` are declared not_applicable
 on 1h and 1d at the kernel layer (NaN), but the live `compute()` still emits 0.0/1.0 there.
+
+## Closure 2026-11-24 (todo consolidation pass)
+
+Done: the macro fallback is NaN (aee2404d9), the fabricating `_guard` is deleted (d951f90e8), the streaming FeatureFactory is deleted (5708abeb7) and its pipeline (62e65d0eb); `test_legacy_featurevector_macro_fill.py` proves NaN is written as NULL.

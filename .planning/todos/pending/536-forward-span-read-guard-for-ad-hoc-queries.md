@@ -28,3 +28,7 @@ without anyone knowing.
 
 An ad hoc query past the cutoff from a research session either fails or leaves a record, and a
 test proves both the refusal and the allow-listed paths.
+
+## Status 2026-11-24 (todo consolidation pass)
+
+No guard exists: no research role in `pg_roles`, no commit after 958e97a29.
