@@ -817,8 +817,9 @@ def systemctl(verb: str, unit: str) -> str:
 
 
 def fetcher_lock_free(dsn: str) -> bool:
-    """Probe the IBKR history lock: acquire and release at once. A held lock (the fetcher or a
-    manual history tool) means bars can move under the run."""
+    """Probe the bar-history fetch lock: acquire and release at once. A held lock (the bar
+    reconciliation audit, the coverage rebuild or a manual backfill) means bars can move under the
+    run."""
     from scripts.infrastructure.backfill._fetcher_lock import FetcherLock
 
     lock = FetcherLock(dsn, holder="corpus-rerun-pin-gate")

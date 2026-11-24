@@ -161,15 +161,20 @@ def fill_audit_exempt(registry) -> frozenset[str]:
 def declared_memory(registry, config, columns: tuple[str, ...], tfs) -> dict[str, dict[str, int]]:
     """Per tf, the first row the rebuild can store for each column (stored_first_row): the
     memory of a column the writer masks inside it, or a path-dependent column's definition
-    warmup (the first row its value can exist), so G2 and G6 measure every column the same way. A column no kernel produces, or an applicable one
-    without a declaration, raises: a registry and schema mismatch is loud."""
+    warmup (the first row its value can exist), so G2 and G6 measure every column the same way.
+    The warmup is in bars from the series start, but the rebuild stores rows only from bar
+    `momentum_zscore_window` and the screen counts stored rows, so each warmup is returned in
+    stored rows: stored row k is bar k + the window (todo 662, ledger 2026-11-24c). A column no
+    kernel produces, or an applicable one without a declaration, raises: a registry and schema
+    mismatch is loud."""
     out: dict[str, dict[str, int]] = {}
     for tf in tfs:
         applicable = applicable_columns(registry, columns, tf)
         per_tf: dict[str, int] = {}
         for column in columns:
             try:
-                per_tf[column] = stored_first_row(registry, column, config, tf)
+                bars = stored_first_row(registry, column, config, tf)
+                per_tf[column] = max(0, bars - config.momentum_zscore_window)
             except Exception:
                 if column in applicable:
                     raise
@@ -272,7 +277,7 @@ def screen_rows(
 # the screen until it is entered with a reason.
 EXPECTED_NOT_JUDGED: dict[str, dict[str, str]] = {
     "1d": {
-        "hma_slope_z": "z-score window of 252 over a 30-bar slope step: 7,560 rows, longer than "
+        "hma_slope_z": "z-score window of 252 over a 30-bar slope step: 7,560 bars (7,308 stored rows), longer than "
         "any 1d history (todo 652)",
     },
 }
@@ -322,7 +327,7 @@ def null_share_gate(
             if not total:
                 if tf in judged_tfs:
                     # the declared warmup exceeds every judged name's history (hma_slope_z at 1d:
-                    # 7,560 rows): not judged, listed with its warmup so it is never silent
+                    # 7,308 stored rows): not judged, listed with its warmup so it is never silent
                     not_judged[column] = memory[tf][column]
                     if column not in expected_not_judged.get(tf, {}):
                         failing[column] = (

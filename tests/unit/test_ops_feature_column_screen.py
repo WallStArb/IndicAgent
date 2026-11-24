@@ -76,15 +76,18 @@ def test_declared_memory_is_the_first_storable_row_per_tf_for_every_column(monke
 
     monkeypatch.setattr("scripts.ops.ops_feature_column_screen.stored_first_row", stored)
     registry = SimpleNamespace(applicable_outputs=lambda tf: {"adx", "hmm", "unknown"})
-    assert declared_memory(registry, None, ("adx", "hmm"), ["5m", "1d"]) == {
-        "5m": {"adx": 30, "hmm": 1539},
-        "1d": {"adx": 30, "hmm": 639},
+    config = SimpleNamespace(momentum_zscore_window=252)
+    # warmup is declared in bars; the rebuild stores from bar 252, so the screen's stored-row
+    # warmup is the bars beyond that, floored at 0 (todo 662)
+    assert declared_memory(registry, config, ("adx", "hmm"), ["5m", "1d"]) == {
+        "5m": {"adx": 0, "hmm": 1287},
+        "1d": {"adx": 0, "hmm": 387},
     }
     with pytest.raises(KeyError):
-        declared_memory(registry, None, ("unknown",), ["5m"])
+        declared_memory(registry, config, ("unknown",), ["5m"])
     # a column not applicable on a tf is never judged there, so it needs no warmup there
     registry.applicable_outputs = lambda tf: {"adx"}
-    assert declared_memory(registry, None, ("unknown",), ["5m"]) == {"5m": {"unknown": 0}}
+    assert declared_memory(registry, config, ("unknown",), ["5m"]) == {"5m": {"unknown": 0}}
 
 
 def test_apr_value_raises_on_a_missing_key():
@@ -148,6 +151,32 @@ def test_g2_flags_a_late_first_finite_row_against_the_declared_warmup():
     # a path-dependent column declares its anchor warmup and is judged from it like any other
     report, _ = _screen(rows, memory={"live": 10, "x": 298})
     assert report["1d"]["G2"] == {}
+
+
+def test_g2_measures_a_warmup_declared_in_bars_against_stored_rows(monkeypatch):
+    """Todo 662: stored row k is bar k + 252, so a column declared to start at bar 311 (a 60-bar
+    beta z-scored over 252) is finite from stored row 60; one that starts 252 bars later fails."""
+    monkeypatch.setattr("scripts.ops.ops_feature_column_screen.stored_first_row", lambda *args: 311)
+    registry = SimpleNamespace(applicable_outputs=lambda tf: {"beta"})
+    memory = declared_memory(
+        registry, SimpleNamespace(momentum_zscore_window=252), ("beta",), ["1d"]
+    )
+    assert memory == {"1d": {"beta": 59}}
+    at_warmup = (1100, 1100, 60, -1.0, 1.0, 5, 1090)  # first finite stored row 60 = bar 311
+    late = (1100, 1100, 312, -1.0, 1.0, 5, 1090)  # 252 bars after the declared warmup
+    for cell, failures in ((at_warmup, 0), (late, 1)):
+        report, _ = screen_rows(
+            ("beta",),
+            [_row("1d", "A", 1200, cell)],
+            memory=memory,
+            applicable={"1d": frozenset({"beta"})},
+            fill_exempt=frozenset(),
+            min_rows=1000,
+            min_name_rows=252,
+            warmup_gap_max=5,
+            zero_share_max=0.25,
+        )
+        assert gate_failures(report)["G2"] == failures
 
 
 def test_g3_flags_a_zero_fill_unless_zero_is_state():
@@ -272,7 +301,7 @@ def test_g6_a_column_whose_warmup_exceeds_every_history_is_listed_and_fails_unle
 
 
 def test_g6_not_judged_set_on_the_real_registry_at_1d_is_exactly_the_expected_list():
-    """With the live 252-bar z-score window, hma_slope_z (7,560 rows) is the only applicable 1d
+    """With the live 252-bar z-score window, hma_slope_z (7,308 stored rows) is the only applicable 1d
     column whose warmup exceeds a 24-year daily history; any other column that joins it fails G6
     until EXPECTED_NOT_JUDGED names it with a reason."""
     registry, columns = default_registry(), feature_vectors_numeric_columns()
@@ -280,7 +309,7 @@ def test_g6_not_judged_set_on_the_real_registry_at_1d_is_exactly_the_expected_li
         _make_cfg(momentum_zscore_window=252), hmm=HmmConfig.from_values(SMALL_HMM_APR.get)
     )
     memory = declared_memory(registry, config, columns, ("1d",))
-    assert memory["1d"]["hma_slope_z"] == 7560
+    assert memory["1d"]["hma_slope_z"] == 7560 - 252
     n = 24 * 252
     cell = (n, n, 11, -1.0, 1.0, 0, n)  # every column finite on every row
     gate = null_share_gate(

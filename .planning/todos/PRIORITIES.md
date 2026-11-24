@@ -196,7 +196,6 @@ Unverified against live state as of 2026-11-22 (checked only the P0 and P1 rows 
 
 | Todo | Why now |
 |---|---|
-| [662](pending/662-feature-screen-g2-and-g6-mix-stored-rows-with-declared-bars.md) | New 2026-11-22, P3. The screen's G2 and G6 compare stored-row counts with warmup declared in bars (stored row k is bar k + 252): G2 is lenient by 252 bars; change only under its own ledger entry. |
 | [658](pending/658-mypy-baseline-typing-debt-added-by-the-ci-resync.md) | New 2026-11-22, P3. 38 mypy errors (26 in `research/construction.py`) absorbed into `.mypy-baseline.txt` by the CI-environment resync; fix with real annotations only when a research edit is planned anyway (a code-key move), checked in the CI-equivalent venv. |
 | [652](pending/652-1d-first-corpus-run-stopped-at-the-pilot-feature-screen.md) | New 2026-11-22, P3. Run a4f6ad40 passed data_gate and pin_gate (23/23) and stopped at the pilot feature column screen (G1 23, G2 84, G3 221, G6 10 on 25 first-alphabetical names). Do the pilot sample rule and 5% null gate fit a 1d scope; are the structure/zone NaNs warm-up? Parked, not on the counted-test path. |
 | [483](pending/483-record-2026-midterm-forward-window-result.md) | New 2026-10-01. Due after 2027-05-03: record the pre-registered 2026 midterm forward window (S&P 500, election day to +6 months) in the idea doc and ledger, as one unsearched observation. Nothing else forces this step. |

@@ -80,7 +80,7 @@ instead. `corpus_run.measured.apr_keys` lists the pinned keys.
    until the unit's service is `inactive` or `failed`. A second call keeps the first record. It
    refuses while a corpus rerun, `ic_measure` or rebuild process is live. An `enabled` timer, or a
    service still running a fetch it already started, moves bars under the run; the pin gate only
-   checks and refuses both. Make sure no manual IBKR history tool holds FetcherLock. After the
+   checks and refuses both. Make sure no history tool or audit holds FetcherLock. After the
    run, `--release` restores exactly the recorded set and removes the file.
 3. Create the run from the commit to pin (default HEAD of the main checkout):
 
