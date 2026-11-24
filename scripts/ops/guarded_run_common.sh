@@ -60,3 +60,26 @@ run_guarded() {
   [ $killed -eq 1 ] && { wait "$pid" 2>/dev/null; return 143; }
   wait "$pid"
 }
+
+# verdict_preflight: refuse when member 1d verdicts are older than the d2_landed freshness window
+# (APR threshold.bar_integrity.report_max_age_hours, read by verdict_gate.load_report_max_age_hours).
+# Read-only. The producer of dead members' verdicts is ops_member_verdicts_1d.py (no timer; the
+# 06:00Z bar-reconciliation audit judges active names only), so a pause of more than the window
+# between its last run and a pin gate refuses the run (pilot 7c5612f0, 2026-11-24: 11,350 of 12,857).
+verdict_preflight() {
+  local out limit stale total
+  out=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAF' ' -c "
+    WITH m AS (SELECT DISTINCT symbol || '|1d' AS subject FROM universe_membership),
+         v AS (SELECT subject, max(evaluated_at) AS at FROM integrity_monitor
+               WHERE monitor_type = 'bar_integrity' AND metric_name = 'proven_start_1d'
+                 AND subject IN (SELECT subject FROM m) GROUP BY subject),
+         l AS (SELECT config_value::float AS h FROM config_state
+               WHERE config_key = 'threshold.bar_integrity.report_max_age_hours')
+    SELECT (SELECT h FROM l),
+           count(*) FILTER (WHERE v.at IS NULL OR v.at < now() - (SELECT h FROM l) * interval '1 hour'),
+           count(*)
+    FROM m LEFT JOIN v USING (subject)") || fail "verdict preflight query failed"
+  read -r limit stale total <<< "$out"
+  [ -n "${stale:-}" ] || fail "verdict preflight read nothing"
+  [ "$stale" -eq 0 ] || fail "$stale of $total member 1d verdicts are older than ${limit} h; refresh: cd $REPO && setsid -f $PY scripts/ops/bars/ops_member_verdicts_1d.py --apply > logs/member_verdicts_1d_\$(date -u +%F).out 2>&1 (about 1 h), then relaunch"
+}
