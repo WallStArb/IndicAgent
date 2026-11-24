@@ -197,3 +197,13 @@ Massive row of the open span in that window would have no canonical winner. Lead
 the rows alone, one low-value name; revisit with the pit map's identity for SLM. Canonical today: Massive to 2015-12-31,
 then Alpaca. The same class check ran over all 268 per-symbol policy names; only ARES (also overlapping; its Alpaca row is
 re-windowed to 2018-11-26 after the s3 install) and SLM have a map span inside their Alpaca-only window.
+
+## HZN reused ticker (2026-11-24, indicagent-fb, found with the BKH data gate refusal)
+
+Black Hills Corp merged with NorthWestern and was renamed Bright Horizon Energy (NYSE: HZN); the merger closed
+2026-11-16. The BKH ticker's last bar is 2026-11-13 on both vendors, and Alpaca answers `no_data` for BKH from 2026-11-16.
+`instruments` already holds an `HZN` row (inactive, `compute_eligible` false, last bar 2023-02-07, an older unrelated issuer,
+proven start 2015). The new HZN listing (bars from 2026-11-16) is a reused-ticker case of the SN class: the pit
+ticker map must own which issuer each HZN bar belongs to before HZN is onboarded. Per ledger 2026-11-24h the new ticker's
+series is a separate instrument and is not claimed as BKH's continuation (BKH has a `listing_end`, migration 616). Onboard HZN through `docs/foundation/instrument-onboarding-sop.md`
+after the pilot; it is not needed for the BKH gate fix.
