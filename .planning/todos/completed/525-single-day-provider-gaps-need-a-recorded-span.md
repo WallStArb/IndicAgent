@@ -28,3 +28,7 @@ explained per the registered rule; the mechanism is general (not DBMF-special-ca
 ## Deferred 2026-11-12
 
 Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.
+
+## Closed 2026-11-24 (deferred todo re-check)
+
+Closed as obsolete. The mechanism it would extend recorded IBKR definitive "no data" answers into `ohlcv_empty_history`. The IBKR wire layer (`src/providers/ibkr.py`) and the history fetcher stack went in 778a9f06c (2026-11-13); the empty-history writer set and the d1 gap detectors went in 59309a5b1 (same day), which registered `ohlcv_empty_history` as a frozen record. IBKR 5m is no longer fetched, so no new single-day gap can arise from that provider, and canonical 5m is Massive from 2003-09-10 (rule d2-v6).

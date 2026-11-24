@@ -404,3 +404,7 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
 ## Deferred 2026-11-12
 
 Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.
+
+## Closed 2026-11-24 (deferred todo re-check)
+
+Closed as obsolete. Its findings concern the IBKR leaf, the history fetcher and the old selection writer: the wire layer, fetcher stack, venue recovery and `ops_data_bar_check` were deleted in 778a9f06c, the d1 gap detectors and empty-history writers in 59309a5b1 (both 2026-11-13), and the 191 plans that owned the rest are closed. The one provider-independent finding still true on live data, item 52 (`ohlcv_revision.load_id` FK cascades on delete), is now todo 672.

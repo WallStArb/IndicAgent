@@ -1,6 +1,6 @@
 ---
 status: deferred
-priority: P0
+priority: P2
 filed: 2026-11-05
 source: lead (indicagent-4d), from the 186-32 data-gate executor's live findings
 ---
@@ -57,3 +57,7 @@ Gates the 584 pin with 534 and 594.
 ## Deferred 2026-11-12
 
 Deferred 2026-11-12 (lead): this concerns the IBKR/Alpaca-era ask ledger, coverage evidence or hold lists that Massive admission replaces. Gate: step 7 proves the canonical rebuild; todo 600's deletion-list review then deletes it with its subject or reopens it. Reopen sooner only if step 7 fails.
+
+## Status 2026-11-24 (deferred todo re-check)
+
+Priority corrected from P0 to P2. The integrity finding is resolved where it gates a counted test: steps 1 and 2 landed (truthful ledger, migration 581, view `ohlcv_ask_current` live), and the corpus data gate reads that view (`services/corpus_rerun_data_gate.py`). What remains is step 3 only: `bar_reconciliation_audit.py:1529` still credits any applied Alpaca load (251,116 rows match the old semantics today) as answering its whole requested range for the nightly `slot_coverage` verdict, and `gap_plan.LOAD_COVERAGE_*` stays defined for it. That feeds `verdict_gate`, which sits on the corpus path, so it stays deferred until the corpus rerun finishes, then the reader switch and the `LOAD_COVERAGE_*` deletion land together. Canonical 5m is Massive to 2026-11-16, so only Alpaca-era sessions after it are affected.

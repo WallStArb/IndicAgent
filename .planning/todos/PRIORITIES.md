@@ -174,6 +174,7 @@ Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22
 | [644](pending/644-closed-list-disclosure-at-book-freeze-and-confirmation.md) | Required at the first book freeze: member counts per month-end after the stage 2 list, plus excluded newcomers once 643 lands. Put the code in the report, not in `universe_membership.py` (inside the rebuild closure). Owner-adopted. |
 | [670](pending/670-synthetic-stepm-check-with-sweep-scale-null-cells.md) | New 2026-11-24, P2. A full 1d sweep adds about 1,100 cells to the 16 series and could drop `reversal_21`; check synthetically (about 1,100 correlated null cells, no real-data compute) and set the sweep's `n_looks`. Before any sweep. |
 | [671](pending/671-ic-measure-sweep-cell-writer.md) | New 2026-11-24, P2. No writer records IC sweep cells as counted attempts (E21), so a sweep would be an uncounted look. One writer into the ledger; prerequisite of the first real-data sweep with 670. |
+| [672](pending/672-ohlcv-revision-load-fk-cascade-to-restrict.md) | New 2026-11-24, P3. `ohlcv_revision.load_id` still cascades on delete of a load row; switch to RESTRICT in a quiet window. Extracted from the closed todo 535. |
 
 ## P3: Hygiene, docs, process, performance (opportunistic)
 
