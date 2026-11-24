@@ -82,6 +82,6 @@ Todo 666 is decided before the first sweep. Its prescribed comparison (IC with a
 1. Clean-data ruling for the feature families (outside the 2026-11-22 lift).
 2. Whether the `reversal_21` book is frozen before the corpus series (todo 547). R-1 shows a late-period t of 0.36 on primary (2026-11-23c).
 3. Forward power. Books with `feature_vectors` members confirm only after their freeze and never before 2026-08-08, and a power-dated test more than 3 years out refuses promotion (E18). Slow, low-IC members such as H-B may never confirm; check this synthetically before running.
-4. Total-return thinning. Uncovered share is 0.819 on primary (2026-11-22c), and the 5,292 uncovered member names are all dead (STATE). Every total-return family is scored mostly on covered live names, which is a survivorship tilt to disclose or fix.
+4. Total-return thinning. For the member universe, dividend coverage is 59.7 percent of member cells (6,162 of 11,684 member names), and all 5,292 uncovered member names are dead (ledger 2026-11-21d, corrected by 2026-11-24j). The 0.819 uncovered share (core 0.496) is the family 9 primary panel's, not the universe's (ledger 2026-11-23i). Every total-return family is scored mostly on covered live names, which is a survivorship tilt to disclose or fix.
 5. The shared battery block and the corpus rerun compete for the one heavy slot under the DIMM cap (2026-11-24b).
 6. Unclear: whether the joint draw keeps 1,100 correlated sweep cells cheap enough to leave `reversal_21` selected.
