@@ -5,38 +5,18 @@ filed: 2026-09-30
 source: plan 186-14 pass 2, real 15m dry run
 ---
 
-# The fresh IC writer's intraday memory and time at the full universe are unmeasured and do not fit as configured
+# ic_measure block width, threads and which tfs a corpus run may measure
 
 ## What
 
-After the kernel (todo 469), `services/ic_measure.py --tf 15m --dry-run` on 40 compute_eligible
-symbols (4,170,077 feature_vectors rows, 2006 to 2026) takes 17:04 and peaks at 6.9 GB
-(proposer unit 11:37, regime_volatility unit +5:25). The full compute_eligible universe is about 23
-times that many rows, so at the configured block width (`alpha.ic.feature_block_columns` 32) the
-memory extrapolates to well above the host's 29 GB (the block grid alone is bars x symbols x 32 x 8
-bytes, about 31 GB for 131,000 bars x 931 symbols) and the time to hours of kernel time at 12
-threads plus three serial fetch passes over the family. 5m has more rows still. 1d is fine: all 925
-names in 7:12 at 4.0 GB peak.
+`alpha.ic.feature_block_columns` is one key for every tf, pinned in the run's APR hash; results are bit-identical at any width. At the stage 2 universe the memory is arithmetic (sizes in todo 667): 1d fits at any width, 1h at width 4 to 8, 15m only at width 4 or less, 5m at no width (the dense targets of three horizons are 54 GB).
 
-## Why it matters
+## Ruling (lead, 2026-11-24)
 
-186-28 decides the timeframe set. If any intraday tf is in it, the run as configured can be
-killed by the OOM killer, and a kill loses the unit.
+1. Scope-1d pin: `alpha.ic.feature_block_columns` = 16 and `ic_tfs` = 1d only (block 9.2 GB, targets 2.3 GB, long form about 3 GB on 59 GiB).
+2. No 5m and no 15m in any `ic_tfs` until the measure holds a tf in time chunks (todo 667). 1h is allowed at width 4 only if wanted. The scope-all pin is decided later with measured numbers.
+3. Prerequisites of the scope-all pin, neither blocking the scope-1d pin: 667 (time-chunk mode) and 668 (checkpoint grain, todo 470 merged).
 
-## What to do
+## Done when
 
-Measure 15m at a few symbol counts (40, 150, 400) with `alpha.ic.feature_block_columns` at 4 and 8
-and record peak RSS and wall clock per pass, then set the operational block width (and thread
-count) for the tf, or chunk the fetch by symbol range if the union grid itself does not fit. The
-block width is operational (bit-identical for any width, asserted in tests), so the choice needs
-no recompute of anything stored. Decide before 186-28 names its tf set.
-
-## 2026-11-13 host update
-
-The compute host is now 64 GB (59 GiB usable, 24 threads; verified 2026-11-13), up from the 29 GB /
-12-thread box these numbers were measured on. The width-32 15m block grid alone (31 GB at 931
-symbols) now fits alongside an idle database; 5m still needs width <= 8. Measure 15m at widths 4,
-8 and 16 and 5m at 4 and 8, with the thread count up to about 20 (leave Postgres headroom), on the
-REBUILT table in the pre-rerun window: the no-corpus-compute rule stands until the data gate
-(186-32), and measuring on rows the rebuild replaces is wall time wasted. Run nothing while a load
-chain or the nightly window is active (the 2026-11-13 contention lesson).
+After the block 2 rerun has finished and no heavy job is live: `ic_measure --tf 1d --dry-run --symbols <the 25 pilot names>` at widths 4, 8, 16 and 32 with peak RSS sampled, recorded here with bytes per grid cell and the digest-pass share; the NYSE-calendar grid sizes (computed 2026-11-24: 5,609 sessions from 2003-09-10 to oos_start; 1d 5,609 bars, 1h 39,110, 15m 145,222, 5m 435,666) are in todo 667. Then close this todo with the pinned width written into the scope-1d run's APR.

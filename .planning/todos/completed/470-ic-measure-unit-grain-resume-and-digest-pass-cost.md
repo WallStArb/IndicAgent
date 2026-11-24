@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-09-30
 source: plan 186-14 pass 1 review fixes
@@ -31,3 +31,7 @@ Measure alongside todo 471's intraday sizing run on the rebuilt table (post data
 now 64 GB / 24 threads). Faster compute shrinks the digest-pass cost relatively, but bigger block
 widths grow the kill-loses-a-unit blast radius, so the checkpoint-per-block option is the likely
 answer if 471 lands on large widths.
+
+## Closure 2026-11-24 (lead ruling)
+
+Merged into 471 and carried by todo 668 (checkpoint grain per horizon or block, prerequisite of the scope-all pin). The `--start` defect was fixed 2026-09-30 (F2).
