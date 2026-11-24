@@ -73,6 +73,7 @@ import dataclasses
 import hashlib
 import importlib
 import json
+import re
 import subprocess
 import sys
 import time
@@ -122,6 +123,10 @@ from services.corpus_rerun_quiesce import timer_is_quiet
 from src.config.settings import Settings
 from src.core.canonical_json import canonical_json
 from src.core.service_utils import setup_service_logging
+from src.intelligence.features.feature_vector_persistence import (
+    REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
+    REGIME_WRITER_OWNED_COLUMN_NAMES,
+)
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 
 _logger = structlog.get_logger(__name__)
@@ -540,6 +545,35 @@ def object_share_gate(
                     f"> {max_null_fraction:.1%}"
                 )
     return {"failing": failing, "shares": shares}
+
+
+_SCREEN_REPORT_PATH = re.compile(r"report: (\S+\.json)")
+
+
+def hmm_written_share(screen_output: str) -> dict[str, dict[str, Any]]:
+    """Per tf and HMM column, the share of rows past its warmup on which a segment is written
+    (the column is finite there), pooled over the judged names, and the names with none
+    (ledger 2026-11-24d; informational, never a gate). Reads the null-gate record of each
+    column-screen report named in `screen_output`. An HMM column is object dependent on a written
+    segment, so a name whose segment is never written passes `object_share_gate` silently; this
+    shows it."""
+    hmm = {*REGIME_WRITER_OWNED_COLUMN_NAMES[1:], *REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[1:]}
+    out: dict[str, dict[str, Any]] = {}
+    paths = _SCREEN_REPORT_PATH.findall(screen_output)
+    if not paths:
+        _logger.warning("corpus_rerun.hmm_written_share_no_report")
+    for path in paths:
+        try:
+            record = json.loads(Path(path).read_text())
+        except (OSError, ValueError) as error:  # informational: never mask a gate verdict
+            _logger.warning(
+                "corpus_rerun.hmm_written_share_unreadable", path=path, error=str(error)
+            )
+            continue
+        for tf, entry in (record.get("null_gate") or {}).items():
+            present = entry.get("object_present", {})
+            out[tf] = {column: present[column] for column in sorted(hmm & present.keys())}
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1505,6 +1539,7 @@ class CorpusRerun:
         # extrapolates and re-projects stage_1d alone; its intraday terms are not judged).
         stages = [daily] if hourly is None else [daily, hourly]
         measured: dict[str, Any] = {
+            "pilot_hmm_written_share": hmm_written_share(gates["G1-G3"][1]),
             "pilot_bytes_per_row_1d": daily["bytes_per_row_max"],
             "pilot_stored_per_spool": max(s["stored_per_spool_max"] for s in stages),
             "pilot_seconds_1d_chunk": round((t1 - t0) / len(sample_chunks), 1),

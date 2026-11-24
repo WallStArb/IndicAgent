@@ -7,6 +7,7 @@ tests/integration/test_corpus_rerun_store.py."""
 from __future__ import annotations
 
 import dataclasses
+import json
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -1303,3 +1304,35 @@ def test_stage_history_bars_floors_each_name_at_its_proven_start_or_the_epoch(mo
     assert cr.stage_history_bars(factory, object(), object(), horizon) == {"AAMC": 500}
     assert seen["floors"] == {"AAMC": start, "AAA": epoch, "ZZZ": epoch}
     assert seen["horizon"] == horizon
+
+
+def test_the_pilot_reports_the_written_segment_share_of_each_hmm_column(tmp_path):
+    """Ledger 2026-11-24d: an HMM column is object dependent on a written segment, so a name
+    whose segment is never written passes the share gate; the pilot discloses the share of rows
+    with a written segment and the names with none, per tf and HMM column."""
+    present = {
+        "hmm_churn": {"names": 65, "names_none_present": 3, "rows": 40000, "present_share": 0.9},
+        "hmm_vol_entropy": {
+            "names": 65,
+            "names_none_present": 0,
+            "rows": 40000,
+            "present_share": 1.0,
+        },
+        "roll_spread": {"names": 65, "names_none_present": 0, "rows": 40000, "present_share": 0.5},
+    }
+    report = tmp_path / "feature_column_screen_x.json"
+    report.write_text(json.dumps({"null_gate": {"1d": {"object_present": present}}}))
+    got = cr.hmm_written_share(f"1d: ok\ngate failures {{}}; report: {report}\n")
+    assert got == {
+        "1d": {"hmm_churn": present["hmm_churn"], "hmm_vol_entropy": present["hmm_vol_entropy"]}
+    }
+    assert cr.hmm_written_share("no report here") == {}
+
+
+def test_a_missing_screen_report_leaves_the_written_share_empty_and_masks_no_gate(tmp_path):
+    """The share is informational: an unreadable or absent report must not raise, or it would
+    hide the pilot's gate verdict."""
+    assert cr.hmm_written_share(f"report: {tmp_path / 'gone.json'}") == {}
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    assert cr.hmm_written_share(f"report: {bad}") == {}

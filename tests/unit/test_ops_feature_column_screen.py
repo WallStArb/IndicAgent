@@ -468,3 +468,24 @@ def test_judged_shortfall_names_each_timeframe_below_the_minimum():
     report = {"1d": {"n_names_judged": 64}, "1h": {"n_names_judged": 65}}
     assert judged_shortfall(report, 65) == {"1d": 64}
     assert judged_shortfall(report, 0) == {}  # the default floor never refuses
+
+
+def test_g6_reports_the_present_share_and_the_names_with_none_for_object_columns():
+    """Ledger 2026-11-24d: informational share of rows past warmup on which an object column
+    holds a finite value, with the names that hold none; never a failure by itself."""
+    full = (1100, 1100, 11, -1.0, 1.0, 5, 1000)
+    none = (1100, 0, None, None, None, 0, 0)
+    rows = [_row("1d", "A", 1100, full), _row("1d", "B", 1100, none)]
+    gate = null_share_gate(
+        ("x",),
+        rows,
+        memory={"1d": {"x": 100}},
+        applicable={"1d": frozenset({"x"})},
+        object_columns=frozenset({"x"}),
+        max_null_fraction=0.05,
+        min_name_rows=252,
+    )["1d"]
+    assert gate["object_present"] == {
+        "x": {"names": 2, "names_none_present": 1, "rows": 2000, "present_share": 0.5}
+    }
+    assert gate["failing"] == {}

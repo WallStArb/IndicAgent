@@ -155,7 +155,10 @@ amendment through the methodology ledger, never a mask change.
   (`scripts/ops/ops_pilot_compute_gate.py`, every pilot name at 1d and 1h) must pass. It
   records per-piece wall time, the extrapolated wall clock per stage, the DB load against the
   other lanes, the 1d and intraday bytes per row and the stored-per-spool ratio in
-  `corpus_run.measured`. It measures the real compression ratio: the pilot's 1d and 1h rows are
+  `corpus_run.measured`, with `pilot_hmm_written_share` (ledger 2026-11-24d: per tf and HMM
+  column, the share of rows past warmup on which a segment is written and the names with none;
+  informational, never a gate, because an HMM column is judged only where a segment exists). It
+  measures the real compression ratio: the pilot's 1d and 1h rows are
   copied into a scratch hypertable (`corpus_rerun_scratch`, feature_vectors' own chunk interval
   and compression settings), compressed, measured and dropped; feature_vectors' own chunks are
   never compressed early (a later unit would then be refused). The smaller ratio is stored as

@@ -302,9 +302,14 @@ def null_share_gate(
     An applicable column with judged names but no row past its declared warmup is listed in
     `not_judged_warmup_exceeds_history` with that warmup; it fails unless `expected_not_judged`
     names it for that tf (a reason is on record), so the list is never silent.
-    Returns, per tf, the failing columns with their reason and the worst shares.
+    Returns, per tf, the failing columns with their reason and the worst shares, and for each
+    object-dependent column the share of rows past its warmup that hold a finite value and the
+    names with none (ledger 2026-11-24d: informational, never gated; an HMM column's finite rows
+    are the rows a segment is written on).
     """
     measured: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])  # [rows, finite]
+    # object-dependent columns: [names past warmup, names with no finite row there] (todo 661)
+    names_seen: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])
     judged_tfs: set[str] = set()
     for tf, symbol, n, *stats in rows:
         if n < min_name_rows:
@@ -315,6 +320,9 @@ def null_share_gate(
             if n > mem:
                 measured[(tf, column)][0] += n - mem
                 measured[(tf, column)][1] += cell[6]
+                if column in object_columns:
+                    names_seen[(tf, column)][0] += 1
+                    names_seen[(tf, column)][1] += cell[6] == 0
     out: dict[str, dict] = {}
     for tf in sorted({tf for tf, *_ in rows}):
         shares: dict[str, float] = {}
@@ -346,6 +354,20 @@ def null_share_gate(
             "max_null_fraction": max_null_fraction,
             "failing": failing,
             "not_judged_warmup_exceeds_history": not_judged,
+            "object_present": {
+                column: {
+                    "names": names_seen[(tf, column)][0],
+                    "names_none_present": names_seen[(tf, column)][1],
+                    "rows": measured[(tf, column)][0],
+                    "present_share": round(
+                        measured[(tf, column)][1] / measured[(tf, column)][0], 6
+                    ),
+                }
+                for column in columns
+                if column in object_columns
+                and column in applicable[tf]
+                and measured.get((tf, column), (0,))[0]
+            },
             "worst": dict(sorted(shares.items(), key=lambda kv: -kv[1])[:worst]),
         }
     return out
