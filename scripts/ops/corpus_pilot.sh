@@ -24,6 +24,11 @@ if [ -n "$RESUME" ]; then
   RUN=$RESUME
   WT="$(dirname "$REPO")/$(basename "$REPO")-corpus-run-$RUN"
   [ -d "$WT" ] || fail "no worktree $WT for run $RUN"
+  echo "$RUN" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || fail "run id $RUN is not a uuid"
+  recorded=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select code_commit from corpus_run where run_id='$RUN'")
+  [ -n "$recorded" ] || fail "no corpus_run row for $RUN"
+  head_now=$(git -C "$WT" rev-parse HEAD)
+  [ "$head_now" = "$recorded" ] || fail "worktree HEAD $head_now is not the run's recorded code_commit $recorded"
   log "pilot resume preflight ok: run $RUN"
   cd "$WT" || fail "cd worktree"
   run_guarded "$REPO/logs/corpus_pilot_${RUN}_resume.out" "$PY" -m services.corpus_rerun --run-id "$RUN" --through pilot
