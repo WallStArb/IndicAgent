@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-11-22
 source: todo 656 task 1 closure note (the six live-reading integration tests deleted, their assertions mapped to the D7 audit), 2026-11-22
@@ -31,4 +31,4 @@ Residual from the review of the IBKR pair drop (not done here): (1) `_INSERT_BAR
 
 `grid_recompute` replaces `grid_parity` in the D7 intraday report and in `verdict_gate.REQUIRED_CHECKS` (15m and 1h); the IBKR archive comparison, the dated-exceptions loader, `superseded_archive_buckets`, `rebucket_5m`, `check_daily_vs_intraday` and `aggregate_sessions` are deleted. `check_daily_vs_intraday` is retired because its IBKR SMART observations are gone; a vendor-neutral successor is decided later from a measured tolerance. The check compares the stored canonical 15m/1h rows of the scoped months with the derivation of the current 5m bars, a name with no passing `grid_recompute` record of its own is judged over every month (so an empty digest scope never passes on nothing), and stored rows outside the checked months are not compared. A read-only run on the live DB over 6 names for 2026-10 compared 572 15m and 154 1h buckets per name with 0 mismatches. The daily stage now fails a name with a stray 1d row loudly, naming the row, instead of a unique violation. The first audit after this lands has no `grid_recompute` rows, so the verdict gate and rebuild preconditions read `15m:grid_recompute missing` until one audit run writes them.
 
-Open: retire the now-unread APR keys (`infra.grid_parity.dated_exceptions` and siblings, `threshold.bar_reconciliation.close_tolerance_bp` and `volume_tolerance_rel`) with a migration in the style of 591; not done here (an APR change).
+Closed 2026-11-23 (indicagent-af): the unread APR keys were retired by migration 613 (applied; none remain in `config_schema`). The IBKR entries of `VOLUME_BASIS_BY_VENDOR_KIND` stay by decision: they are the only non-consolidated bases (SMART, none) the volume-basis tests in `test_volume_basis.py` and `test_backfill_feature_factory.py` exercise, no canonical row can reach them since Part F, and removing them means rewriting that mechanism's fixtures for no change in behaviour. The same holds for `SOURCE_IBKR_FALLBACK`, the IBKR label map, the daily rule's IBKR arbitration and the IBKR wording of the `bar_derivation.py` daily-stage docstring: they are vendor-label logic that goes with a daily-rule rewrite, which no counted test waits on.
