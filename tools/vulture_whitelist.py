@@ -639,3 +639,7 @@ _exclusion_needs_membership  # pydantic model_validator, called by the framework
 _membership_matches_the_clock  # pydantic model_validator, called by the framework: src/intelligence/research/spec.py
 seasonal_same_month  # family member resolved by its dotted spec path (research/specs/seasonality_h5*.yaml): src/intelligence/research/families/seasonality.py
 seasonal_other_months  # family member resolved by its dotted spec path (research/specs/seasonality_h5*.yaml): src/intelligence/research/families/seasonality.py
+_panel_source_rules  # pydantic model_validator, called by the framework: src/intelligence/research/spec.py
+_panel_sources_are_declared  # pydantic model_validator, called by the framework: src/intelligence/research/spec.py
+volume_rank_member  # family 10 member, resolved by its dotted spec path (research/specs/family10_volume_shock_h5*.yaml): src/intelligence/research/families/volume_shock.py
+sweep_strength  # FeatureVector field filled by dict key from the SMC kernel row: src/intelligence/features/feature_vector.py
