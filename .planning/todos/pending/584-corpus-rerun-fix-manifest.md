@@ -848,3 +848,7 @@ Lead ruling 2026-11-20 stands: no prefix-sum port (`volume.py`, `price.py`) befo
 2. The pilot chunk at the new pin passes gates G1 to G5 (design D3) on every timeframe.
 3. The rerun is launched at the new pin (1d then intraday) and writes into `feature_vectors`
    (one name since migration 570).
+
+## Folded from todo 609 (2026-11-24)
+
+Todo 609 (the stage 2 point-in-time universe from the Massive liquidity rule) is merged here. Its stages s0 to s8 are done, the membership is rebuilt (1,042,561 rows, 12,857 securities) and pinned (22be5378a), the 2004-2015 shortfall against the 2,950 floor is disclosed and not gated, and the intraday tier is built (`corpus_universe(conn, intraday=True)`, `services/corpus_universe.py:40`). The only item it had left was the corpus rerun on the pin, which is this todo. Design and amendments stay in `docs/plans/2026-11-15-stage2-5m-tier-and-intraday-universe.md` and the preregistration.

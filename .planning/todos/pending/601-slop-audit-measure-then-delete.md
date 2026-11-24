@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P3
 filed: 2026-11-09
 source: owner 2026-11-09 ("clean up slop like Jim Simons would demand"); measured baseline below
 ---

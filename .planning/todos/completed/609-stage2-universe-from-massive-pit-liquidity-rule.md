@@ -80,3 +80,7 @@ Design, the amendment draft and the sequencing: `docs/plans/2026-11-15-stage2-5m
 ## Status 2026-11-21: placement P1 built, scratch map reviewed, install next
 
 Preregistration Amendment 2026-11-21b adopted rule P1. Code is on main (`1309c2cd8`): the planner places every run of an existing equity instrument's own ticker as spans under its existing composite FIGI identifier, `spanless` holds equities only, and the installer and rollback handle spans on an existing identifier (tests, two independent reviews, suite exit 0). The scratch map `logs/stage2_p1_map_20261121/map/20261121_6195ae11abff` (39 s build) adds 126 spans to the 38,097 live ones: 117 on 113 existing instruments (110 draft names plus ARES, CR, VLY), 9 on the futures-collision equities as new securities. All 113 placements were reviewed against pit lists, vendor overview CIK and canonical bars. Next, in order: install rehearsal then apply, Massive 1d load, canonical rebuild, migration 605, then 606, rebuild and repin (`docs/operations/stage2-membership-rebuild-runbook.md`). Hand list left as residual: CRH, FTAI, the renamed-ticker runs, BATRA, FWONK and GLIBA pre-split-off runs (about 190 months), and the eleven spanless equities with no identifiers.
+
+## Closed 2026-11-24
+
+Merged into todo 584 (the only item left was the corpus rerun on the pin). See the "Folded from todo 609" section there.

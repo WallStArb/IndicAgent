@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P3
 filed: 2026-11-16
 source: step 7 D4 follow-up; independent level-break test of the 15 massive_only events on active names (lead ruling pending a filing witness)
 ---

@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P3
 filed: 2026-11-17
 source: step 7 D4 disposition (session_coverage and proven_start_1d red for SN); ruling 2026-11-17 (indicagent-77): the pit ticker map owns identity
 ---

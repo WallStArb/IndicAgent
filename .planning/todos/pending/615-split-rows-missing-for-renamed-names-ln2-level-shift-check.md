@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P3
 filed: 2026-11-14
 source: c6 review of the A11 documentary placements (evidence lists in logs/massive_step7/a11_review_c6/), ruled by the lead 2026-11-14
 ---

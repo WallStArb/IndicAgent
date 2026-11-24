@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P1
 filed: 2026-11-24
 source: indicagent-3d family-order note, lead ruling 2026-11-24
 ---
