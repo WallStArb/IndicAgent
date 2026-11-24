@@ -113,6 +113,7 @@ Verified against live state: the P0 and P1 rows 2026-11-22 (lead pass) and the p
 | [603](pending/603-base-feature-scouting-and-data-adjacency-register.md) | New 2026-11-09, P1. Lowest rung of research: a data adjacency register (what sources serve versus what we store), admission gates that never peek at returns, and rejections recorded as registry rows; design in `docs/ideas/base-feature-scouting-and-the-research-ladder.md`. |
 | [636](pending/636-daily-residual-null-battery-rerun-with-m3.md) | New 2026-11-18, P1. The daily residual E17 battery pass: A4 (2026-11-21) dropped M3 after the 5,000,000 and 6,000,000 pooled blocks failed on it; the reduced family (M1, M2, `reversal_21`, their book) passed pooled on seed bases 7,000,000 and 8,000,000 and the record `research/battery_passes/daily_residual_2026-11-21.json` is bound (the H-C seasonality record was rebound at the same commit). Left: the E21 clean-data lift, total-return coverage and the first counted run. |
 | [634](pending/634-book-and-power-path-bind-session-dates-for-calendar-members.md) | New 2026-11-18, P2 in effect. The book and power-calibration paths do not bind session dates for calendar members, so a book with an H-C member raises a TypeError. Loud, and no book holds one yet. |
+| [669](pending/669-shared-horizon-5-1d-feature-route-in-the-runner.md) | New 2026-11-24, P1 (lead). Stored 1d feature members run only at horizon 1 in the runner, so every corpus family at horizon 5 waits on one route plus new persistent battery cells. Gates: `repro_frozen`, battery rebinds. After the pilot, before the pin of any counted corpus test; never beside a live counted run. |
 
 ## P2: Real value, not urgent
 
@@ -176,6 +177,8 @@ Verified against live state: the P0 and P1 rows 2026-11-22 (lead pass) and the p
 | [513](pending/513-nightly-process-contract-completion-before-judgment-and-a-pull-digest.md) | New 2026-10-08. D7 must report an incomplete fetch run as unjudged, not as data failures; document the nightly stage contract with markers; add a pull digest of last night while alerts are off; separate lane budgets. |
 | [646](pending/646-record-splits-for-the-stage-2-names-before-the-pin.md) | P0. Split rows for the stage 2 names are landed with corrections (3,026 Massive reference rows plus 140 reverse splits); the member history audit is clean. Left: the strict sweep gated by materiality (todo 629), then the pin. |
 | [644](pending/644-closed-list-disclosure-at-book-freeze-and-confirmation.md) | Required at the first book freeze: member counts per month-end after the stage 2 list, plus excluded newcomers once 643 lands. Put the code in the report, not in `universe_membership.py` (inside the rebuild closure). Owner-adopted. |
+| [670](pending/670-synthetic-stepm-check-with-sweep-scale-null-cells.md) | New 2026-11-24, P2. A full 1d sweep adds about 1,100 cells to the 16 series and could drop `reversal_21`; check synthetically (about 1,100 correlated null cells, no real-data compute) and set the sweep's `n_looks`. Before any sweep. |
+| [671](pending/671-ic-measure-sweep-cell-writer.md) | New 2026-11-24, P2. No writer records IC sweep cells as counted attempts (E21), so a sweep would be an uncounted look. One writer into the ledger; prerequisite of the first real-data sweep with 670. |
 
 ## P3: Hygiene, docs, process, performance (opportunistic)
 

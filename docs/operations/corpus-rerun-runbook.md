@@ -238,6 +238,8 @@ intraday tier load and its disk plan are not needed for them.
 
 ## The survivorship caveat
 
+Total-return disclosure (lead 2026-11-24, disclose and do not gate): about 82 percent of the primary panel's member cells have no dividend coverage and all 5,292 uncovered member names are dead (STATE.md, ledger 2026-11-21d), so a total-return family is scored mostly on covered, live names. Every report from a total-return family carries this sentence.
+
 The universe was chosen today, so every result whose sample includes 5m history before the Alpaca
 era is survivorship-biased: names that stopped trading before today are absent (todo 534 owner
 decision 2026-11-04, code `survivorship_pre_alpaca_era_5m`). The pre-era is read from the 5m
