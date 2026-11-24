@@ -71,4 +71,4 @@ Status 2026-11-24: draft for the first 1d `feature_complete` report (pin `09708a
 
 ## Maintenance
 
-Update this file when the pilot reports (4.2), when an item changes. A disclosure is removed only with its evidence. Gates for edits: `tests/unit/test_doc_schema_numbers.py`, `tests/unit/test_no_dangling_references.py` by exit code, and `tools/check_glossary.py`.
+Update this file when the pilot reports (4.2) or when an item changes. A disclosure is removed only with its evidence. Gates for edits: `tests/unit/test_doc_schema_numbers.py`, `tests/unit/test_no_dangling_references.py` by exit code, and `tools/check_glossary.py`.
