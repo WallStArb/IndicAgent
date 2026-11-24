@@ -72,6 +72,8 @@ Exit 0 on both; any defect names the file, and the plan still serves it until th
 .venv/bin/python -m scripts.infrastructure.massive.massive_reference_capture --captured-at 20261207
 ```
 
+   After the capture and before any split row from it is applied (todo 608 ruling, 2026-11-24): list the `massive_reference` split rows with an `effective_date` after 2026-11-10 and, for each, compare the last Alpaca-served close before the split with Massive's adjusted close. A mismatch means the Alpaca nightly stored the pre-split span unadjusted (its tail re-reads only `infra.alpaca.nightly_window_days`, default 5, and `massive_reference` rows never stale an incumbent); the remedy is a history re-ask of that span with `ops_bar_nightly --start/--end` (raw is last-wins). A name outside `universe_membership` is disclosed, not chased.
+
 5. Month-end ticker lists for 2026-11-30 (and any later NYSE month-end before the lapse), kept as raw evidence: the one-time pit install anchors at 2026-11-09 and the planner does not extend an installed map (ruling 2026-11-16), so these lists do not change membership unless a later amendment adds an extend-only planner. About 5 minutes for the earlier 6,132 files, so seconds for these:
 
 ```bash

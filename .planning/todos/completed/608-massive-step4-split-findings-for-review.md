@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-11-11
 source: todo 600 admission step 4 (split reconciliation and level-seam detector, commit fc3e4525b); lead indicagent-32 rulings 2026-11-11: list these, do not act
@@ -96,3 +96,8 @@ One question stays for the final reference capture (about 2026-12-07): a split e
 ## Status 2026-11-16 (indicagent-65)
 
 CTVA (1,875 Massive 1d slots) and SCCO (5,299) are held by the daily stage (`daily_rebuild.tsv`, outcome held, unclassified_rescale) and have no canonical 1d after step 7. The D1 expectation now excludes them and prints them as their own disclosed line (`logs/massive_step7/delta_post_policy/held.json`). They stay held and are disclosed under the todo 512 rule; releasing them is a decision for this todo after step 7, not part of it.
+
+## Closure 2026-11-24 (lead ruling)
+
+SCCO and CTVA stay held and are disclosed under the todo 512 rule; no release. Neither has a `universe_membership` row (0 rows for both, 2026-11-24), so no compute reads them, and the materiality rule (owner 2026-11-20) says not to chase two non-member names with an unclassified rescale. CTVA's real answer is the spin-off action type, which belongs to todo 516. The capture-time check for the final reference capture moved to `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md` (step 4, 2026-12-07) so it outlives this todo. The recapture supersede guard is moot (the overlap detector was deleted 2026-11-13).
+
