@@ -74,6 +74,7 @@ _SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-11-05.sql"
 _SEED_TAG_VOCABULARY_SQL = _FIXTURES_DIR / "seed_tag_vocabulary_2026-11-05.sql"
 _SEED_CONTROLLED_VOCABULARY_SQL = _FIXTURES_DIR / "seed_controlled_vocabulary_2026-11-05.sql"
 _SEED_CONFIG_SQL = _FIXTURES_DIR / "seed_config_2026-11-05.sql"
+_SEED_CLASSIFICATION_SQL = _FIXTURES_DIR / "seed_classification_2026-11-05.sql"
 
 # Highest migration number folded into the baseline snapshot above. Only migrations
 # numbered above this need to be replayed on top - everything <= this is already
@@ -265,6 +266,13 @@ def _apply_baseline() -> None:
     # or DO UPDATE (the APR migration convention), so seeding the full current
     # snapshot here is safe.
     _run_psql_file(_SEED_CONFIG_SQL)
+    # Fifth table class, todo 655: classification_scheme, classification_node and
+    # instrument_classification are seeded by migrations 365, 370 and 372, all below the cutoff,
+    # so the schema-only baseline held none and 16 classification tests failed on the missing
+    # indicagent_v1 scheme. A data dump of the three (current rows only; the regenerate script
+    # writes it with --disable-triggers because the node table references itself), loaded after
+    # instruments, whose symbols the assignments reference. No post-cutoff migration touches them.
+    _run_psql_file(_SEED_CLASSIFICATION_SQL)
 
 
 def _replay_post_baseline_migrations() -> None:

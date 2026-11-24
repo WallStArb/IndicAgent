@@ -2,7 +2,7 @@
 """Regenerate the integration-test baseline from production (todo 591).
 
 tests/integration/conftest.py rebuilds indicagent_test from a pinned schema-only dump plus seed
-data, then replays every migration numbered above _BASELINE_MIGRATION_CUTOFF. This writes the six
+data, then replays every migration numbered above _BASELINE_MIGRATION_CUTOFF. This writes the seven
 fixture files for one date in one command, so the baseline can be bumped whenever the replay
 drifts:
 
@@ -10,13 +10,17 @@ drifts:
 - schema_baseline_<date>_hypertables.sql: the chunk and compressed-storage stub cleanup (the
   schema-only restore leaves both as plain tables), then create_hypertable and the compression
   attributes for every public hypertable, read from the TimescaleDB catalog (no policies);
-- seed_{config,controlled_vocabulary,instruments,tag_vocabulary}_<date>.sql: data dumps of the
-  tables pre-cutoff migrations seed as data, which a schema-only dump leaves empty.
+- seed_{classification,config,controlled_vocabulary,instruments,tag_vocabulary}_<date>.sql: data
+  dumps of the tables pre-cutoff migrations seed as data, which a schema-only dump leaves empty.
+  The classification seed (scheme, nodes, current assignments; todo 655) holds the migration 365,
+  370 and 372 results, and its assignments reference the instruments seed, so dump the two on the
+  same date.
 
 After running it, point conftest.py at the new date and set the cutoff (and its not-in-baseline
 set) by hand: which migrations are applied is an operator fact, not something this reads.
 
 Usage: .venv/bin/python scripts/infrastructure/regenerate_integration_baseline.py [--date YYYY-MM-DD]
+       [--only SEED]   (rewrite one seed file, e.g. classification; the schema files are untouched)
 """
 
 from __future__ import annotations
@@ -35,6 +39,11 @@ _DB = "indicagent"
 _DSN = "postgresql://postgres:postgres@localhost:5432/indicagent"
 
 _SEEDS: dict[str, tuple[str, ...]] = {
+    "classification": (
+        "public.classification_scheme",
+        "public.classification_node",
+        "public.instrument_classification",
+    ),
     "config": ("public.config_schema", "public.config_state"),
     "controlled_vocabulary": (
         "public.controlled_vocabulary",
@@ -44,6 +53,11 @@ _SEEDS: dict[str, tuple[str, ...]] = {
     "instruments": ("public.instruments",),
     "tag_vocabulary": ("public.tag_vocabulary",),
 }
+
+# classification_node references itself (parent_code), so a data-only dump can emit a child before
+# its parent; --disable-triggers (the restore runs as superuser) lifts the FK check for that seed
+# and also skips the 367/368 point-in-time guards, so the dumped history loads as it is.
+_SEED_DUMP_ARGS: dict[str, tuple[str, ...]] = {"classification": ("--disable-triggers",)}
 
 _STUB_CLEANUP = """\
 -- Chunk stubs: the schema-only dump restores _timescaledb_internal chunk tables as plain
@@ -126,16 +140,25 @@ def hypertables_sql(conn: psycopg.Connection) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--date", default=datetime.now(UTC).date().isoformat())
+    parser.add_argument("--only", choices=sorted(_SEEDS), help="write this seed file alone")
     args = parser.parse_args()
     date = args.date
 
-    _pg_dump(["--schema-only"], _FIXTURES / f"schema_baseline_{date}.sql")
-    for name, tables in _SEEDS.items():
+    seeds = {args.only: _SEEDS[args.only]} if args.only else _SEEDS
+    if not args.only:
+        _pg_dump(["--schema-only"], _FIXTURES / f"schema_baseline_{date}.sql")
+    for name, tables in seeds.items():
         table_args = [arg for table in tables for arg in ("-t", table)]
-        _pg_dump(["--data-only", "--inserts", *table_args], _FIXTURES / f"seed_{name}_{date}.sql")
+        _pg_dump(
+            ["--data-only", "--inserts", *_SEED_DUMP_ARGS.get(name, ()), *table_args],
+            _FIXTURES / f"seed_{name}_{date}.sql",
+        )
+    if args.only:
+        print(f"wrote seed_{args.only}_{date}.sql under {_FIXTURES}")
+        return
     with psycopg.connect(_DSN) as conn:
         (_FIXTURES / f"schema_baseline_{date}_hypertables.sql").write_text(hypertables_sql(conn))
-    print(f"wrote 6 fixture files for {date} under {_FIXTURES}")
+    print(f"wrote {2 + len(_SEEDS)} fixture files for {date} under {_FIXTURES}")
 
 
 if __name__ == "__main__":
