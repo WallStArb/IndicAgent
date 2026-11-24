@@ -38,3 +38,7 @@ The part B cell `f1d_s5_tau200` (feature, smoothing 5, 1d source, 1d book) fails
 1d source therefore leaves the passing list: it passed at tau 5 and 60 only because the unsmoothed
 route fails at tau 60 and 200, and smoothing does not remove that persistence. The route stays
 refused. The other twelve part B cells hold (184-05-BATTERY.md, Part B extension).
+
+## Recovered work (2026-11-24)
+
+Local branch `wip/586-persistence-statistic` (not pushed; based on an old main) holds the opt-in persistence-widened E17 standard error in new modules, its design note, the battery result and `scripts/research/e17_persistence_probe.py`. Rebase onto main before use; any edit under `src/intelligence/statistics/` needs `repro_frozen` bit-identical.
