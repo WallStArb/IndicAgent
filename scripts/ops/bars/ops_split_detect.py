@@ -41,8 +41,6 @@ from src.intelligence.bars.corporate_actions import (
 
 _logger = structlog.get_logger(__name__)
 
-_INFERRED_BY = "nightly_overlap"
-_FACT_MONITOR = "bar_split_detection"
 _RESCALE_METRIC = "unclassified_rescale"
 _RECORDED_BY = "ops_split_detect"
 _TIMEFRAME = "1d"
@@ -58,25 +56,9 @@ _APR_KEYS = (
     "threshold.seam.rel_tol",
     "threshold.seam.min_run",
     "threshold.seam.ratio_snap_tol",
-    "infra.bar_derivation.split_refetch_years",
     *SPLIT_RULE_KEYS,
 )
 
-# Current rows of the symbol on or after the detection's last old-scale overlap date: a split
-# the overlap shows happened after that date, so a current row of the same factor there (an
-# earlier detection, or an operator correction at the true date) is the same event.
-_EXISTING_SQL = """
-SELECT action_id::text AS action_id, factor, effective_date, inferred_by
-FROM corporate_action_current
-WHERE symbol = $1 AND effective_date >= $2
-"""
-
-_INSERT_SQL = """
-INSERT INTO corporate_action
-    (symbol, action_type, effective_date, factor, inferred_by, evidence_request_ids,
-     detail, supersedes)
-VALUES ($1, $2, $3, $4, 'nightly_overlap', $5::uuid[], $6::text::jsonb, $7::uuid)
-"""
 
 # A by-hand correction or void (plan 185-51): inferred_by operator, the id chosen here so the
 # void rows can name the correcting row. Detail goes in as text: one JSON encoding whatever

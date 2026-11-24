@@ -89,15 +89,9 @@ item below names its evidence file. Nothing here is acted on until ruled.
 
 ## Before the next reference recapture (future splits)
 
-d2-v6 never stales an incumbent on a `massive_reference` row, which is right for every applied
-row (each split executed before the 2026-11-10 capture, and the incumbents serve it adjusted).
-A row landing BEFORE the incumbent restates (a recapture that lists a split executed days
-earlier) would interact with `ops_split_detect`'s same-factor dedup (`_EXISTING_SQL`): the
-nightly overlap would find the reference row, record nothing, and the incumbent's pre-split
-fetches would stay current. Recommended fix before any recapture applies: the overlap detector
-supersedes a same-event `massive_reference` row with its `nightly_overlap` row (one row, the
-stale meaning, Massive still divided once), or the reference writer refuses rows executed after
-the incumbents' last fetch. Not live: no reference capture is scheduled.
+Resolved: the interaction this section guarded against no longer exists. The nightly overlap detection and the IBKR re-fetch that fed it were deleted 2026-11-13 with the IBKR lane (`ops_split_detect.py` keeps only the by-hand correction path), so nothing records a `nightly_overlap` row, `_EXISTING_SQL` and `_INSERT_SQL` were dead constants and are removed, and there is no overlap detector to supersede a same-event `massive_reference` row. The other fix, a reference-writer refusal, has nothing to compare against: the incumbent a split row would conflict with was the IBKR fetch.
+
+One question stays for the final reference capture (about 2026-12-07): a split executed in the days before the capture, whose pre-split bars an Alpaca nightly had already stored unadjusted, is not restated by anything unless the nightly re-reads the span. Check at capture time, not before: read the dry-run units (`--pit-dates` list, read before `--apply`), list any `massive_reference` split row with an `effective_date` after 2026-11-10, and for each compare the last Alpaca-served pre-split close with Massive's adjusted close. A row with a mismatch is a todo 512 case, not a rule; the remedy for a stored unadjusted span is a history re-ask of it through `ops_bar_nightly --start/--end` (raw is last-wins).
 
 ## Status 2026-11-16 (indicagent-65)
 

@@ -58,7 +58,7 @@ derived grid) are defined in `docs/foundation/glossary.md`; owners are in
 | `integrity_monitor` (`monitor_type = 'bar_integrity'`) | D7 verdict rows, subject `SYM\|tf`, one per check; the promotion and rebuild gate reads them (`verdict_gate.py`) | `services/bar_reconciliation_audit.py` |
 | `canonical_bar_lineage` | View (migration 447): which stored vendor bar each canonical 1d bar equals (`ohlcv_raw` joined to `ohlcv_request`), derived on read | none (a view) |
 | `bar_quality_flag` | Scrub flags; `quarantine = true` hides the bar | `bar_scrub` (via the daily stage), `bar_derivation` |
-| `corporate_action` | Splits and reverse splits, append-only, `supersedes` and `void` for corrections | split detect (`ops_split_detect.py`: the nightly overlap and its sanctioned corrections); `tradier_refetch` rows (the Tradier loader, deleted in 185-48) and seam audit rows are history |
+| `corporate_action` | Splits and reverse splits, append-only, `supersedes` and `void` for corrections | split detect (`ops_split_detect.py`: the sanctioned corrections; the nightly overlap detection was deleted with the IBKR lane, 2026-11-13); `tradier_refetch` rows (the Tradier loader, deleted in 185-48) and seam audit rows are history |
 | `listing_venue` | Point-in-time listing venue spans per symbol (D6) | `services/listing_venue_writer.py` (manual run) |
 | `bar_content_digest` | Per (symbol, timeframe, month) checksum, append-only | `bar_derivation` |
 | `bar_derivation_batch` | One row per derivation-side run: stage, rule version, code commit, APR snapshot | every derivation-side writer |
