@@ -356,3 +356,58 @@ def test_every_source_array_is_in_the_book_hash(build):
     victim.write_bytes(bytes(data))
     with pytest.raises(ValueError):
         store.verify(path)
+
+
+# --- todo 588 item (e): a volume kernel member needs a proven volume basis ----------------------
+
+VWAP_MEMBER = MemberSourceRequest("vw", "kernel", "rk_vwap_dev_w3", {"rk_vwap_dev": 3}, 7, 0, None)
+
+
+class _BasisPool(FeaturePool):
+    """Serves the (vendor, kind) pairs of the 5m constituents the basis is proven from."""
+
+    def __init__(self, tf, pairs, **kw):
+        super().__init__(tf, **kw)
+        self.pairs = pairs
+
+    async def fetch(self, sql, *args):
+        if sql.startswith("SELECT DISTINCT vendor"):
+            self.calls.append((sql, args))
+            return [{"vendor": v, "kind": k} for v, k in self.pairs]
+        return await super().fetch(sql, *args)
+
+
+def test_a_volume_kernel_member_runs_on_a_proven_basis_and_records_it(build):
+    pool = _BasisPool("1d", [("alpaca", "sip_rth")])
+    path, _ = build(
+        "1d",
+        [req("1h", feature_member("f", max_age=7), VWAP_MEMBER, high_low=True)],
+        pool=pool,
+        fields=("closes_at",),
+    )
+    info = store.read_meta(path)["manifest"]["sources"]["1h"]
+    assert info["volume_basis"] == {
+        "basis": 1,
+        "bar_tf": "5m",
+        "vendor_kinds": [["alpaca", "sip_rth"]],
+    }
+    assert np.isfinite(store.read_array(path, "ref_values__vw")).any()
+
+
+def test_a_volume_kernel_member_on_mixed_bases_is_refused(build):
+    pool = _BasisPool("1d", [("alpaca", "sip_rth"), ("ibkr", "smart_trades")])
+    with pytest.raises(ValueError, match="1h source refused.*one volume basis"):
+        build(
+            "1d",
+            [req("1h", VWAP_MEMBER, high_low=True)],
+            pool=pool,
+            fields=("closes_at",),
+        )
+
+
+def test_a_member_set_without_a_volume_kernel_records_no_basis(build):
+    path, pool = _finer(build)
+    assert "volume_basis" not in store.read_meta(path)["manifest"]["sources"]["1h"]
+    assert not queries(pool, "SELECT DISTINCT vendor") or all(
+        "5m" != c[1][0] for c in pool.calls if c[0].startswith("SELECT DISTINCT vendor")
+    )
