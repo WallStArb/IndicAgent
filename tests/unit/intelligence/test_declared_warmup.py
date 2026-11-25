@@ -118,6 +118,7 @@ def test_object_dependence_is_declared_with_a_presence_mask(registry_and_config)
         "swing_high_dist_atr",
         "bars_since_vol_spike_fast",
         "bars_since_extreme_move_slow",
+        "vol_range_ratio",
     ):
         assert column in declared, column
         assert f"_{column}_is_none" in registry.by_output(column).outputs, column
@@ -138,6 +139,11 @@ def test_object_dependence_is_declared_with_a_presence_mask(registry_and_config)
         "reclaim_velocity",
         "struct_accel_bias",
         "bars_since_last_shift",
+        # a measured 0 once the object exists: the event bar, the unchanged label (todo 652 R2)
+        "bars_since_extreme_move_fast",
+        "bars_since_extreme_move_slow",
+        "hmm_churn",
+        "hmm_vol_churn",
     }
     for column in ("momentum_z_fast", "adx", "poc_rolling_dist_atr", "prior_session_high_dist_atr"):
         assert column not in declared, column
@@ -297,3 +303,32 @@ def test_event_presence_comes_from_knowability_not_the_value():
     nan_present = present & np.isnan(_bars_since_event_series_full(holes, window))
     assert present.mean() > 0.9  # almost every window holds an unknown bar
     assert nan_present.sum() / present.sum() > 0.05  # the share gate fails it loudly
+
+
+def test_structure_integrity_is_inapplicable_at_1d_only(registry_and_config):
+    """Pivots of one OHLC series overlap only across a gap, so the column is 1.0 on every daily
+    row; the registry leaves it out of the 1d applicable outputs and keeps it elsewhere
+    (todo 652 R4)."""
+    registry, _config = registry_and_config
+    assert "structure_integrity" not in registry.applicable_outputs("1d")
+    assert "structure_integrity" in registry.applicable_outputs("5m")
+
+
+def test_vol_range_ratio_none_mask_marks_the_degenerate_window(registry_and_config):
+    """A trailing window holding a zero-range bar is NaN by D1 rule 5; the none mask is exactly
+    that NaN (todo 652 R5)."""
+    from src.intelligence.features.kernels.volume import _compute_vol_range_ratio
+
+    _registry, config = registry_and_config
+    n = 40
+    volume = np.full(n, 100.0)
+    high = np.full(n, 11.0)
+    low = np.full(n, 10.0)
+    high[3] = low[3] = 10.5  # one zero-range bar
+    out = _compute_vol_range_ratio({"volume": volume, "high": high, "low": low}, config)
+    ratio, none = out["vol_range_ratio"], out["_vol_range_ratio_is_none"]
+    window = config.vol_range_ratio_window
+    assert np.array_equal(none == 1.0, np.isnan(ratio))
+    assert none[3 : 3 + window].all()
+    assert not none[:3].any()
+    assert not none[3 + window :].any()

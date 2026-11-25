@@ -1493,8 +1493,10 @@ def _recency_kernels() -> tuple[Kernel, ...]:
                     col: _bars_since_event_series_full(x[ev], getattr(c, w)),
                     none_mask_name(col): _bars_since_event_absent(x[ev], getattr(c, w)),
                 },
-                # the event: an extreme move inside the window (none mask = no event)
+                # the event: an extreme move inside the window (none mask = no event); 0 is the
+                # event bar itself, a measured state (todo 652 R2)
                 object_dependent=frozenset({column}),
+                zero_is_state=frozenset({column}),
             )
         )
     for label, source, mode in (("52w_high", "high", "max"), ("52w_low", "low", "min")):

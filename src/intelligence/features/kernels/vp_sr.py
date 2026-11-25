@@ -1435,6 +1435,10 @@ KERNELS = (
         memory=lambda config: config.swing_lookback_bars - 1,
         compute=_compute_swing_structure_columns,
         object_dependent=SWING_STRUCTURE.nullable,  # no confirmed swing pivot in the lookback
+        # 1 minus the share of adjacent swings whose low sits above the prior swing high: the
+        # pivots of one OHLC series overlap only across a gap, so on a daily series it is 1.0 on
+        # every row (todo 652 R4, lead ruling); NaN there, and left out of the applicable outputs
+        not_applicable=undefined_on("1d", ("structure_integrity",)),
         # measured once the object exists: swing_pattern 0.0 = the last high and low types
         # disagree (needs two of each); in_fib_discount_zone 0.0 = close outside the zone;
         # fib_cluster_strength 0.0 = no fib levels within the ATR-scaled threshold

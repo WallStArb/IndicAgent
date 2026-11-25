@@ -379,7 +379,14 @@ def test_fill_audit_exempt_on_the_real_registry():
     assert {"opex_flag", "canary_acausal_placebo", "body_ratio"} <= exempt
     assert {"swing_pattern", "bars_since_last_sweep"} <= exempt  # checked genuine states
     assert {"struct_accel_bias", "reclaim_velocity"} <= exempt  # genuine 0.0 after todos 659, 660
-    assert "hmm_churn" not in exempt  # parked until its segment status is verifiable
+    # churn is 0.0 when no label changed in the window; its none mask (status not written) makes
+    # every unwritten row NaN, so a 0.0 is measured (todo 652 R2)
+    assert {
+        "hmm_churn",
+        "hmm_vol_churn",
+        "bars_since_extreme_move_fast",
+        "vol_body_product",
+    } <= exempt
 
 
 # ---------------------------------------------------------------------------

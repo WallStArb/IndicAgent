@@ -525,10 +525,12 @@ def _compute_dollar_vol_z(x, config):
 
 
 def _compute_vol_range_ratio(x, config):
+    ratio = _vol_range_ratio_series_full(
+        x["volume"], x["high"], x["low"], config.vol_range_ratio_window
+    )
     return {
-        "vol_range_ratio": _vol_range_ratio_series_full(
-            x["volume"], x["high"], x["low"], config.vol_range_ratio_window
-        )
+        "vol_range_ratio": ratio,
+        none_mask_name("vol_range_ratio"): np.isnan(ratio).astype(np.float64),
     }
 
 
@@ -734,10 +736,13 @@ KERNELS = (
     ),
     _k(
         "vol_range_ratio",
-        ("vol_range_ratio",),
+        ("vol_range_ratio", none_mask_name("vol_range_ratio")),
         ("volume", "high", "low"),
         lambda c: c.vol_range_ratio_window,
         _compute_vol_range_ratio,
+        # the object: a trailing window with no bar of zero range (high equal to low), where the
+        # ratio is NaN by D1 rule 5 (todo 652 R5); none mask = NaN
+        object_dependent=frozenset({"vol_range_ratio"}),
     ),
     _k(
         "vol_trend_ratio",
@@ -838,6 +843,10 @@ KERNELS = (
         ),
         lambda c: 0,
         _compute_flow_products,
+        # a doji (open equal to close) has body_ratio 0, so the product is a measured 0.0; a
+        # zero-range bar makes body_ratio, and so the product, NaN (todo 652 R2)
+        zero_is_state=frozenset({"vol_body_product"}),
+        degenerate_input_state=frozenset({"vol_body_product"}),
     ),
     # Its own kernel: amihud_illiq_z handles a basis change itself (volume_basis_safe), so the
     # volume guard must not mask this product with the other flow products' volume inputs.

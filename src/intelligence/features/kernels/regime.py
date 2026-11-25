@@ -227,6 +227,9 @@ def _kernels_for(family: str) -> tuple[Kernel, Kernel]:
             *(none_mask_name(column) for column in spec.numeric_outputs),
         ),
         object_dependent=frozenset(spec.numeric_outputs),
+        # the label-change rate over the churn window: 0.0 when no label changed, a measured
+        # state (todo 652 R2)
+        zero_is_state=frozenset(c for c in spec.numeric_outputs if c.endswith("_churn")),
         inputs=spec.inputs,
         memory=lambda config: 0,
         compute=_heavy_compute(spec),
