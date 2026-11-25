@@ -115,6 +115,7 @@ Production procedures: deployment, monitoring, troubleshooting. Files carry an `
 | `operations-security.md` | Security architecture (not implemented; planned) |
 | `operations-disaster-recovery.md` | DR: standby, WAL archive, base backups, restore drill, data mirror, RPO and RTO |
 | `operations-memory-performance.md` | Memory subsystem performance |
+| `owner-action-sheet.md` | Owner action sheet: the open owner steps and decisions with commands, checks, deadlines and recommendations |
 | `operations-promotion-protocol.md` | Promotion protocol: StepM selection, positive net expectation, one forward confirmation |
 | `corpus-rerun-runbook.md` | The corpus rerun step runner (186-31): launch, resume, disk, refusals, recovery |
 | `massive-step7-runbook.md` | Massive admission step 7: canonical drop and one-pass rebuild without IBKR, then the IBKR export-delete-retire part; the current vendor-transition runbook |

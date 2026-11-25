@@ -70,6 +70,8 @@ dirty. Never two backfills at once; kill by PID only; never edit a module a live
 
 ## Decisions waiting on the owner
 
+Commands, checks, deadlines and recommendations for the owner-only items below: `docs/operations/owner-action-sheet.md`.
+
 - Host cooling (ledger 2026-11-24b): clean or repaste the ubuntu1 unit and add airflow over the DIMMs; the software cap, watchdog and alerts are in place but the relaunch gate (DIMMs 60 C or less at start) and any move from 4 to 8 workers depend on it. Alert delivery needs Discord or Telegram credentials (the Alertmanager receiver is a no-op).
 - Corpus rerun directive (relayed by a peer 2026-11-24, not heard by the lead): confirm it should start right after the family 10 counted runs, 4 workers, scope 1d.
 - More sessions: the backlog supports a session for todos 667 and 668 (ic_measure time chunks and checkpoint grain), one for the 558 candidate list, and the next session starts the todo consolidation at batch 5 and the 25 deferred todos (`docs/research/priorities-decision-log.md`, 2026-11-24).
