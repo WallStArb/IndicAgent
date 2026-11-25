@@ -440,8 +440,9 @@ def covered_dividend_clock(
 
 
 # A column computed from a context column cannot be finite before it does, so it starts on the
-# source's clock (todo 652 R5: vix_reversion_product declares memory 5 though vix_z needs 19; the
-# declared reach lands with todo 674, which makes this entry redundant).
+# source's clock (todo 652 R5: vix_reversion_product declares memory 5 though vix_z needs 19).
+# This stays needed after todo 674: the screen clock is for stored feature_vectors rows, and 674
+# changes neither vix_z nor vix_reversion_product; its research member refusal is separate.
 CLOCK_INHERITS: Mapping[str, str] = {"vix_reversion_product": "vix_z"}
 
 
