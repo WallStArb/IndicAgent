@@ -9,13 +9,16 @@ from scripts.ops.ops_feature_column_screen import (
     EXPECTED_NOT_JUDGED,
     _clock_query,
     _query,
+    _rows_before_coverage_query,
     applicable_columns,
     apr_value,
     classify,
     context_columns,
+    covered_dividend_clock,
     declared_memory,
     fill_audit_exempt,
     gate_failures,
+    inherit_clocks,
     judge,
     judged_shortfall,
     null_share_gate,
@@ -118,7 +121,15 @@ ZEROY = (1100, 1100, 11, 0.0, 1.0, 500, 1090)  # 46% exact zeros after warmup
 EMPTY = (0, 0, None, None, None, 0, 0)
 
 
-def _screen(rows, columns=("live", "x"), memory=None, applicable=None, fill_exempt=frozenset()):
+def _screen(
+    rows,
+    columns=("live", "x"),
+    memory=None,
+    applicable=None,
+    fill_exempt=frozenset(),
+    clock=None,
+    object_columns=frozenset(),
+):
     memory = {"1d": memory or dict.fromkeys(columns, 10)}
     return screen_rows(
         columns,
@@ -130,6 +141,8 @@ def _screen(rows, columns=("live", "x"), memory=None, applicable=None, fill_exem
         min_name_rows=252,
         warmup_gap_max=5,
         zero_share_max=0.25,
+        clock=clock,
+        object_columns=object_columns,
     )
 
 
@@ -466,9 +479,84 @@ def test_a_name_without_dividend_coverage_is_not_judged_on_the_dividend_column()
         "warmup_gap_max": 5,
         "zero_share_max": 0.25,
     }
-    # both names are constant (a 0.0 column) on the dividend column; only the covered one fails
+    # B is unjudged on the column; A is covered and never paid (constant 0.0): a known zero, not
+    # a dead column (ledger 2026-11-25a)
     report, _ = screen_rows(rows=rows, clock=clock, **base)
+    assert report["1d"]["G1"] == {} and report["1d"]["dead"] == {}
+    # a covered constant that is not zero is still dead
+    nonzero = (1100, 1100, 11, 2.0, 2.0, 0, 1090)
+    report, _ = screen_rows(rows=[_row("1d", "A", 1200, LIVE, nonzero)], clock={}, **base)
     assert report["1d"]["G1"]["dividend_yield"]["examples"] == ["A"]
+
+
+def test_covered_dividend_clock_starts_a_window_less_one_after_an_interior_coverage_start():
+    clock = covered_dividend_clock({("1d", "NWE"): 542, ("1d", "OLD"): 0}, window=252)
+    assert clock == {("1d", "NWE"): {"dividend_yield": 542 + 251}}
+    # NWE: first finite row index 793 equals the clock, so its G2 gap is 0
+    first_rn = 794
+    rows = [_row("1d", "NWE", 3000, LIVE, (3000, 2200, first_rn, 0.0, 0.1, 5, 2200))]
+    report, _ = _screen(
+        rows,
+        columns=("live", "dividend_yield"),
+        memory={"live": 10, "dividend_yield": 0},
+        clock=clock,
+    )
+    assert report["1d"]["G2"] == {}
+    report, _ = _screen(
+        rows, columns=("live", "dividend_yield"), memory={"live": 10, "dividend_yield": 0}
+    )
+    assert list(report["1d"]["G2"]) == ["dividend_yield"]  # without the clock it fails
+
+
+def test_a_derived_column_inherits_its_source_columns_clock():
+    clock = {("1d", "A"): {"vix_z": 19}, ("1d", "B"): {"hyg_lqd_ret_z": 4}}
+    inherit_clocks(clock)
+    assert clock[("1d", "A")] == {"vix_z": 19, "vix_reversion_product": 19}
+    assert clock[("1d", "B")] == {"hyg_lqd_ret_z": 4}
+    columns = ("live", "vix_reversion_product")
+    rows = [_row("1d", "A", 1200, LIVE, (1100, 1100, 20, -1.0, 1.0, 5, 1090))]
+    memory = {"live": 10, "vix_reversion_product": 5}
+    assert _screen(rows, columns=columns, memory=memory)[0]["1d"]["G2"] != {}
+    assert _screen(rows, columns=columns, memory=memory, clock=clock)[0]["1d"]["G2"] == {}
+
+
+def test_the_rows_before_coverage_query_joins_coverage_and_extends_the_filter():
+    bare = _rows_before_coverage_query(sql.SQL("")).as_string(None)
+    assert "USING (symbol) WHERE c.source = 'yahoo'" in bare
+    filtered = _rows_before_coverage_query(sql.SQL(" WHERE symbol = ANY(%s)")).as_string(None)
+    assert "WHERE symbol = ANY(%s) AND c.source = 'yahoo'" in filtered
+
+
+def test_a_constant_column_fails_g1_only_when_dead_on_every_judged_name():
+    """Ledger 2026-11-25a: a one-name constant is disclosed with the name, never gated."""
+    rows = [_row("1d", "A", 1200, LIVE, LIVE), _row("1d", "B", 1200, LIVE, DEAD)]
+    report, _ = _screen(rows)
+    assert report["1d"]["G1"] == {} and report["1d"]["dead"] == {}
+    assert report["1d"]["constant_disclosed"] == {"x": {"n_names": 1, "examples": ["B"]}}
+    assert report["1d"]["partial"] == {"x": {"constant": 1}}
+    # all-NULL on one name is still a per-name G1 failure
+    rows = [_row("1d", "A", 1200, LIVE, LIVE), _row("1d", "B", 1200, LIVE, EMPTY)]
+    assert _screen(rows)[0]["1d"]["G1"]["x"]["examples"] == ["B"]
+    # constant on every judged name: G1 fails each, nothing is disclosed
+    rows = [_row("1d", "A", 1200, LIVE, DEAD), _row("1d", "B", 1200, LIVE, DEAD)]
+    report, _ = _screen(rows)
+    assert report["1d"]["G1"]["x"]["n_names"] == 2 and report["1d"]["constant_disclosed"] == {}
+
+
+def test_g2_does_not_judge_an_object_dependent_column_but_g1_still_does():
+    rows = [_row("1d", "A", 1200, LIVE, LATE)]
+    assert _screen(rows)[0]["1d"]["G2"] != {}
+    report, _ = _screen(rows, object_columns=frozenset({"x"}))
+    assert report["1d"]["G2"] == {}
+    # NULL on a name whose object never formed: disclosed while another name holds it, failed when
+    # no judged name does
+    one_null = [_row("1d", "A", 1200, LIVE, LIVE), _row("1d", "B", 1200, LIVE, EMPTY)]
+    report, _ = _screen(one_null, object_columns=frozenset({"x"}))
+    assert report["1d"]["G1"] == {}
+    assert report["1d"]["constant_disclosed"]["x"]["examples"] == ["B"]
+    all_null = [_row("1d", "A", 1200, LIVE, EMPTY), _row("1d", "B", 1200, LIVE, EMPTY)]
+    report, _ = _screen(all_null, object_columns=frozenset({"x"}))
+    assert report["1d"]["G1"]["x"]["n_names"] == 2
 
 
 def test_judged_shortfall_names_each_timeframe_below_the_minimum():

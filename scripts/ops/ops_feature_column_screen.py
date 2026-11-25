@@ -7,13 +7,20 @@ Screened columns are the registry's numeric feature columns (`feature_vectors_nu
 Per (tf, name) and column:
 - G1 dead: all NULL, no finite value (all NaN or infinite), or one value across its finite rows
   (NaN warmup and infinities do not make a constant column live), outside the registry's declared
-  applicable outputs for the timeframe. The control canary_constant must hold its declared value on
-  every row.
+  applicable outputs for the timeframe. A name whose column is constant, or an object-dependent
+  column that is all NULL on the name (its object never formed there), fails G1 only when the column is
+  dead on every judged name (the report's `dead`); otherwise it is disclosed in
+  `constant_disclosed` (ledger 2026-11-25a, the 2026-11-20 materiality rule; G6 gives the names
+  with no object). A covered name that never paid a dividend is a known zero, not a constant. The control canary_constant must
+  hold its declared value on every row.
 - G2 warmup gap: the first finite row index minus the column's declared warmup, above
   `threshold.pilot_gate.warmup_gap_bars`. The warmup is the first row the rebuild can store
   (backfill_feature_factory.stored_first_row): the memory of a column it masks inside it, or a
   path-dependent column's definition warmup (the HMM's first refit boundary, a session or week
-  anchor), so every column is judged the same way.
+  anchor), so every column is judged the same way. An object-dependent column is not judged by
+  G2: its first finite row is where the market first forms its object (a zone, a swing, a model
+  segment), which no declared clock states; G6 reports the share of rows where it exists
+  (ledger 2026-11-25a).
 - G6 (`--null-gate`): the NULL or non-finite share of the rows past each column's warmup per
   (tf, column), at `infra.corpus_rerun.max_null_fraction`. An object-dependent column is judged
   here only on not being entirely NULL; its share is judged on the rows where its object exists,
@@ -32,7 +39,11 @@ Per (tf, name) and column:
   NaN after it still fails G2. The date is read from the screened rows themselves.
 - Dividend coverage (G1, G6): `dividend_yield` is NaN for a name with no Yahoo
   `dividend_event_coverage` row, the one source the feature layer reads (unknown, never 0.0), so every row of such a name is before its input exists and the name is
-  not judged on that column; the count is in the report as `dividend_uncovered_names`.
+  not judged on that column; the count is in the report as `dividend_uncovered_names`. A covered
+  name's first finite row is `window - 1` bars after its coverage start when that start is inside
+  its stored rows (`covered_dividend_clock`).
+- Inherited clock (G2, G6): a column computed from a context column starts no earlier than it
+  (`CLOCK_INHERITS`).
 A name with no more rows than a column's declared memory is not judged on that column (empty is
 expected). Names with fewer than --min-name-rows rows on a timeframe are not judged at all.
 
@@ -217,6 +228,7 @@ def screen_rows(
     warmup_gap_max: int,
     zero_share_max: float,
     clock: Mapping[tuple[str, str], Mapping[str, int]] | None = None,
+    object_columns: AbstractSet[str] = frozenset(),
 ) -> tuple[dict[str, dict], dict[str, int]]:
     """Per-timeframe gate report from the per-(tf, symbol) rows (tf, symbol, row count, then
     STATS_PER_COLUMN per column), and the timeframes skipped below min_rows."""
@@ -234,6 +246,7 @@ def screen_rows(
         reasons: dict[str, Counter] = defaultdict(Counter)
         judged_for: Counter = Counter()  # names a column was judged on (history above its memory)
         fails: dict[str, dict[str, list[str]]] = {g: defaultdict(list) for g in GATES}
+        constants: dict[str, list[str]] = defaultdict(list)  # G1 verdict waits on `dead`
         for symbol, n, stats in judged:
             per_column = batched(stats, STATS_PER_COLUMN, strict=True)
             for column, (non_null, finite, first_rn, low, high, zeros, finite_post) in zip(
@@ -244,12 +257,18 @@ def screen_rows(
                     continue  # history shorter than the declared memory: empty is expected
                 judged_for[column] += 1
                 why = judge(column, non_null, finite, low, high)
+                if why == "constant" and column == DIVIDEND_COLUMN and low == 0.0:
+                    why = None  # covered and never paid: a known zero, not a dead column
                 if why:
                     reasons[column][why] += 1
-                    if column in applicable[tf]:
+                    if why == "constant" or (column in object_columns and why == "all_null"):
+                        # a name property (a one-name constant, an object the name never formed):
+                        # G1 fails the column only where it is dead on every judged name
+                        constants[column].append(symbol)
+                    elif column in applicable[tf]:
                         fails["G1"][column].append(symbol)
                     continue
-                if first_rn - 1 - mem > warmup_gap_max:
+                if column not in object_columns and first_rn - 1 - mem > warmup_gap_max:
                     fails["G2"][column].append(symbol)
                 if (
                     column not in fill_exempt
@@ -258,6 +277,14 @@ def screen_rows(
                 ):
                     fails["G3"][column].append(symbol)
         dead = {c: dict(r) for c, r in reasons.items() if r.total() == judged_for[c]}
+        disclosed: dict[str, list[str]] = {}
+        for column, constant_names in constants.items():
+            if column not in applicable[tf]:
+                continue
+            if column in dead:
+                fails["G1"][column].extend(constant_names)
+            else:
+                disclosed[column] = constant_names
 
         report[tf] = {
             "n_rows": n_rows,
@@ -266,6 +293,7 @@ def screen_rows(
             "unjudged_names": sorted(symbol for symbol, n, _ in names if n < min_name_rows),
             "dead": dict(sorted(dead.items())),
             "partial": {c: dict(r) for c, r in sorted(reasons.items()) if c not in dead},
+            "constant_disclosed": _failing(disclosed),
             **{gate: _failing(fails[gate]) for gate in GATES},
         }
     return report, skipped
@@ -397,6 +425,34 @@ def uncovered_dividend_clock(
     }
 
 
+def covered_dividend_clock(
+    rows_before_coverage: Mapping[tuple[str, str], int], window: int
+) -> dict[tuple[str, str], dict[str, int]]:
+    """Per (tf, symbol) whose Yahoo coverage starts inside its stored rows, the clock of the
+    dividend column: a trailing window of `window` covered bars is needed, so the first finite
+    row is `window - 1` rows after the coverage start. A name covered from before its first
+    stored row keeps no clock (its window is already full)."""
+    return {
+        key: {DIVIDEND_COLUMN: before + window - 1}
+        for key, before in rows_before_coverage.items()
+        if before > 0
+    }
+
+
+# A column computed from a context column cannot be finite before it does, so it starts on the
+# source's clock (todo 652 R5: vix_reversion_product declares memory 5 though vix_z needs 19; the
+# declared reach lands with todo 674, which makes this entry redundant).
+CLOCK_INHERITS: Mapping[str, str] = {"vix_reversion_product": "vix_z"}
+
+
+def inherit_clocks(clock: dict[tuple[str, str], dict[str, int]]) -> None:
+    """Give each derived column in `CLOCK_INHERITS` at least its source column's clock, per name."""
+    for entry in clock.values():
+        for derived, source in CLOCK_INHERITS.items():
+            if source in entry:
+                entry[derived] = max(entry.get(derived, 0), entry[source])
+
+
 def context_columns(columns: tuple[str, ...]) -> tuple[str, ...]:
     """The screened columns that are symbol-independent date functions (macro.RECORD_COLUMNS)."""
     return tuple(c for c in columns if c in RECORD_COLUMNS)
@@ -430,6 +486,19 @@ def _clock_query(context: tuple[str, ...], where: sql.Composable) -> sql.Compose
         firsts=firsts,
         counts=counts,
     )
+
+
+def _rows_before_coverage_query(where: sql.Composable) -> sql.Composed:
+    """Per (tf, symbol) with a Yahoo coverage row, the stored daily rows dated before its
+    `covered_from` (daily rows only: the trailing window counts daily bars). `symbol` is
+    unambiguous after USING."""
+    joiner = sql.SQL(" AND ") if where.as_string(None) else sql.SQL(" WHERE ")
+    return sql.SQL(
+        "SELECT tf, symbol, count(*) FROM feature_vectors f "
+        "JOIN dividend_event_coverage c USING (symbol){where}{joiner}c.source = 'yahoo' "
+        "AND tf = '1d' AND (f.bar_ts AT TIME ZONE 'UTC')::date < c.covered_from "
+        "GROUP BY tf, symbol"
+    ).format(where=where, joiner=joiner)
 
 
 def judged_shortfall(report: dict[str, dict], minimum: int) -> dict[str, int]:
@@ -560,6 +629,14 @@ def main(argv: list[str] | None = None) -> int:
         uncovered = uncovered_dividend_clock(rows_by_key.values(), covered)
         for key, entry in uncovered.items():
             clock.setdefault(key, {}).update(entry)
+        window = build_feature_factory_config(cfg).dividend_yield_window
+        before_coverage = {
+            (tf, symbol): n
+            for tf, symbol, n in conn.execute(_rows_before_coverage_query(where), params)
+        }
+        for key, entry in covered_dividend_clock(before_coverage, window).items():
+            clock.setdefault(key, {}).update(entry)
+        inherit_clocks(clock)
     timeframes = {tf for tf, _ in rows_by_key}
     report, skipped = screen_rows(
         columns,
@@ -572,6 +649,7 @@ def main(argv: list[str] | None = None) -> int:
         warmup_gap_max=warmup_gap_max,
         zero_share_max=zero_share_max,
         clock=clock,
+        object_columns=object_dependent(registry),
     )
 
     for tf, n_rows in skipped.items():
