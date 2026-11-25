@@ -259,9 +259,6 @@ CONSUMER_STALL_DETECTED_TOTAL = _meter.create_counter(
 # Oneshot job completion counters (Phase 108)
 # ---------------------------------------------------------------------------
 
-# CONTRACT: Oneshot scripts that emit this counter MUST call provider.force_flush() /
-# provider.shutdown() before process exit, otherwise the OTLP exporter will not drain
-# and the counter will never reach the collector. See Plan 06 for the canonical call site.
 IC_SWEEP_BLOCKS_RECORDED_TOTAL = _meter.create_counter(
     "ic_sweep_blocks_recorded_total",
     description="IC sweep blocks (one spec, one transaction) recorded by tf, horizon and direction",
@@ -270,6 +267,10 @@ IC_SWEEP_CELLS_RECORDED_TOTAL = _meter.create_counter(
     "ic_sweep_cells_recorded_total",
     description="IC sweep cell attempts recorded by tf, horizon and direction",
 )
+
+# CONTRACT: Oneshot scripts that emit this counter MUST call provider.force_flush() /
+# provider.shutdown() before process exit, otherwise the OTLP exporter will not drain
+# and the counter will never reach the collector. See Plan 06 for the canonical call site.
 JOB_COMPLETED_TOTAL = _meter.create_counter(
     "job_completed_total",
     description="Oneshot job completions by name and status",

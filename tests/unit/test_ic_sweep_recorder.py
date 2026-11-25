@@ -146,7 +146,7 @@ def test_dry_run_writes_nothing_and_needs_no_declaration():
     assert ledger.blocks == [] and report["recorded"] == 0 and report["attempts_to_record"] == 8
     # the dry run prints what the ledger line must say: the declaration it needs, the declared
     # value (none here), and the columns left out (no concept row, nothing measured)
-    assert report["n_looks_to_declare"] == 8 and report["declared_n_looks"] is None
+    assert report["batch_attempts"] == 8 and report["declared_n_looks"] is None
     assert report["excluded_no_concept"] == ["zz"] and report["unmeasured"] == {
         "1": ["c"],
         "5": ["c"],

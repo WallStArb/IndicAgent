@@ -91,7 +91,6 @@ _logger = structlog.get_logger(__name__)
 # Service identity and schema identifiers: APR-exempt.
 _JOB = "ic-sweep-recorder"
 SPEC_VERSION = "ic-sweep-cell-v1"
-SPEC_PATH_PREFIX = SWEEP_SPEC_PATH_PREFIX
 DIRECTIONS = ("long", "short")  # ledger 2026-11-24i: two attempts per cell, never a fitted sign
 _BLOCK_COLUMNS_KEY = "alpha.ic.feature_block_columns"
 _OOS_START_KEY = "alpha.validation.oos_start"
@@ -136,7 +135,7 @@ def block_spec(
         }
     )
     digest = hashlib.sha256(blob.encode()).hexdigest()
-    return f"{SPEC_PATH_PREFIX}/{tf}_h{horizon}_{direction}_{digest[:12]}.json", blob, digest
+    return f"{SWEEP_SPEC_PATH_PREFIX}/{tf}_h{horizon}_{direction}_{digest[:12]}.json", blob, digest
 
 
 def cell_series(
@@ -280,8 +279,7 @@ async def record_blocks(
     report: dict[str, Any] = {
         "tf": tf,
         "horizons": list(horizons),
-        "batch_attempts": batch,
-        "n_looks_to_declare": batch,  # what the ledger line declares: unmeasured cells add none
+        "batch_attempts": batch,  # the n_looks the ledger line declares; unmeasured cells add none
         "declared_n_looks": declared_n_looks,
         "attempts_to_record": to_record,
         "attempts_already_recorded": already,
