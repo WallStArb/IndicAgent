@@ -49,7 +49,7 @@ Ranked P0 and P1 order by the path to a counted test (lead pass 2026-11-24; "cod
 | 2 | 649 | timer `indicagent-split-feed-auditor.timer` is built but not installed (`systemctl` reports not-found); install before the Massive lapse removes `massive_reference` | ops session | small, no code edit | none |
 | 3 | 600 | owner decision: renew or lapse by 2026-12-10, filings sizing by 2026-12-01 | owner | decision | none |
 | 4 | 669 | after the four family 10 runs and the StepM read; one route plus new battery cells | research session | medium | edits `src/intelligence/research`: `repro_frozen` bit-identical, rebinds, never beside a live counted run; before the pin of any counted corpus test |
-| 5 | 588 | part C (real-data dry S0) needs the scope-all rerun; item (e) `volume_basis` in S0 | research session | medium | S0 code: after the pilot |
+| 5 | 588 | part C (real-data dry S0) needs the scope-all rerun (item (e) deleted 2026-11-25: S0 refuses rk_vwap_dev loudly; tag `archive/588e-volume-basis-2026-11`) | research session | medium | S0 code: after the pilot |
 | 5b | 670, 671 | P1 by lead ruling 2026-11-24: IC measure waits on them; behind 669 | research session | medium each | 671 adds a writer; 670 a synthetic check; no live-run edit |
 | 6 | 636 | StepM across the counted looks, then the `reversal_21` pooled read; the 547 ruling shapes the final cut | lead, owner for 547 | small | none |
 | 7 | 471 | width-pin measurement runs only after the pilot and with no heavy job live | lead | one heavy run | none |
