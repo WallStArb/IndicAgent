@@ -208,6 +208,17 @@ async def _load(dsn: str, vintage: str | None) -> tuple[list[dict], list[str], d
     return rows, others, apr, vintage
 
 
+def _is_sweep_spec(spec_blob: str) -> bool:
+    """An IC sweep attempt (E21, services/ic_sweep_recorder.py) stores its canonical JSON spec in
+    `spec_blob`; every other attempt stores a git blob sha of a committed YAML spec."""
+    return spec_blob.lstrip().startswith("{")
+
+
+def _sweep_horizon(spec_blob: str) -> int:
+    """The holding horizon in sessions of a sweep cell: its spec's `horizon` (1d clock)."""
+    return int(json.loads(spec_blob)["horizon"])
+
+
 def attempt_universe(
     with_series: list[dict], root: Path
 ) -> tuple[list[int], np.ndarray, np.ndarray]:
@@ -215,9 +226,13 @@ def attempt_universe(
     the counted attempts that have a series: StepM's input as `build_report` reads it."""
     git = functools.cache(functools.partial(_git, root))
     horizons = [
-        horizon_sessions(
-            git("cat-file", "-p", r["spec_blob"]),
-            lambda path, c=r["code_commit"]: git("show", f"{c}:{path}"),
+        (
+            _sweep_horizon(r["spec_blob"])
+            if _is_sweep_spec(r["spec_blob"])
+            else horizon_sessions(
+                git("cat-file", "-p", r["spec_blob"]),
+                lambda path, c=r["code_commit"]: git("show", f"{c}:{path}"),
+            )
         )
         for r in with_series
     ]

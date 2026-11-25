@@ -68,3 +68,16 @@ def test_shape_and_min_names_refused():
         session_rank_ic(features, target[:, :-1], exists, min_names=5)
     with pytest.raises(ValueError):
         session_rank_ic(features, target, exists, min_names=2)
+
+
+def test_features_sharing_a_hole_pattern_match_scipy():
+    features, target, exists = _panel()
+    features[:, :, 4] = features[:, :, 1] * 2 + 0.1  # same finite names as feature 1
+    got = session_rank_ic(features, target, exists, min_names=5)
+    for f in (1, 4):
+        for i in range(features.shape[0]):
+            ok = exists[i] & np.isfinite(target[i]) & np.isfinite(features[i, :, f])
+            if ok.sum() >= 5:
+                want = spearmanr(features[i, ok, f], target[i, ok]).statistic
+                assert got[i, f] == pytest.approx(want, abs=1e-12)
+    np.testing.assert_allclose(got[:, 1], got[:, 4], atol=1e-12, equal_nan=True)

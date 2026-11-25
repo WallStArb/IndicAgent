@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from scripts.research import select_books
 from scripts.research.select_books import (
     battery_refusals,
     horizon_sessions,
@@ -242,3 +243,22 @@ def test_a_family10_member_that_never_completed_is_a_gap_not_an_exemption(tmp_pa
     rows = [r for r in _vintage() if r["run_id"] != "run15"]  # volume_shock_d never completed
     report = _read(tmp_path, monkeypatch, rows, diagnostic=True)
     assert [m["run_id"] for m in report["missing_series"]] == ["k10d"]
+
+
+def test_a_sweep_attempt_reads_its_horizon_from_its_json_spec_not_from_git(tmp_path):
+    blob = '{"version":"ic-sweep-cell-v1","horizon":5}'
+    row = {"spec_blob": blob, "code_commit": "c" * 40, "sessions": [], "d_s": []}
+    assert select_books._is_sweep_spec(blob) and not select_books._is_sweep_spec("a" * 40)
+    assert select_books._sweep_horizon(blob) == 5
+    # no git call is made for a sweep row: a root that is not a repository is never read
+    horizons, _calendar, _matrix = select_books.attempt_universe(
+        [
+            {
+                **row,
+                "sessions": ["2020-01-02", "2020-01-03"],
+                "d_s": [0.1, 0.2],
+            }
+        ],
+        tmp_path,
+    )
+    assert horizons == [5]

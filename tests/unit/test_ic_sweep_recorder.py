@@ -146,14 +146,32 @@ def test_dry_run_writes_nothing_and_needs_no_declaration():
     assert ledger.blocks == [] and report["recorded"] == 0 and report["attempts_to_record"] == 8
 
 
-def test_a_recorded_block_is_skipped_so_the_run_resumes():
+def test_a_recorded_block_is_skipped_and_the_declaration_is_the_whole_batch():
     first = FakeLedger()
     _record(first, _measurement())
     done = {r.spec_hash for r, _ in first.blocks[:2]}
     ledger = FakeLedger(recorded=done)
-    report = _record(ledger, _measurement(), declared_n_looks=4)
+    with pytest.raises(LedgerRefusal, match="batch of 8 attempts"):
+        _record(ledger, _measurement(), declared_n_looks=4)  # the remaining count is not the batch
+    report = _record(ledger, _measurement(), declared_n_looks=8)
     assert report["attempts_already_recorded"] == 4 and report["recorded"] == 4
-    assert len(ledger.blocks) == 2
+    assert report["batch_attempts"] == 8 and len(ledger.blocks) == 2
+
+
+def test_a_finished_batch_needs_no_declaration():
+    everything = FakeLedger()
+    _record(everything, _measurement())
+    done = FakeLedger(recorded={r.spec_hash for r, _ in everything.blocks})
+    report = _record(done, _measurement(), declared_n_looks=None)
+    assert report["recorded"] == 0 and done.blocks == []
+
+
+def test_evidence_without_a_defined_hac_statistic_still_records():
+    flat = AttemptSeries(
+        np.arange("2020-01-01", "2020-01-05", dtype="datetime64[D]"), np.full(4, 0.01)
+    )
+    ev = rec.cell_evidence(feature="f", tf="1d", horizon=1, direction="long", series=flat)
+    assert ev["decision"] == {"n_sessions": 4}
 
 
 # --- measure: the per-session IC on a session's one grid ---------------------------------

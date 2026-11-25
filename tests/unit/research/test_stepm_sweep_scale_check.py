@@ -131,3 +131,12 @@ def test_summary_shares():
     assert out["false_selection_replicates"] == 1 and out["false_selections_total"] == 1
     assert [s["share_selected"] for s in out["series"]] == [1.0, 0.5]
     assert out["series"][1]["adjusted_p_min"] == 0.04
+
+
+def test_the_block_length_covers_the_null_cells_overlap_whatever_the_recorded_horizon():
+    # recorded attempts at horizon 1, null cells overlapping by up to 10 sessions: StepM must be
+    # given the longer one (it refuses a block mean that does not exceed it).
+    out = chk.run_replicate(_job(max_horizon=1, n_cells=20, n_eff=0, block_mean=20.0))
+    assert out["false_selections"] >= 0
+    with pytest.raises(ValueError, match="block_mean"):
+        chk.run_replicate(_job(max_horizon=1, n_cells=20, n_eff=0, block_mean=9.0))

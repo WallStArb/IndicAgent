@@ -1,6 +1,7 @@
 """`PostgresLedger.record_sweep_block` (E21, ledger 2026-11-24i): one transaction per block, a
-refusal before any write, the feature-domain lookup, completed or failed by the series. The
-SQL itself runs against the database in tests/integration/test_research_ledger.py."""
+refusal before any write, the feature-domain lookup, completed or failed by the series. The SQL
+strings are matched by a fake connection here; there is no integration test of them yet (the
+integration harness is being redesigned, todo 656), so the first real block is the SQL's test."""
 
 from __future__ import annotations
 

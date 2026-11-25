@@ -113,7 +113,9 @@ def run_replicate(job: dict) -> dict:
     out = stepm(
         matrix,
         block_mean=job["block_mean"],
-        max_horizon_sessions=job["max_horizon"],
+        # The null cells overlap by up to max(CELL_HORIZONS) sessions: the block length must
+        # exceed that too, whatever the recorded attempts hold.
+        max_horizon_sessions=max(job["max_horizon"], *CELL_HORIZONS),
         reps=job["reps"],
         fwer=job["fwer"],
         seed=job["stepm_seed"],
@@ -199,7 +201,7 @@ def main() -> int:
         for k, (n_eff, tail) in enumerate(settings)
         for r in range(args.replicates)
     ]
-    # Regression guard: no null cells reproduces the recorded StepM selection.
+    # The recorded selection alone (no null cells), the reference the report reads against.
     baseline = run_replicate({**base, "n_cells": 0})
     report = []
     with make_worker_pool(args.workers, blas_threads_per_worker=1) as pool:

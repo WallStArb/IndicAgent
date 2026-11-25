@@ -155,8 +155,11 @@ def cell_evidence(
 ) -> dict[str, Any]:
     """The attempt's evidence: its coordinates and the E17 HAC mean test of the series (a
     disclosure; the selection statistic is StepM's, over the whole universe)."""
-    test = hac_mean_test(series.values) if len(series.values) >= 2 else None
     decision: dict[str, Any] = {"n_sessions": int(len(series.values))}
+    try:
+        test = hac_mean_test(series.values)
+    except ValueError:  # fewer than 2 sessions or no variance: a disclosure that is not defined
+        test = None
     if test is not None:
         decision |= {"t": float(test.t), "p": float(test.p)}
     return {
@@ -268,9 +271,11 @@ async def record_blocks(
                 continue
             plan.append((horizon, direction, path, blob, digest, cells))
     to_record = sum(len(cells) for *_head, cells in plan)
+    batch = to_record + already  # the whole batch the ledger line declares, recorded or not
     report: dict[str, Any] = {
         "tf": tf,
         "horizons": list(horizons),
+        "batch_attempts": batch,
         "attempts_to_record": to_record,
         "attempts_already_recorded": already,
         "excluded_no_concept": list(m.excluded_no_concept),
@@ -280,10 +285,13 @@ async def record_blocks(
     }
     if dry_run:
         return report
-    if declared_n_looks is None or declared_n_looks != to_record:
+    if to_record == 0:
+        return report
+    if declared_n_looks != batch:
         raise LedgerRefusal(
-            f"declared n_looks {declared_n_looks} != the {to_record} attempts this run records "
-            "(E21 rule 6: declare the batch in the ledger first)"
+            f"declared n_looks {declared_n_looks} != the batch of {batch} attempts "
+            f"({to_record} to record, {already} already recorded; E21 rule 6: declare the batch "
+            "in the ledger first)"
         )
     for horizon, direction, path, blob, digest, cells in plan:
         request = RunRequest(
@@ -333,12 +341,11 @@ def _concept_names(read_conn: Any) -> set[str]:
 def run(args: argparse.Namespace, dsn: str) -> dict[str, Any]:
     if args.tf != "1d":
         raise ValueError("a level 1 sweep cell is per session: --tf 1d only (E21)")
+    root = provenance.repo_root(project_root)
+    code_commit = "dry-run"
     if not args.dry_run:
-        root = provenance.repo_root(project_root)
         provenance.require_clean(root)
         code_commit = provenance.head_commit(root)
-    else:
-        code_commit = "dry-run"
     measure_args = argparse.Namespace(
         symbols=args.symbols,
         start=args.start,
@@ -360,6 +367,11 @@ def run(args: argparse.Namespace, dsn: str) -> dict[str, Any]:
         oos_start = parse_oos(apr[_OOS_START_KEY])
         min_names = int(apr[MIN_NAMES_KEY])
         concepts = _concept_names(read_conn)
+        if args.features:
+            unknown = sorted(set(args.features) - concepts)
+            if unknown:
+                raise ValueError(f"--features {unknown} have no feature concept row")
+            concepts = set(args.features)
         runner = IcMeasure(measure_args, dsn)
         with runner.open_tf(read_conn, apr, args.tf, oos_start) as session:
             horizons = _horizons(args.horizons, session.run.horizons)
@@ -374,6 +386,11 @@ def run(args: argparse.Namespace, dsn: str) -> dict[str, Any]:
         horizons=list(horizons),
         seconds=round(time.monotonic() - t0, 1),
     )
+    if not args.dry_run:
+        # The tree was clean and at code_commit when the run started; the measurement took hours.
+        provenance.require_clean(root)
+        if provenance.head_commit(root) != code_commit:
+            raise RuntimeError(f"HEAD moved during the measurement: {code_commit} is stale")
     return asyncio.run(
         record_blocks(
             PostgresLedger(dsn),
@@ -405,6 +422,13 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="the attempt count the ledger line declares; must equal what this run records",
+    )
+    parser.add_argument(
+        "--features",
+        type=lambda v: [f for f in v.split(",") if f],
+        default=None,
+        help="measure only these feature columns (a later batch after new features register: "
+        "re-sweeping the whole family would record every earlier cell again under a new spec)",
     )
     parser.add_argument("--symbols", nargs="+", help="override the universe (tests and smoke)")
     parser.add_argument("--start", help="ISO 8601 start with a Z or offset")

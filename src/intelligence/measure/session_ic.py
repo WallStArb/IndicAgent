@@ -55,7 +55,14 @@ def session_rank_ic(
         whole = finite.all(axis=0)
         if whole.any():
             ic[i, whole] = _rank_correlation(rankdata(x[:, whole], axis=0), rankdata(y))
-        for f in np.flatnonzero(~whole & (finite.sum(axis=0) >= min_names)):
-            keep = finite[:, f]
-            ic[i, f] = _rank_correlation(rankdata(x[keep, f])[:, None], rankdata(y[keep]))[0]
+        holey = np.flatnonzero(~whole & (finite.sum(axis=0) >= min_names))
+        if holey.size:
+            # Features with the same finite names share one ranking of the target.
+            patterns, group = np.unique(finite[:, holey], axis=1, return_inverse=True)
+            for g in range(patterns.shape[1]):
+                cols = holey[np.ravel(group) == g]
+                keep = patterns[:, g]
+                ic[i, cols] = _rank_correlation(
+                    rankdata(x[keep][:, cols], axis=0), rankdata(y[keep])
+                )
     return ic
