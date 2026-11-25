@@ -60,6 +60,10 @@ R1 edits `registry.py` and two kernel modules, all in the rebuild writer's impor
 
 Unit suite by exit code, ruff, black, `tools/check_glossary.py`, `/simplify`, an independent review of the worktree diff, `rebuild_code_key()` before and after in the closure note, and for R2 `repro_frozen`.
 
+## Review findings recorded 2026-11-25
+
+R2's member refusal is transitive (a column computed from a marked output, such as vix_reversion_product and yield_slope_momentum_product, is refused too). R1's definitions move stored_first_row, so the G2 and G6 baselines move for the 4 columns it defines (max_daily_return, max_drawdown, downside_deviation, dividend_yield). A reach can exceed the window after a non-positive close or NaN dividend holes; this is disclosed, not gated.
+
 ## Related
 
 Todo 669 (the member check that found it; every certificate under 669 needs this first), todo 586, `docs/plans/2026-11-24-family-order-after-1d-corpus.md`.
