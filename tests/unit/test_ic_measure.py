@@ -182,20 +182,20 @@ class TestParseOos:
     def test_z_and_offset_forms_are_utc(self) -> None:
         expected = datetime(2025, 12, 24, 5, 15, tzinfo=UTC)
         for text in ("2025-12-24T05:15:00Z", "2025-12-24T00:15:00-05:00"):
-            assert ic_measure._parse_oos(text) == expected, text
-            assert ic_measure._parse_oos(text).utcoffset().total_seconds() == 0, text
+            assert ic_measure.parse_oos(text) == expected, text
+            assert ic_measure.parse_oos(text).utcoffset().total_seconds() == 0, text
 
     def test_a_naive_timestamp_is_refused_naming_the_key(self) -> None:
         """The OOS guard is an enforcement point: a naive value is never reinterpreted as UTC
         (src.core.service_utils.parse_training_window_end refuses the same way)."""
         with pytest.raises(ValueError, match="alpha.validation.oos_start.*timezone"):
-            ic_measure._parse_oos("2025-12-24T05:15:00")
+            ic_measure.parse_oos("2025-12-24T05:15:00")
 
     def test_a_missing_or_garbled_value_raises(self) -> None:
         with pytest.raises(ValueError, match="not set"):
-            ic_measure._parse_oos(None)
+            ic_measure.parse_oos(None)
         with pytest.raises(ValueError, match="alpha.validation.oos_start"):
-            ic_measure._parse_oos("yesterday")
+            ic_measure.parse_oos("yesterday")
 
     def test_the_start_flag_follows_the_same_rule(self) -> None:
         def start(text: str) -> datetime:

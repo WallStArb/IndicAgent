@@ -75,6 +75,10 @@ PRIOR_REAL_RUN_SQL = (
 
 # Typed research domains (migration 530). A pod is a book; its metadata kind says pod.
 _RESEARCH_DOMAINS = ("family", "member", "combiner", "construction_rule", "book")
+# A sweep cell is recorded against the feature's own concept row (E21 rule 3, ledger 2026-11-24i).
+# The lookup is qualified by domain, never merged into _RESEARCH_DOMAINS: a name can exist in both
+# (`ctf_momentum` is a family and a feature), so one merged lookup would be ambiguous.
+_FEATURE_DOMAINS = ("feature",)
 _ADDED_PHASE = "183"
 
 
@@ -359,30 +363,43 @@ class PostgresLedger:
                     concept_id = concept_ids.get(name)
                     if concept_id is None:
                         concept_id = await self._concept_id(conn, name)
-                    run_id = await conn.fetchval(
-                        "INSERT INTO research_run (run_group, concept_id, kind, mode, "
-                        "spec_path, spec_hash, spec_blob, code_commit, vintage, budget_m, "
-                        "screen_alpha, recipe_hash, informed_by) "
-                        "VALUES ($1, $2, $3, $11, $4, $5, $6, $7, $8, $9, $10, $12, $13) "
-                        "RETURNING run_id",
-                        run_group,
-                        concept_id,
-                        request.kind,
-                        request.spec_path,
-                        request.spec_hash,
-                        request.spec_blob,
-                        request.code_commit,
-                        request.vintage,
-                        request.budget_m,
-                        request.screen_alpha,
-                        request.mode,
-                        recipe_hashes.get(name),
-                        None if request.informed_by is None else uuid.UUID(request.informed_by),
+                    run_id = await self._insert_started_run(
+                        conn, request, concept_id, run_group, recipe_hashes.get(name)
                     )
                     run_ids[name] = str(run_id)
                 return run_ids
         finally:
             await conn.close()
+
+    @staticmethod
+    async def _insert_started_run(
+        conn: Any,
+        request: RunRequest,
+        concept_id: Any,
+        run_group: uuid.UUID,
+        recipe_hash: str | None,
+    ) -> Any:
+        """One `started` research_run row (the only INSERT into the table); returns its run_id."""
+        return await conn.fetchval(
+            "INSERT INTO research_run (run_group, concept_id, kind, mode, "
+            "spec_path, spec_hash, spec_blob, code_commit, vintage, budget_m, "
+            "screen_alpha, recipe_hash, informed_by) "
+            "VALUES ($1, $2, $3, $11, $4, $5, $6, $7, $8, $9, $10, $12, $13) "
+            "RETURNING run_id",
+            run_group,
+            concept_id,
+            request.kind,
+            request.spec_path,
+            request.spec_hash,
+            request.spec_blob,
+            request.code_commit,
+            request.vintage,
+            request.budget_m,
+            request.screen_alpha,
+            request.mode,
+            recipe_hash,
+            None if request.informed_by is None else uuid.UUID(request.informed_by),
+        )
 
     @staticmethod
     async def _check_recipes(
@@ -474,14 +491,14 @@ class PostgresLedger:
         return hashes
 
     @staticmethod
-    async def _concept_id(conn: Any, name: str) -> Any:
+    async def _concept_id(conn: Any, name: str, domains: Sequence[str] = _RESEARCH_DOMAINS) -> Any:
         concept_id = await conn.fetchval(
             "SELECT concept_id FROM concept_registry WHERE domain = ANY($1::text[]) AND name = $2",
-            list(_RESEARCH_DOMAINS),
+            list(domains),
             name,
         )
         if concept_id is None:
-            raise LedgerRefusal(f"unknown construction identity: {name}")
+            raise LedgerRefusal(f"unknown {'/'.join(domains)} identity: {name}")
         return concept_id
 
     async def seed_recipes(
@@ -651,6 +668,92 @@ class PostgresLedger:
         finally:
             await conn.close()
 
+    async def record_sweep_block(
+        self,
+        request: RunRequest,
+        cells: Mapping[str, tuple[AttemptSeries | None, dict]],
+    ) -> dict[str, str]:
+        """Record one sweep block (E21: every measured IC cell is a counted `evidence` attempt,
+        ledger 2026-11-24i): one terminal `research_run` row per feature concept in `cells`, all
+        sharing one new run_group, in ONE transaction under the ledger lock, so a crash leaves no
+        `started` orphan and a rerun is refused, never half-written. `cells` maps a feature
+        concept name (its own `feature` domain row) to (series, evidence); a cell with a series
+        is `completed`, a cell with none is `failed` (a statistic was attempted; it stays
+        charged). Raises LedgerRefusal when the spec hash already has a real run (E18's
+        no-silent-repeat rule) and ValueError on a request that is not a real-mode evidence run.
+        Returns {feature name: run_id}."""
+        if request.kind != "evidence" or request.mode != "real":
+            raise ValueError("a sweep block is a real-mode evidence run")
+        if not cells:
+            raise ValueError("record_sweep_block needs at least one cell")
+        # Serialize every payload before any write: a bad payload refuses the whole block.
+        payloads: dict[str, dict] = {}
+        for name, (_series, evidence) in cells.items():
+            payload = jsonable(evidence)
+            json.dumps(payload, allow_nan=False)
+            payloads[name] = payload
+
+        conn = await connect_with_codecs(self._dsn)
+        try:
+            async with conn.transaction():
+                await conn.execute("SELECT pg_advisory_xact_lock($1)", LEDGER_LOCK_KEY)
+                if await conn.fetchval(PRIOR_REAL_RUN_SQL, request.spec_hash):
+                    raise LedgerRefusal(f"spec already run: {request.spec_hash}")
+                run_group = uuid.uuid4()
+                run_ids: dict[str, str] = {}
+                for name, (series, _evidence) in cells.items():
+                    concept_id = await self._concept_id(conn, name, _FEATURE_DOMAINS)
+                    run_id = str(
+                        await self._insert_started_run(conn, request, concept_id, run_group, None)
+                    )
+                    status = "completed" if series is not None else "failed"
+                    result = await self._write_terminal(
+                        conn, run_id, status, None, payloads[name], series, None
+                    )
+                    if result != "UPDATE 1":
+                        raise LookupError(f"research_run {run_id} not found")
+                    run_ids[name] = run_id
+                return run_ids
+        finally:
+            await conn.close()
+
+    @staticmethod
+    async def _write_terminal(
+        conn: Any,
+        run_id: str,
+        status: str,
+        snapshot_hash: str | None,
+        payload: dict,
+        series: AttemptSeries | None,
+        universe_hash: str | None,
+    ) -> str:
+        """The terminal UPDATE of a started run and, for a completed or failed run that carries
+        its series, the series INSERT, inside the caller's transaction. Returns the UPDATE status
+        ("UPDATE 1" when the run existed). The headline columns come from the payload."""
+        headline = _headline(payload, series) + _contribution_headline(payload)
+        result: str = await conn.execute(
+            "UPDATE research_run SET status = $2, snapshot_hash = $3, evidence = $4, "
+            "finished_at = now(), decision_t = $5, decision_p = $6, gross_sharpe = $7, "
+            "mean_session_pnl = $8, turnover_per_session = $9, n_sessions = $10, "
+            "span_start = $11, span_end = $12, n_families = $13, "
+            "effective_breadth = $14, top_group_share = $15, lofo_max_t_drop = $16, "
+            "sign_stability_min = $17, universe_hash = $18 WHERE run_id = $1",
+            uuid.UUID(run_id),
+            status,
+            snapshot_hash,
+            payload,
+            *headline,
+            universe_hash,
+        )
+        if result == "UPDATE 1" and series is not None and status in SERIES_STATUSES:
+            await conn.execute(
+                "INSERT INTO research_run_series (run_id, sessions, d_s) VALUES ($1, $2, $3)",
+                uuid.UUID(run_id),
+                series.sessions_as_dates(),
+                series.values.tolist(),
+            )
+        return result
+
     async def finish_run(
         self,
         run_id: str,
@@ -686,32 +789,12 @@ class PostgresLedger:
             status = "failed"
             payload = {"error": f"evidence not serializable: {error}"}
 
-        headline = _headline(payload, series) + _contribution_headline(payload)
         conn = await connect_with_codecs(self._dsn)
         try:
             async with conn.transaction():
-                result = await conn.execute(
-                    "UPDATE research_run SET status = $2, snapshot_hash = $3, evidence = $4, "
-                    "finished_at = now(), decision_t = $5, decision_p = $6, gross_sharpe = $7, "
-                    "mean_session_pnl = $8, turnover_per_session = $9, n_sessions = $10, "
-                    "span_start = $11, span_end = $12, n_families = $13, "
-                    "effective_breadth = $14, top_group_share = $15, lofo_max_t_drop = $16, "
-                    "sign_stability_min = $17, universe_hash = $18 WHERE run_id = $1",
-                    uuid.UUID(run_id),
-                    status,
-                    snapshot_hash,
-                    payload,
-                    *headline,
-                    universe_hash,
+                result = await self._write_terminal(
+                    conn, run_id, status, snapshot_hash, payload, series, universe_hash
                 )
-                if result == "UPDATE 1" and series is not None and status in SERIES_STATUSES:
-                    await conn.execute(
-                        "INSERT INTO research_run_series (run_id, sessions, d_s) "
-                        "VALUES ($1, $2, $3)",
-                        uuid.UUID(run_id),
-                        series.sessions_as_dates(),
-                        series.values.tolist(),
-                    )
         finally:
             await conn.close()
         if result != "UPDATE 1":

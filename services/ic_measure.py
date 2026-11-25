@@ -61,7 +61,7 @@ import tempfile
 import time
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -1227,7 +1227,7 @@ def _aware_utc(value: Any, what: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def _parse_oos(value: Any) -> datetime:
+def parse_oos(value: Any) -> datetime:
     """alpha.validation.oos_start as a UTC datetime; missing, garbled or naive raises."""
     if value is None:
         raise ValueError(f"APR key {_OOS_START_KEY} is not set")
@@ -1249,6 +1249,20 @@ class TfRun:
     snapshot: Mapping[str, Any]  # the units' computational apr_snapshot
     run_id: str | None = None  # the corpus_run every unit's provenance row records (578)
     spool_root: Path | None = None  # where units keep finished cells; None for a dry run
+
+
+@dataclasses.dataclass(frozen=True)
+class TfSession:
+    """The shared inputs of one timeframe (`IcMeasure.open_tf`): the run constants, the panel
+    context, the numeric feature names, the feature rows' keys, the measured symbols and the
+    block fetch (a block of names to an aligned [n, m, k] grid)."""
+
+    run: TfRun
+    ctx: TfContext
+    names: list[str]
+    keys: LongForm
+    used: tuple[str, ...]
+    fetch: Callable[[Sequence[str]], np.ndarray]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1312,7 +1326,7 @@ class IcMeasure:
             tfs = self.args.tf or list(cfg.get_sync(HORIZONS_KEY, {}).keys())
             keys = {_OOS_START_KEY, *(k for tf in tfs for k in apr_keys_read(tf))}
             apr = {k: v for k in keys if (v := cfg.get_sync(k, missing)) is not missing}
-            oos_start = _parse_oos(apr.get(_OOS_START_KEY))
+            oos_start = parse_oos(apr.get(_OOS_START_KEY))
             table_column_types(read_conn, self.args.feature_table)  # a missing table raises here
             jobs = active_jobs(self.args.jobs, self.args.members)
             self.tfs, self.jobs, self.oos_start_iso = (
@@ -1355,23 +1369,22 @@ class IcMeasure:
 
     # -- one timeframe ---------------------------------------------------------
 
-    def _run_tf(
-        self,
-        read_conn: Any,
-        write: _WriteSession,
-        apr: Mapping[str, Any],
-        tf: str,
-        jobs: list[str],
-        oos_start: datetime,
-    ) -> None:
-        t0 = time.monotonic()
-        horizons = horizons_for(apr, tf)  # aborts a cross-session horizon before any fetch
+    @contextmanager
+    def open_tf(
+        self, read_conn: Any, apr: Mapping[str, Any], tf: str, oos_start: datetime
+    ) -> Iterator[TfSession]:
+        """Everything a timeframe's measurement shares, fixed before a feature is fetched: the
+        horizons (a cross-session intraday horizon aborts here), the universe and start, the bar
+        digests taken around the panel build, the S0 target panels, the feature keys and the
+        slot map. The panels live in a temporary directory that exists while the session does.
+        `ic_sweep_recorder` opens the same session, so a sweep cell and a proposer cell are
+        measured on one panel, one grid and one feature family."""
+        horizons = horizons_for(apr, tf)
         params = load_params(apr, tf)
         symbols, membership_inputs = self._universe(tf)
         start = self._start(read_conn, tf, symbols)
         chunk_rows = int(apr[_FETCH_CHUNK_KEY])
         before = bar_content_digests(read_conn, tf, symbols, start, oos_start)
-        counts: Counter[str] = Counter()
         with tempfile.TemporaryDirectory(prefix="ic_measure_") as tmp:
             paths = asyncio.run(
                 build_target_panels(
@@ -1418,14 +1431,37 @@ class IcMeasure:
                 spool_root=None if self.args.dry_run else _SPOOL_ROOT,
             )
             names = feature_names(read_conn, self.args.feature_table)
-            for unit in self._units(read_conn, run, ctx, names, keys, jobs):
-                self._run_unit(unit, read_conn, write, run, counts, t0)
+            yield TfSession(
+                run=run,
+                ctx=ctx,
+                names=names,
+                keys=keys,
+                used=used,
+                fetch=self._block_fetcher(read_conn, run, ctx, keys),
+            )
+
+    def _run_tf(
+        self,
+        read_conn: Any,
+        write: _WriteSession,
+        apr: Mapping[str, Any],
+        tf: str,
+        jobs: list[str],
+        oos_start: datetime,
+    ) -> None:
+        t0 = time.monotonic()
+        counts: Counter[str] = Counter()
+        with self.open_tf(read_conn, apr, tf, oos_start) as session:
+            for unit in self._units(
+                read_conn, session.run, session.ctx, session.names, session.keys, jobs
+            ):
+                self._run_unit(unit, read_conn, write, session.run, counts, t0)
         _logger.info(
             "ic_measure.tf_complete",
             tf=tf,
             dry_run=self.args.dry_run,
             seconds=round(time.monotonic() - t0, 1),
-            symbols=len(used),
+            symbols=len(session.used),
             **counts,
         )
 

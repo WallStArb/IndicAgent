@@ -66,6 +66,10 @@ _ALLOW_LIST: dict[str, str] = {
     "services/ic_measure.py": (
         "MEASUREMENT: the IC measure job's feature table argument (sql.Identifier)."
     ),
+    "services/ic_sweep_recorder.py": (
+        "MEASUREMENT: the sweep recorder reads the IC measure's feature table (its --feature-table "
+        "default) and records every cell it measures as a counted E21 attempt (todo 671)."
+    ),
     "services/cross_sectional_regime_model.py": (
         "MEASUREMENT: reads the feature bar grid for the cross-sectional regime model."
     ),

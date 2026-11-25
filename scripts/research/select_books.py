@@ -208,6 +208,23 @@ async def _load(dsn: str, vintage: str | None) -> tuple[list[dict], list[str], d
     return rows, others, apr, vintage
 
 
+def attempt_universe(
+    with_series: list[dict], root: Path
+) -> tuple[list[int], np.ndarray, np.ndarray]:
+    """(holding horizon in sessions of each attempt, calendar, [sessions, attempts] matrix) of
+    the counted attempts that have a series: StepM's input as `build_report` reads it."""
+    git = functools.cache(functools.partial(_git, root))
+    horizons = [
+        horizon_sessions(
+            git("cat-file", "-p", r["spec_blob"]),
+            lambda path, c=r["code_commit"]: git("show", f"{c}:{path}"),
+        )
+        for r in with_series
+    ]
+    calendar, matrix = universe_matrix(with_series)
+    return horizons, calendar, matrix
+
+
 async def build_report(
     dsn: str, vintage: str | None, battery: str | None, *, diagnostic: bool
 ) -> dict:
@@ -230,15 +247,7 @@ async def build_report(
             "refusals": ["no counted attempt has a series"],
             "vintage": vintage,
         }
-    git = functools.cache(functools.partial(_git, root))
-    horizons = [
-        horizon_sessions(
-            git("cat-file", "-p", r["spec_blob"]),
-            lambda path, c=r["code_commit"]: git("show", f"{c}:{path}"),
-        )
-        for r in with_series
-    ]
-    calendar, matrix = universe_matrix(with_series)
+    horizons, calendar, matrix = attempt_universe(with_series, root)
     out = stepm(
         matrix,
         block_mean=float(apr["alpha.selection.stepm.block_mean_sessions"]),
