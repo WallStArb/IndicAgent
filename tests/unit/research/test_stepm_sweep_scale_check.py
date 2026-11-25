@@ -63,7 +63,7 @@ def test_warmup_is_missing_and_t_tails_are_heavier():
     assert z(t) > z(n) + 0.1
 
 
-def test_refusals():
+def test_sweep_scale_check_refusals():
     with pytest.raises(ValueError):
         chk.null_block(S, 5, n_eff=0, tail="cauchy", seed=1)
     with pytest.raises(ValueError):

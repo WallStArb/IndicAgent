@@ -28,7 +28,7 @@ def _available(gib: float) -> str:
     return f"MemTotal:       65536000 kB\nMemAvailable:   {int(gib * KIB_PER_GIB)} kB\n"
 
 
-def test_script_parses() -> None:
+def test_mem_gate_script_parses() -> None:
     assert subprocess.run(["bash", "-n", str(SCRIPT)], check=False).returncode == 0
 
 

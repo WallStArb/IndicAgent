@@ -45,7 +45,7 @@ def test_rank_range_and_the_window_edge():
     assert got[4] == pytest.approx(1.0 - 0.5)  # 9 has left the window; 2 is the max of 4
 
 
-def test_a_window_reaching_before_the_panel_is_not_filled():
+def test_volume_shock_window_reaching_before_the_panel_is_not_filled():
     got = volume_rank(_volume(sessions=60), window=50, short=1, min_finite=40, min_finite_short=40)
     assert np.isnan(got[:49]).all() and np.isfinite(got[49:]).any()
 

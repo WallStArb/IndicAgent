@@ -63,7 +63,7 @@ def test_hostile_volume_has_holes_steps_and_keeps_the_short_means_defined():
     assert np.isfinite(arrays["volume_shock_5_50"]).mean() > 0.3
 
 
-def test_one_simulation_scores_both_members_and_the_book_with_finite_statistics():
+def test_volume_shock_one_simulation_scores_both_members_and_the_book_with_finite_statistics():
     sc = battery.scenarios()[0]
     out = battery.simulate(sc, 3)
     assert set(out) == {"volume_shock_1_50", "volume_shock_5_50", "book_equal"}
@@ -72,7 +72,7 @@ def test_one_simulation_scores_both_members_and_the_book_with_finite_statistics(
     assert all(np.isfinite(s).any() for s in series.values())
 
 
-def test_inputs_mismatch_refuses_a_member_the_battery_does_not_run():
+def test_volume_shock_inputs_mismatch_refuses_a_member_the_battery_does_not_run():
     spec = battery._spec()
     assert battery.inputs_mismatch(spec) == []
     plain = spec.members[0].model_copy(update={"orthogonalize": None})
