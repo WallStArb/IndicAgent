@@ -126,3 +126,13 @@ Landing constraint. It edits research code: lands after the corpus pilot and the
 
 Size: about 80 lines of code and about 120 of tests; one session.
 
+## Item (e) step 1 build status and the step 3 ledger line draft (2026-11-24, indicagent-94)
+
+Step 1 is built and unit-tested on the local branch `wip/588e-volume-basis` (commit aad05bea7 on origin/main 00b49fc9f), not pushed: `snapshot.py` (`volume_basis_of`, `_needs_volume_basis`, `_source_volume_basis`, `_run_kernel(..., volume_basis)`, evidence key `volume_basis` on the source block) and `tests/unit/research/test_snapshot_volume_basis.py` plus three end-to-end cases in `test_snapshot_features.py`. Measured: the three bound battery records' `battery_code_key` recompute equal with the change (daily residual 3632233bc610, family 10 volume shock 0c1c6a6059f7, seasonality ae9ff30d86e2) and `rebuild_code_key()` is unchanged (09708ae249f2); `tests/unit` at -n 4 exits 0. Held: `repro_frozen` and the one-name real-data check (heavy slot), and the push (research code; after the pilot and the family 10 counted runs).
+
+Draft of the step 3 ledger line (to be appended with the step 3 landing, after step 1 has run on real bars; not before; `null_battery_persistent.py` is not edited until then):
+
+`## <next free letter>: the two rk_vwap_dev certificates return under a proven single volume basis (lead record, owner veto reserved)`
+
+Body: The 2026-11-24 withholding of `rk_vwap_dev` 1d to 1d and 1h to 1d (`WITHHELD_CERTIFICATES`, todo 588 item e) rested on the battery cells assuming one volume basis while S0 supplied none. S0 now proves the basis: for a volume kernel member it reads the source bars' (vendor, kind) pairs (the 5m constituents for a derived 15m or 1h), maps each through `vendor_kind.volume_basis` and refuses the member unless they give exactly one basis (`snapshot.volume_basis_of`), recording the basis and pairs in the source block's `volume_basis`. Canonical holds only Massive and Alpaca, both consolidated, so a mixed basis cannot occur and cannot be tested; the cells' single-basis assumption is now a checked precondition of every real panel. Change: the two certificates leave `WITHHELD_CERTIFICATES` and enter `PASSING_CERTIFICATES`, with the precondition named in their reason. No statistic, gate, window or threshold changes; the persistent battery's code key moves and no bound record uses that battery; `test_passing_certificates_match_report` is updated in the same commit. Evidence recorded before this line: FILL (the one-name read-only check: name, source tf, pairs, basis). Decided before any counted test reads an `rk_vwap_dev` member.
+
