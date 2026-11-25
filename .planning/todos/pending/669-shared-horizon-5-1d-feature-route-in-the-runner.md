@@ -18,3 +18,50 @@ One route: stored 1d feature members at horizon 5 through the runner, with new p
 ## Sequence
 
 Behind the four family 10 counted runs and the StepM read on 16 series. It lands after the corpus pilot and before the pin of any counted corpus test. It edits research code, so it never runs while a counted run is live (a live run imports it; `code_content_key`).
+
+## Design ruling 2026-11-24 (lead, indicagent-ef) and the read behind it (indicagent-fb)
+
+Ruling: design B. The statistic is fixed first (the book-arm HAC lag scales with weight persistence and with the target overlap together), with a methodology-change-ledger entry, `repro_frozen` bit-identical or recorded, and every battery pass record rebound; the horizon-5 1d feature certificate and its cells follow on the fixed statistic. Design A (a narrow certificate with a memory cap) only if the member check below shows short memory is enough; it does not (see the table), so A is not planned.
+
+One item, not three: the HAC-lag work of todos 547 (horizon-tied lag for overlapping targets, the part still open there) and 586 (lag that does not scale with weight persistence; the ten failing gating cells) is part of this item. 547 keeps its separate owner decision on the reversal members and the S1-drift hold; 586 closes when its ten cells hold under the fixed statistic. They stay as their own files for history and their gates, and this todo carries the build.
+
+Read (runner.py, `null_battery_persistent.py`, no corpus compute):
+- `runner._check_supported_subset` (line 516) refuses `horizon != 1`, any combiner but equal weight and any horizon rule; `_check_input_mix` (line 582) is todo 588 m3 and separate. Admission is `null_battery_persistent.admit` against `PASSING_CERTIFICATES`, matched on every discrete field including `horizon`; the only passing routes are feature 1h to 1d, feature 15m to 1d and `rk_high_dist` 126 1d to 1d, all horizon 1.
+- No stored 1d feature to 1d book route passes at horizon 1 either: `f1d_tau60`, `f1d_tau200`, `f1d_static_tau200` fail, and `f1d_s5_tau200` fails (70 of 1,000 at 0.05 against a bound of 67), so smoothing 5 left the passing list (todo 586). Horizon 5 adds target overlap on top, and the cells need `overlap_sessions = horizon - 1` (`null_battery_persistent.py:662`), so the existing cells cannot be reused.
+- The daily residual families already run at horizon 5, so the book path handles it; the horizon-1 limit is in the input-member checks and the certificates.
+
+## Member check 2026-11-24 (declared memory in bars, registry under the stored APR config, read-only)
+
+`feature_vectors` has 307 output columns; 282 are stored and applicable at 1d. Declared memory is `registry.effective_memory_bars` (what `_member_memory` verifies and the certificate bounds with `source_memory_bars_max`).
+
+| Declared memory (bars) | Columns |
+|---|---|
+| path dependent: refused for members (no finite memory) | 45 |
+| 0 and genuinely memoryless (calendar 20, bar shape 5, canaries 5, range_to_close 1) | 31 |
+| 0 but a builder-windowed pass-through (see below) | 21 |
+| 1 to 20 | 24 |
+| 21 to 63 | 44 |
+| 64 to 126 | 6 |
+| above 126 | 111 |
+
+At or under 20 bars: 55 columns, of which only 24 have a finite positive memory, and the 31 memoryless ones are calendar, bar-shape and canary columns, not hypothesis members. Above 20: 161 columns (44 + 6 + 111) plus the 21 pass-through ones. So most of the 1d family is long memory: the narrow certificate (design A) would admit only the short-memory minority.
+
+The named stage 2 members:
+
+| Family | Column | Declared memory | True builder window |
+|---|---|---|---|
+| H-B low risk | `max_daily_return` | 0 (distribution_pass_through) | 21 (`feature.max_daily_return.window`) |
+| H-B low risk | `idiosyncratic_volatility` | 0 (market_residual_pass_through) | 21 |
+| H-B low risk | `equity_beta_z` | 0 (macro_pass_through) | beta window 60 and z window 252 |
+| market-residual reversion | `market_residual_z` | 0 | 252 |
+| market-residual reversion | `market_residual_lag1_acf` | 0 | 63 |
+| size | `size_proxy` | 63 | 63 |
+| momentum | `momentum_z_mid`, `momentum_z_slow` | 272, 312 | same |
+| `corpus_family` | every guard-passing column | the table above | |
+
+Two findings for the build:
+1. None of the eight named members is at or under 20 bars by true window: the two shortest, `max_daily_return` and `idiosyncratic_volatility`, are 21, and the rest are 60 to 312. A tau-20 cap excludes the whole named set.
+2. The declared-memory gate is blind to the builder-windowed columns: 21 stored columns (`max_daily_return`, `idiosyncratic_volatility`, `equity_beta_z`, `market_residual_z`, `market_residual_lag1_acf`, `rate_beta_z`, `vix_z` and others of the pass-through kernels) declare memory 0 because their windowing is the builder's own NaN-until-full discipline. A certificate bounded by `source_memory_bars_max` would admit them as memoryless although they have windows of 21 to 252. Whichever design lands must take their true window (or refuse them) before any certificate is minted; this is a defect of the memory proxy, separate from the HAC lag.
+
+Sequence unchanged: after the corpus pilot and the family 10 counted runs and StepM read, before the pin of any counted corpus test, never beside a live counted run.
+

@@ -42,3 +42,7 @@ refused. The other twelve part B cells hold (184-05-BATTERY.md, Part B extension
 ## Recovered work (2026-11-24)
 
 Local branch `wip/586-persistence-statistic` (not pushed; based on an old main) holds the opt-in persistence-widened E17 standard error in new modules, its design note, the battery result and `scripts/research/e17_persistence_probe.py`. Rebase onto main before use; any edit under `src/intelligence/statistics/` needs `repro_frozen` bit-identical.
+
+## Part of todo 669 (2026-11-24, lead ruling)
+
+No separate fix is proposed here: the lag that scales with weight persistence is built under [todo 669](669-shared-horizon-5-1d-feature-route-in-the-runner.md) together with [todo 547](547-e17-hac-lag-for-overlapping-targets.md)'s horizon-tied lag. This todo closes when its ten gating cells hold under the fixed statistic.

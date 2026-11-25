@@ -66,3 +66,7 @@ fresh vintage. Holding the whole family, not just the momentum members, because 
 property of the target series every member consumes. B3 power and the daily-book statistic path
 wait on the same vintage. The amendment still lands as a methodology-change-ledger entry under
 E17, owner-approved, before the first counted daily run.
+
+## Part of todo 669 (2026-11-24, lead ruling)
+
+The horizon-tied lag for overlapping targets joins the HAC-lag item carried by [todo 669](669-shared-horizon-5-1d-feature-route-in-the-runner.md) with [todo 586](586-persistent-battery-gating-cell-failure.md): one statistic fix, one methodology-change entry, one rebind. The owner decision on the reversal members and the S1-drift hold stays here.
