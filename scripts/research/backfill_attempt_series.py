@@ -47,7 +47,10 @@ from src.core.database_manager import connect_with_codecs  # noqa: E402
 from src.core.service_utils import format_iso_ts  # noqa: E402
 from src.intelligence.research import panel as panel_mod  # noqa: E402
 from src.intelligence.research import store  # noqa: E402
-from src.intelligence.research.ledger import PostgresLedger  # noqa: E402
+from src.intelligence.research.ledger import (  # noqa: E402
+    SWEEP_SPEC_PATH_PREFIX,
+    PostgresLedger,
+)
 from src.intelligence.research.provenance import repo_root  # noqa: E402
 from src.intelligence.research.runner import BudgetConfig, RunContext, run_family  # noqa: E402
 from src.intelligence.research.spec import load_spec_from_blob  # noqa: E402
@@ -55,6 +58,8 @@ from src.intelligence.research.spec import load_spec_from_blob  # noqa: E402
 # The decision fields a replay must reproduce exactly (the E17 record's decision block).
 DECISION_FIELDS = ("t", "p", "se", "lag", "n_sessions", "mean_session_pnl", "memory_sessions")
 
+# A sweep attempt (E21) is a JSON spec with no git blob: it is recorded with its series and is
+# never replayed through a family run, so the backfill and the parity gate exclude it.
 _RUNS_SQL = """
 SELECT r.run_id::text AS run_id, r.spec_path, r.spec_hash, r.spec_blob, r.snapshot_hash,
        c.name AS concept, r.evidence, s.sessions, s.d_s
@@ -62,6 +67,7 @@ FROM research_run r
 JOIN concept_registry c USING (concept_id)
 LEFT JOIN research_run_series s USING (run_id)
 WHERE r.kind = 'evidence' AND r.status = 'completed' AND ($1 OR s.run_id IS NULL)
+  AND r.spec_path NOT LIKE $2 || '/%'
 ORDER BY r.spec_path, c.name
 """
 
@@ -100,7 +106,7 @@ def replay_refusal(spec) -> str | None:
 async def _rows(dsn: str, compare_all: bool) -> list[dict]:
     conn = await connect_with_codecs(dsn)
     try:
-        return [dict(r) for r in await conn.fetch(_RUNS_SQL, compare_all)]
+        return [dict(r) for r in await conn.fetch(_RUNS_SQL, compare_all, SWEEP_SPEC_PATH_PREFIX)]
     finally:
         await conn.close()
 

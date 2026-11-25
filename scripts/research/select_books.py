@@ -48,7 +48,10 @@ from scripts.research.stepm_null_battery import (  # noqa: E402
 from src.config.config_service import ConfigService  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.database_manager import connect_with_codecs  # noqa: E402
-from src.intelligence.research.ledger import UNCHARGED_STATUSES  # noqa: E402
+from src.intelligence.research.ledger import (  # noqa: E402
+    SWEEP_SPEC_PATH_PREFIX,
+    UNCHARGED_STATUSES,
+)
 from src.intelligence.research.provenance import repo_root  # noqa: E402
 from src.intelligence.research.spec import BookSpec, PodBookSpec, parse_spec_text  # noqa: E402
 from src.intelligence.statistics.stepm import stepm  # noqa: E402
@@ -62,7 +65,8 @@ APR_KEYS = (
 )
 
 _COUNTED_SQL = """
-SELECT r.run_id::text AS run_id, c.name AS concept, r.kind, r.status, r.spec_blob, r.code_commit,
+SELECT r.run_id::text AS run_id, c.name AS concept, r.kind, r.status, r.spec_path, r.spec_blob,
+       r.code_commit,
        r.mode, r.concept_id::text AS concept_id, r.spec_hash, r.snapshot_hash, r.decision_t,
        r.decision_p, r.gross_sharpe, r.span_start, s.sessions, s.d_s
 FROM research_run r
@@ -208,10 +212,11 @@ async def _load(dsn: str, vintage: str | None) -> tuple[list[dict], list[str], d
     return rows, others, apr, vintage
 
 
-def _is_sweep_spec(spec_blob: str) -> bool:
+def _is_sweep_spec(spec_path: str) -> bool:
     """An IC sweep attempt (E21, services/ic_sweep_recorder.py) stores its canonical JSON spec in
-    `spec_blob`; every other attempt stores a git blob sha of a committed YAML spec."""
-    return spec_blob.lstrip().startswith("{")
+    `spec_blob` under `SWEEP_SPEC_PATH_PREFIX`; every other attempt stores a git blob sha of a
+    committed YAML spec."""
+    return spec_path.startswith(f"{SWEEP_SPEC_PATH_PREFIX}/")
 
 
 def _sweep_horizon(spec_blob: str) -> int:
@@ -228,7 +233,7 @@ def attempt_universe(
     horizons = [
         (
             _sweep_horizon(r["spec_blob"])
-            if _is_sweep_spec(r["spec_blob"])
+            if _is_sweep_spec(r["spec_path"])
             else horizon_sessions(
                 git("cat-file", "-p", r["spec_blob"]),
                 lambda path, c=r["code_commit"]: git("show", f"{c}:{path}"),

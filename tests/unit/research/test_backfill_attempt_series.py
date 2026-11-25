@@ -85,3 +85,31 @@ def test_a_decision_without_memory_is_pre_e17():
     e16 = {k: v for k, v in DECISION["decision"].items() if k != "memory_sessions"}
     assert pre_e17({"evidence": {"decision": e16}})
     assert pre_e17({"evidence": None})  # nothing recorded is not an E17 record either
+
+
+def test_the_replay_query_excludes_sweep_attempts_by_spec_path(monkeypatch):
+    """A sweep attempt (E21) has a JSON spec and no git blob: the backfill and the parity gate
+    never read it, and the exclusion is bound to the one shared path prefix."""
+    import asyncio
+
+    from scripts.research import backfill_attempt_series as module
+    from src.intelligence.research.ledger import SWEEP_SPEC_PATH_PREFIX
+
+    calls = []
+
+    class _Conn:
+        async def fetch(self, sql, *args):
+            calls.append((sql, args))
+            return []
+
+        async def close(self):
+            pass
+
+    async def _connect(dsn):
+        return _Conn()
+
+    monkeypatch.setattr(module, "connect_with_codecs", _connect)
+    assert asyncio.run(module._rows("dsn", True)) == []
+    sql, args = calls[0]
+    assert "r.spec_path NOT LIKE $2 || '/%'" in sql
+    assert args == (True, SWEEP_SPEC_PATH_PREFIX)

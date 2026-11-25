@@ -41,6 +41,10 @@ from src.intelligence.research.recipe import RecipeContent
 # Fixed advisory-lock key covering research_run, construction identity rows and their
 # concept_parent edges. A schema identifier, APR-exempt.
 LEDGER_LOCK_KEY: int = 183366
+# An IC sweep attempt (E21, services/ic_sweep_recorder.py) records its canonical JSON spec in
+# `spec_blob` under a path with this prefix; every other attempt is a committed YAML spec whose
+# `spec_blob` is a git blob sha. Readers that resolve a blob through git key on the prefix.
+SWEEP_SPEC_PATH_PREFIX = "research/sweeps"
 
 TERMINAL_STATUSES: tuple[str, ...] = ("completed", "guard_failed", "refused", "failed")
 UNCHARGED_STATUSES: tuple[str, ...] = ("refused", "guard_failed")

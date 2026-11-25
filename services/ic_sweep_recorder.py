@@ -72,6 +72,7 @@ from src.intelligence.research.ledger import (  # noqa: E402
     AttemptSeries,
     LedgerRefusal,
     PostgresLedger,
+    SWEEP_SPEC_PATH_PREFIX,
     RunRequest,
 )
 from src.intelligence.statistics.hac import hac_mean_test  # noqa: E402
@@ -86,7 +87,7 @@ _logger = structlog.get_logger(__name__)
 # Service identity and schema identifiers: APR-exempt.
 _JOB = "ic-sweep-recorder"
 SPEC_VERSION = "ic-sweep-cell-v1"
-SPEC_PATH_PREFIX = "research/sweeps"
+SPEC_PATH_PREFIX = SWEEP_SPEC_PATH_PREFIX
 DIRECTIONS = ("long", "short")  # ledger 2026-11-24i: two attempts per cell, never a fitted sign
 _BLOCK_COLUMNS_KEY = "alpha.ic.feature_block_columns"
 _OOS_START_KEY = "alpha.validation.oos_start"

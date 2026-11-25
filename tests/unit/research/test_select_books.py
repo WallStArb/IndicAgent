@@ -165,6 +165,7 @@ def _series_row(i, spec, *, concept=None, status="completed", planted=0.0):
         d_s=d_s.tolist(),
         concept_name=concept or f"c{i:02d}",
         kind="evidence",
+        spec_path="research/specs/family.yaml",
         spec_blob="{}",
         code_commit="c" * 40,
     )
@@ -181,7 +182,12 @@ def _vintage(*, family10_spec_edited=False):
         spec = "f10spec-edited" if family10_spec_edited else "f10spec"
         killed.append(_killed(f"k10{c}", spec=spec, concept=f"f10{c}"))
     for r in killed:
-        r |= {"concept_name": r["concept_id"], "kind": "evidence", "spec_blob": "{}"}
+        r |= {
+            "concept_name": r["concept_id"],
+            "kind": "evidence",
+            "spec_path": "research/specs/family.yaml",
+            "spec_blob": "{}",
+        }
         r["code_commit"] = "c" * 40
     return rows + killed
 
@@ -247,8 +253,19 @@ def test_a_family10_member_that_never_completed_is_a_gap_not_an_exemption(tmp_pa
 
 def test_a_sweep_attempt_reads_its_horizon_from_its_json_spec_not_from_git(tmp_path):
     blob = '{"version":"ic-sweep-cell-v1","horizon":5}'
-    row = {"spec_blob": blob, "code_commit": "c" * 40, "sessions": [], "d_s": []}
-    assert select_books._is_sweep_spec(blob) and not select_books._is_sweep_spec("a" * 40)
+    path = "research/sweeps/1d_h5_long_0123456789ab.json"
+    row = {
+        "spec_path": path,
+        "spec_blob": blob,
+        "code_commit": "c" * 40,
+        "sessions": [],
+        "d_s": [],
+    }
+    # keyed on the recorded path, never on the blob's shape: a git blob sha or a YAML spec path
+    # that happens to look like JSON is not a sweep
+    assert select_books._is_sweep_spec(path)
+    assert not select_books._is_sweep_spec("research/specs/family10_a.yaml")
+    assert not select_books._is_sweep_spec("research/sweeps_extra/x.yaml")
     assert select_books._sweep_horizon(blob) == 5
     # no git call is made for a sweep row: a root that is not a repository is never read
     horizons, _calendar, _matrix = select_books.attempt_universe(
