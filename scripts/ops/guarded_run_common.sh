@@ -88,5 +88,5 @@ verdict_preflight() {
     FROM m LEFT JOIN v USING (subject)") || fail "verdict preflight query failed"
   read -r limit stale total <<< "$out"
   [ -n "${stale:-}" ] || fail "verdict preflight read nothing"
-  [ "$stale" -eq 0 ] || fail "$stale of $total member 1d verdicts are older than ${limit} h; refresh: cd $REPO && setsid -f $PY scripts/ops/bars/ops_member_verdicts_1d.py --apply > logs/member_verdicts_1d_\$(date -u +%F).out 2>&1 (about 1 h), then relaunch"
+  [ "$stale" -eq 0 ] || fail "$stale of $total member 1d verdicts are older than ${limit} h; refresh: cd $REPO && setsid -f $PY scripts/ops/bars/ops_member_verdicts_1d.py --apply > logs/member_verdicts_1d_\$(date -u +%F).out 2>&1 (about 1.8 h measured 2026-11-25; the report logs progress and an ETA), then relaunch"
 }

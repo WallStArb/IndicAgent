@@ -1254,6 +1254,25 @@ def _splits(rows: Iterable[Mapping[str, Any]]) -> list[SplitRecord]:
     return [split_record(r) for r in rows]
 
 
+_PROGRESS_REPORTS = 20  # a long 1d report logs about this many progress lines (a log cadence)
+
+
+def verdict_progress_every(total: int) -> int:
+    """Names between two progress lines of the 1d report (todo 649a: the member refresh ran an hour
+    and a half with no sign of life)."""
+    return max(total // _PROGRESS_REPORTS, 1)
+
+
+def verdict_progress(done: int, total: int, elapsed_s: float) -> dict[str, int]:
+    """Names judged so far, the elapsed seconds, and the seconds left at the pace so far."""
+    return {
+        "done": done,
+        "total": total,
+        "elapsed_s": round(elapsed_s),
+        "eta_s": round(elapsed_s * (total - done) / done) if done else 0,
+    }
+
+
 class _VerdictRun(NamedTuple):
     """The 1d report of one audit run: the rows to write and the numbers the log reports."""
 
@@ -2407,7 +2426,8 @@ class BarReconciliationAudit(BaseBatch):
         held_stale: list[str] = []
         holds = holds or {}
         twe = window.training_window_end
-        for symbol in names:
+        started = monotonic()
+        for done, symbol in enumerate(names, 1):
             inputs = await BarReconciliationAudit._name_inputs_1d(
                 conn,
                 symbol,
@@ -2500,6 +2520,11 @@ class BarReconciliationAudit(BaseBatch):
                 held_stale.append(
                     f"{symbol}: freshness_1d {stale.metric_value:.0f} sessions behind; held: "
                     + "; ".join(h.cause() for h in name_holds)
+                )
+            if done % verdict_progress_every(len(names)) == 0 and done < len(names):
+                logger.info(
+                    "bar_integrity.verdict_progress",
+                    **verdict_progress(done, len(names), monotonic() - started),
                 )
         n_hidden = sum(hidden.values())
         untraced = _Judged(
