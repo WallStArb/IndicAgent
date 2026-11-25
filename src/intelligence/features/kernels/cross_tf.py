@@ -376,6 +376,12 @@ KERNELS = (
         inputs=("ext_ctf_momentum", "ext_ctf_vwap_align"),
         memory=lambda config: 0,
         compute=_compute_ctf_passthrough,
+        # Both columns come from `ctf_source`, which is path dependent (the Wilder RSI runs from the
+        # series start); the member path refuses them (todo 674).
+        builder_path_dependent={
+            name: "ctf_source is path dependent: the Wilder RSI runs from the series start"
+            for name in ("ctf_momentum", "ctf_vwap_align")
+        },
     ),
     Kernel(
         name="cross_tf_divergence",

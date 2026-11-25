@@ -5,7 +5,7 @@ filed: 2026-11-24
 source: indicagent-fb, member check for todo 669 (lead ruling 2026-11-24: a silent wrong answer)
 ---
 
-# 21 stored columns declare memory 0 although their windows are 21 to 311 bars
+# A pass-through member's reach is read as 0: 11 stored columns reach back 21 to 311 bars, 10 are path dependent
 
 ## What
 
@@ -22,66 +22,51 @@ apr windows: {'max_daily_return_window': 21, 'idiosyncratic_volatility_window': 
 
 Why it is a silent wrong answer, not a missing feature: the runner takes a feature member's source memory from this number (`runner._member_memory` -> `feature_inputs.column_memory_bars` -> `feature_memory_bars`). It feeds (1) the certificate bound `source_memory_bars_max` (`null_battery_persistent.admit` accepts 0 under any bound), (2) the member's warmup mask (`feature_inputs.warmup_mask` masks nothing at 0), and (3) the E17 memory `L` of the run (`_member_memories`, `book_memory`, `e17_memory`), which sets the HAC lag and the bootstrap block. An understated `L` for a persistent member makes the test statistic's size too large, the same failure mode as todo 586, and no gate refuses it. It is unreachable today only because no stored 1d feature route is certified (todo 669); every route built under 669 would inherit it, and the first counted corpus families (H-B low risk, market-residual reversion) are made of exactly these columns.
 
+## Premise, as corrected 2026-11-24
+
+Memory 0 is right for the rebuild and stays (D-26: `test_every_externally_fed_kernel_declares_memory_in_the_consuming_tf`): the writer feeds the external builders the full source history, so a stored value does not depend on where the row grid starts, and `column_warmup_bars` masks nothing. The defect is that the research member path reads the same number as the member's reach (`feature_memory_bars`), where a pass-through reaches back over its builder's window. An earlier build that raised the declared memory (`wip/674-pass-through-memory-option-c`, local, not landed) failed the suite: the reviewed path-dependent allow list, the causality probe statuses, 20 production-path golden digests, a macro alignment probe row, and the D-26 test, and it would have masked rows the builders already fill correctly.
+
 ## End state
 
-Every stored column declares its true window, or is refused as a member before any certificate is looked up: `effective_memory_bars(column)` is at least the trailing window its builder reads, and a test fails if a pass-through kernel can ever declare less than its builder.
+A member's reach is the larger of the kernel's memory and the first row its value can exist (`definition_warmup`), so a certificate bound, a warmup mask and the E17 memory L see the builder window, with no change to any stored value, golden or probe status; and a pass-through of a path-dependent builder (cross-asset `flight_quality` and the date-level z-scores that share its builder, ctf Wilder RSI) is refused as a member.
 
 ## The 21 columns (checkable list)
 
-Kernel, builder module, and where the window lives; the window is the stored APR config value and the registry's own `definition_warmup(column, config, "1d")` where one is declared (the first row the value can exist; the builder's seed-independence span is that plus its slack of 2).
+| Pass-through kernel (`kernels/`) | Column | Builder window (first row of the value) | Declared before | R1 |
+|---|---|---|---|---|
+| `distribution_pass_through` | `max_daily_return` | `max_daily_return_window` returns (21) | none | definition |
+| | `max_drawdown`, `downside_deviation` | `max_drawdown_window - 1` closes, `downside_deviation_window` returns (251, 252) | none | definition |
+| `market_residual_pass_through` | `market_residual_return`, `idiosyncratic_volatility`, `market_residual_z`, `market_residual_lag1_acf`, `residual_beta_stability` | beta window plus the statistic's window minus 1 (60, 80, 311, 122, 119) | declared | reach reads it |
+| `macro_pass_through` | `equity_beta_z`, `rate_beta_z` | beta window plus z window minus 1 (311) | declared | reach reads it |
+| `dividend_yield_pass_through` | `dividend_yield` | `dividend_yield_window - 1` (251) | none | definition |
+| `macro_pass_through` | `vix_z`, `flight_quality`, `yield_slope_z`, `tip_tlt_ret_z`, `hyg_lqd_ret_z`, `sb_corr_fast`, `sb_corr_slow`, `sb_corr_z` | date-level record whose first row is where its input series begin (data, not code); the kernel documents definition 0; `flight_quality` anchors to the first close | 0 by design | refused as members (R2) |
+| `ctf_passthrough` | `ctf_momentum`, `ctf_vwap_align` | Wilder RSI from the series start; the VWAP window is in HTF bars | 0 | refused as members (R2) |
 
-| Pass-through kernel (`kernels/`) | Column | Window source (grid kernel and APR key) | `definition_warmup` 1d |
-|---|---|---|---|
-| `distribution_pass_through` (`distribution.py`) | `max_daily_return` | `distribution_daily` memory = max of `feature.max_daily_return.window` (21), `max_drawdown_window`, `downside_deviation_window` | 0 (none declared) |
-| | `max_drawdown`, `downside_deviation` | same grid kernel | 0 (none declared) |
-| `market_residual_pass_through` (`residual.py`) | `market_residual_return` | `market_residual_daily` memory = `factor_beta_window` + max(z 252, idiosyncratic 21, lag1_acf 63, beta stability) + 2 | 60 |
-| | `idiosyncratic_volatility` | same | 80 |
-| | `market_residual_z` | same | 311 |
-| | `market_residual_lag1_acf` | same | 122 |
-| | `residual_beta_stability` | same | 119 |
-| `macro_pass_through` (`macro.py`) | `equity_beta_z`, `rate_beta_z` | `factor_beta_daily`: `factor_beta_window` 60 plus `factor_beta_zscore_window` 252 | 311 |
-| | `vix_z`, `flight_quality`, `yield_slope_z`, `tip_tlt_ret_z`, `hyg_lqd_ret_z`, `sb_corr_fast`, `sb_corr_slow`, `sb_corr_z` | `cross_asset_daily` / `build_cross_asset_series`: `cross_asset_rv_window`, `vix_zscore_window`, `yield_curve_zscore_window`, `tip_tlt_zscore_window`, `hyg_lqd_zscore_window`, `sb_corr_window_fast/slow`, `sb_corr_zscore_window` | 0 (none declared) |
-| `dividend_yield_pass_through` (`dividend.py`) | `dividend_yield` | the dividend kernel's memory `dividend_yield_window + 1` (line 160) | 0 (none declared) |
-| `ctf_passthrough` (`cross_tf.py`) | `ctf_momentum`, `ctf_vwap_align` | `ctf_vwap_window` (cross-timeframe grid) | 0 (none declared) |
+Eleven columns get a reach (R1); ten are refused (R2). The eight cross-asset columns are symbol-independent date functions (one value per date for every name), so they carry no cross-sectional information as members in any case.
 
-That is 3 + 5 + 10 + 1 + 2 = 21. Fourteen columns have a first-row number of 0: the eight macro columns other than the two beta ones, the three distribution columns, the dividend column and the two cross-timeframe columns, so even `definition_warmup` says 0 there: the fix must read the builder's own window for them, not `definition_warmup`.
+## Scope: two commits, split by what each touches (lead ruling 2026-11-24)
 
-## Scope
+R1 (rebuild closure; lands with the corpus re-pin before `stage_1d`, with todo 583): declare the first-row `definition` for `max_daily_return`, `max_drawdown`, `downside_deviation` and `dividend_yield`; add the optional `tf` argument and the `max(memory, definition_warmup)` reach to `feature_memory_bars` in `registry.py`; add the declared `Kernel.builder_path_dependent` marker (output to reason, validated, no behaviour change) on the ten pass-through outputs whose builder grid kernel is path dependent (the eight cross-asset columns from `cross_asset_daily`, the two ctf columns from `ctf_source`), with a test that the marker set equals the reviewed list and that a pass-through is marked exactly when its builder is path dependent (lead ruling 2026-11-24: no hard-coded column list in `feature_inputs`). Test `tests/unit/intelligence/test_feature_memory_reach.py`: the 11 columns reach their builder window with memory 0 kept, no other non-path-dependent column's reach differs from its memory, the full unit suite with no golden or probe-status change. `rebuild_code_key()` moves (registry and two kernel modules).
 
-1. Decide the declaration: (a) one int per kernel equal to the builder's memory expression. It edits only the five kernel modules, so only the units holding those columns re-key; it over-declares the short columns of a kernel (for example `vix_z` would carry the 313 of `equity_beta_z` and lose early rows it could have kept), which is measurable before choosing. (b) allow `memory` as an int or a per-output mapping, as `definition` and `memory_anchor` already are: exact, but `registry.py` is in every kernel's import closure, so it moves every kernel's key and with it the whole rebuild pin. Recommendation: (a), measure the extra masked rows on the 25 pilot names first, and take (b) only if that loss is material, because (b) re-keys the entire stored table for a 21-column defect.
-2. Make the pass-through memory derive from the same expression as the grid kernel (one definition), not a second number.
-3. Add the test below, and run `scripts/research/determinism/repro_frozen.py` only if a research or statistics file is touched (it should not be).
+Review note for R2: the definitions are in daily bars and ignore `tf` (like the existing macro and residual ones), and these columns are broadcast to the intraday tfs, so a 5m-source member would read 251 as 251 five-minute bars (about 3 sessions) instead of about 19,600. Lead ruling 2026-11-24: R2 refuses daily-defined pass-throughs (the eleven with a reach) as members whose source tf is not 1d, rather than scaling; the 1d scope of the corpus is unaffected. R1 already changes the research warmup mask and E17 L for the 11 columns through `feature_inputs`, though no file under `research/` or `statistics/` is edited; `repro_frozen` runs with the R1 re-pin once the lead frees the slot.
 
-## Test (fails today)
+R2 (research; held with 669, never beside a live counted run; needs `repro_frozen`): pass the source tf from `feature_inputs.column_memory_bars` to `feature_memory_bars`; refuse the marked pass-throughs in `column_memory_bars` by reading the marker (not by a path-dependent flag, which would change `macro_products`' mask and first stored row); `tests/unit/intelligence/test_pass_through_memory.py` asserting reach at least the builder window and the refusal, with a guard that fails on a pass-through column not listed.
 
-`tests/unit/features/test_pass_through_memory.py`, for every kernel whose name ends in `_pass_through` or `passthrough` (found from `default_registry().kernels`, so a new one cannot escape): each pair of pass-through output and its grid kernel is listed in the test; the test asserts `effective_memory_bars(output) >= grid_memory_for(output)` and `>= definition_warmup(output)` under the default config and under a config with every window doubled; and a guard test fails when a pass-through kernel is not in the pair list. Must fail on 2026-11-24 main for all 21 columns.
+## Landing constraint and pins
 
-## Landing constraint and which pins it touches
-
-- It edits kernel modules (option a) and also `src/intelligence/features/contract/registry.py` (option b only) (`macro.py`, `residual.py`, `distribution.py`, `dividend.py`, `cross_tf.py`), all in the rebuild writer's import closure. `rebuild_code_key()` moves under either option (it hashes the registry's kernels and the writer closure); under (a) the unit key moves for the units holding these columns, under (b) for every unit. Print `rebuild_code_key()` before and after in a detached worktree off `origin/main`.
-- Never while a run that imports them is live: the corpus pilot `f9f69166` is pinned at `09708ae249f2`, and an edit discards every completed cell (`code_content_key`). Land only when no corpus run is live.
-- Pins it affects: the pin of any counted corpus test. The stage_1d feature rebuild writes the stored rows that a counted corpus run reads, under the key current at that time. Landing after `stage_1d` has written them re-keys the units of the 21 columns and forces their rebuild (the rows before the builder's slack rows change from a stored value to NaN: at most 2 rows per name per column for the rolling builders, measured before the rebuild). The cheapest sequence is therefore after the pilot passes and before `stage_1d` is launched; the lead rules the order.
-- Stored values: a declared memory above the builder's NaN prefix masks the slack rows, so it can change a stored value in the first rows of each series. Quantify on the pilot rows before the rebuild (a read of the 25 pilot names, no corpus compute).
+R1 edits `registry.py` and two kernel modules, all in the rebuild writer's import closure, so `rebuild_code_key()` moves: never while a run that imports them is live (the pilot `f9f69166` is pinned at `09708ae249f2`), and it rides the corpus re-pin before `stage_1d` with todo 583. R2 never beside a live counted run.
 
 ## Gates
 
-Unit suite by exit code, ruff, black, `tools/check_glossary.py`, `/simplify`, an independent review of the worktree diff, the new test failing before and passing after, `rebuild_code_key()` before and after recorded in the closure note, and no edit while a corpus run is live. Doc: `docs/foundation/` kernel-registry text if it states the pass-through contract (the kernels' own comments say memory 0 by design; update them with the fix).
+Unit suite by exit code, ruff, black, `tools/check_glossary.py`, `/simplify`, an independent review of the worktree diff, `rebuild_code_key()` before and after in the closure note, and for R2 `repro_frozen`.
 
 ## Related
 
-Todo 669 (the member check that found it; every certificate under 669 needs this first), todo 586 (the same size failure mode with persistence), `docs/plans/2026-11-24-family-order-after-1d-corpus.md` (H-B and market-residual families use these columns).
-
-## Correction 2026-11-24 (indicagent-fb, after building option (a) and running the suite)
-
-The premise above is only half right, and the Scope section's fix (change the declared memory) is the wrong one. `tests/unit/services/test_backfill_feature_factory.py::TestRebuildUnitDesign::test_every_externally_fed_kernel_declares_memory_in_the_consuming_tf` records the D-26 design: a kernel that reads an external builder's series declares memory 0 in the consuming tf's bars, because the writer feeds the builders the full source history, so a stored value does not depend on where the row grid starts. The rebuild warmup (`column_warmup_bars`) reads that number, and 0 is right for it. The defect is only that the research member path reads the same number as the member's reach (`feature_memory_bars`, for the certificate bound and the E17 memory L), where a pass-through's reach is its builder's window.
-
-Building option (a) (one pass-through kernel per window class with the window as memory, `wip/674-pass-through-memory-option-c`, local, not landed) failed the suite: the reviewed path-dependent allow list, the causality probe statuses, 20 production-path golden digests, a macro alignment probe row, and the D-26 test above. It also over-masked: the rebuild never stores rows before row 252 (`momentum_zscore_window`), so a memory at or under 252 masks nothing stored and only 253 to 314 would, and the stored-row loss figures in an earlier draft were overstated. It made `macro_products` path dependent by inheritance (its mask of 257 would vanish and its first stored row move by one).
-
-Revised design (R): keep pass-through memory 0 (stored values and goldens unchanged); declare the true first-row `definition` for the 14 columns that lack one (distribution 3, dividend 1, cross-asset 8, ctf 2); make a member's reach `max(effective memory, definition_warmup(output, config, tf))` in `feature_memory_bars` (registry.py, optional `tf`, default 1d), so the research member path sees the builder window; refuse the path-dependent pass-throughs (cross-asset `flight_quality` and the date-level z-scores that share its builder, ctf Wilder RSI) as members. The refusal is either a path-dependent flag on those kernels (side effects on `macro_products` and its goldens) or a check in `feature_inputs.column_memory_bars` (research layer). The test becomes: reach at least the builder window for the 11 finite columns, refusal for the 10 path-dependent ones. Open ruling: with the lead (research-side refusal and the `tf` argument wait for the quiet window, like 669).
+Todo 669 (the member check that found it; every certificate under 669 needs this first), todo 586, `docs/plans/2026-11-24-family-order-after-1d-corpus.md`.
 
 ## Hand-off 2026-11-25 (indicagent-8a, for the lead)
 
-Both parts are built and held, rebased on 16a905613; nothing is pushed.
+Both parts are built and held; nothing is pushed. They land in one re-pin on `wip/repin-integration` (order 652, R1, R2, 670/671, gate); the superseded option (a) branch is archived as tag `archive/674-option-c-2026-11`.
 
 - R1: `258deab73` on `wip/674-r1-reach-and-definitions`. A pass-through member's reach is `max(memory, definition_warmup)`; first-row definitions for four columns; pass-through memory stays 0. It edits kernel modules in the rebuild writer's closure, so it moves `rebuild_code_key()` from 09708ae249f2 to 212a76c35332 and rides the single corpus re-pin before stage_1d, together with the todo 652 kernel declarations.
 - R2: `4d520ebb5` on `wip/674-r2-member-refusal`, stacked on R1. It edits `src/intelligence/research/`, so it needs `repro_frozen` bit-identical and does not land beside a live counted run; sequence it after the counted runs.

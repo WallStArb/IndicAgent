@@ -3,8 +3,9 @@
 D-25: a kernel module dropped into `kernels/` and exporting a `KERNELS` tuple is found by
 `discover_kernels()`; nothing in this file is edited to register it.
 
-D-26: `feature_memory_bars()` is the single source of feature-member memory. `book_memory()`
-(phase 187) and the rebuild warmup (186-25) read this function and nothing else.
+D-26: `feature_memory_bars()` is the single source of feature-member memory (its reach). `book_memory()`
+(phase 187) reads it; the rebuild warmup (186-25) reads `effective_memory_bars`, the seed-independence
+span, which differs from the reach only for pass-throughs of external builders (todo 674).
 
 Pure: no database, no ConfigService, no import-time registration side effects.
 """
@@ -147,6 +148,12 @@ class Kernel:
     # Per anchored output, the complete anchor periods its value needs (0: a running accumulator
     # of the current period; 1: the prior session's or week's levels).
     anchor_periods: Mapping[str, int] = field(default_factory=dict)
+    # A pass-through of an external builder declares memory 0 (the writer feeds the builder the
+    # full source history), so it is not itself path dependent. Where the builder is (its grid
+    # kernel declares path_dependent), the pass-through names the output and the reason here: the
+    # value still depends on where the builder's series starts, so the research member path
+    # refuses it (todo 674). A declaration only: no registry computation reads it.
+    builder_path_dependent: Mapping[str, str] = field(default_factory=dict)
     definition: Callable[[FeatureFactoryConfig, str], int | Mapping[str, int]] | None = None
     # Absolute float32 tolerance at which the declared memory holds. 0.0 means exact. A non-zero
     # value needs a comment in the kernel module giving the source of the last-bit difference
@@ -291,6 +298,18 @@ class KernelRegistry:
                 f"external input {name!r} equals the output of {_where(by_output[name])}"
             )
         for kernel in kernels:
+            marked = set(kernel.builder_path_dependent)
+            if marked - set(kernel.outputs) or not all(kernel.builder_path_dependent.values()):
+                raise KernelRegistryError(
+                    f"kernel {_where(kernel)} builder_path_dependent {sorted(marked)} must name "
+                    "its own outputs, each with a reason"
+                )
+            if marked and kernel.path_dependent:
+                raise KernelRegistryError(
+                    f"kernel {_where(kernel)} is path dependent itself; builder_path_dependent is "
+                    "for pass-throughs of a path-dependent builder"
+                )
+        for kernel in kernels:
             unmasked = {o for o in kernel.object_dependent if f"_{o}_is_none" not in kernel.outputs}
             if unmasked:
                 raise KernelRegistryError(
@@ -415,6 +434,11 @@ class KernelRegistry:
 
     def is_path_dependent(self, output: str) -> bool:
         return self._path_dependent_source(self.by_output(output)) is not None
+
+    def builder_path_dependent_reason(self, output: str) -> str | None:
+        """Why `output`, a pass-through of an external builder, depends on where the builder's
+        series starts (its kernel's `builder_path_dependent`); None when it does not."""
+        return self.by_output(output).builder_path_dependent.get(output)
 
     def effective_memory_bars(self, name: str, config: FeatureFactoryConfig) -> int:
         kernel = self.by_name(name)
@@ -582,11 +606,24 @@ KERNEL_ONLY_COLUMNS: Mapping[str, str] = {
 
 
 def feature_memory_bars(
-    output: str, config: FeatureFactoryConfig, registry: KernelRegistry | None = None
+    output: str,
+    config: FeatureFactoryConfig,
+    registry: KernelRegistry | None = None,
+    tf: str = "1d",
 ) -> int:
-    """Declared memory in bars of the kernel producing `output` (D-26, the one source)."""
+    """The reach in bars of the stored column `output` as a feature member (D-26, the one source):
+    the larger of the producing kernel's effective memory and the first row its value can exist
+    (`definition_warmup` on `tf`).
+
+    The effective memory is the seed-independence span the rebuild masks. A pass-through of an
+    external builder declares it 0 (the writer feeds the builder the full source history, so a
+    stored value does not depend on where the row grid starts), but the value still reaches back
+    over the builder's window, which the kernel's `definition` states. A member's certificate bound,
+    warmup mask and E17 memory read this reach (todo 674). For every other kernel the definition
+    defaults to the memory, so nothing changes."""
     reg = registry if registry is not None else default_registry()
-    return reg.effective_memory_bars(reg.by_output(output).name, config)
+    memory = reg.effective_memory_bars(reg.by_output(output).name, config)
+    return max(memory, reg.definition_warmup(output, config, tf))
 
 
 def _is_none_mask(name: str) -> bool:

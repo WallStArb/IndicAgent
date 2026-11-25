@@ -213,6 +213,13 @@ KERNELS = (
         memory=lambda config: 0,
         compute=_compute_distribution_pass_through,
         zero_is_state=frozenset({"max_drawdown", "downside_deviation"}),
+        # The first row each builder value exists (todo 674): `window` returns need `window`
+        # rows after the first close, the drawdown needs `window` closes. A member's reach.
+        definition=lambda c, tf: {
+            "max_daily_return": c.max_daily_return_window,
+            "max_drawdown": c.max_drawdown_window - 1,
+            "downside_deviation": c.downside_deviation_window,
+        },
     ),
     Kernel(
         name="size_proxy",

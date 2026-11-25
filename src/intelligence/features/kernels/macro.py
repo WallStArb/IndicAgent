@@ -523,6 +523,12 @@ EXTERNAL_INPUTS = (
 )
 
 
+_CROSS_ASSET_PATH_REASON = (
+    "flight_quality anchors to the first available close of each series, and the running "
+    "z-score histories start at the first record date"
+)
+
+
 def _compute_pass_through(x, config):
     return {name: np.asarray(x[f"ext_{name}"], dtype=np.float64).copy() for name in MACRO_COLUMNS}
 
@@ -641,6 +647,14 @@ KERNELS = (
         # first close, the z-scores accumulate) belongs to the builder kernels 186-15 creates.
         memory=lambda config: 0,
         compute=_compute_pass_through,
+        # The eight cross-asset record columns come from `cross_asset_daily`, which is path
+        # dependent (flight_quality anchors to the first close; the running histories start at the
+        # first record date); the two beta columns come from `factor_beta_daily`, which is not.
+        builder_path_dependent={
+            name: "cross_asset_daily is path dependent: " + _CROSS_ASSET_PATH_REASON
+            for name in MACRO_COLUMNS
+            if name not in {"equity_beta_z", "rate_beta_z"}
+        },
         # The beta builder's first row in daily rows (1d only: intraday rows repeat each daily record,
         # so the first row there is later and the screen's G2 is not calibrated for it): the first beta needs `factor_beta_window` returns (close
         # row factor_beta_window), the z-score `factor_beta_zscore_window` betas. The eight
@@ -662,10 +676,7 @@ KERNELS = (
         memory=lambda config: 0,
         compute=_compute_cross_asset_daily,
         path_dependent=True,
-        path_dependent_reason=(
-            "flight_quality anchors to the first available close of each series, and the running "
-            "z-score histories start at the first record date"
-        ),
+        path_dependent_reason=_CROSS_ASSET_PATH_REASON,
     ),
     Kernel(
         name="factor_beta_daily",

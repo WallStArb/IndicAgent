@@ -169,5 +169,8 @@ KERNELS = (
         memory=lambda config: 0,
         compute=_compute_dividend_yield_pass_through,
         zero_is_state=frozenset({"dividend_yield"}),
+        # The first row the builder's value exists: the trailing window of amounts is full
+        # (todo 674); a member's reach.
+        definition=lambda c, tf: c.dividend_yield_window - 1,
     ),
 )
