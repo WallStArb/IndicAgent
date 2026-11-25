@@ -46,4 +46,4 @@ ETHA, IBIT all-NULL); re-measure there.
 
 ## Status 2026-11-24
 
-The annotations are done: a note under the ledger table and a caveat on each of the two summary cards. Open: rerun the 303/304 benchmark comparison on the corpus rerun's regime columns.
+The annotations are done and on main (5f1af57f6): a note under the ledger table ("Annotation 2026-11-24 (todo 466)") and a caveat on each of the two summary cards (303 and 304). No docs item is left; the todo is now only the benchmark rerun on the corpus rerun's regime columns, after the rerun lands them.
