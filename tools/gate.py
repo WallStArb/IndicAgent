@@ -169,7 +169,6 @@ def build_steps(
                     python,
                     "-m",
                     "pytest",
-                    "-q",
                     "-p",
                     "no:cacheprovider",
                     "--live-catalog",
@@ -177,7 +176,7 @@ def build_steps(
                     "-m",
                     "integration",
                 ),
-                expect="1 passed",  # the test skips without the flag; a skip is no check
+                expect="1 passed",  # a skip is no check; no -q here: pytest.ini addopts has it and -qq drops the summary
             )
         )
     if integration:

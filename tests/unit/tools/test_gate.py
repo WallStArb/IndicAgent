@@ -1,6 +1,7 @@
 """Unit tests for tools/gate.py: what a change needs, the migration-number guard, the step runner
 and the cross-session parity lock."""
 
+import configparser
 import subprocess
 import sys
 import threading
@@ -91,6 +92,18 @@ def test_the_plan_is_the_suite_then_what_the_change_needs():
     assert [s.name for s in full] == ["unit", "repro_frozen", "compare_all", "integration"]
     assert [s.locked for s in full] == [False, True, True, False]
     assert full[1].expect == "bit-identical"
+
+
+def test_a_pytest_step_that_checks_the_summary_adds_no_second_quiet_flag():
+    """pytest.ini addopts carries -q; a second -q makes -qq, which drops the "N passed" summary line
+    the step's expect looks for, so the step reports FAILED on a passing test."""
+    config = configparser.ConfigParser()
+    config.read(gate.REPO_ROOT / "pytest.ini")
+    assert "-q" in config["pytest"]["addopts"].split()
+    steps = _steps(gate.Plan(False, ("production/migrations/1_a.sql",), True))
+    checked = [s for s in steps if s.expect and "pytest" in s.argv]
+    assert [s.name for s in checked] == ["live_catalog"]
+    assert not any(a.startswith("-q") or a == "--quiet" for s in checked for a in s.argv)
 
 
 def _py(code: str, name: str = "s", **kw) -> gate.Step:
