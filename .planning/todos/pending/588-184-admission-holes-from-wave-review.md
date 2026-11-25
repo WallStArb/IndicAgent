@@ -98,3 +98,31 @@ Decide with a measured real-data example, not by argument.
 ## Status 2026-11-24 (todo consolidation pass)
 
 Merged from 560 (2026-11-24): the NULL-volume path is deleted (17cfe233b) and canonical holds only Massive and Alpaca, both `VOLUME_BASIS_CONSOLIDATED` (`vendor_kind.py:249`), so there is no seam. The only open item of 560 is item (e): S0 supplying `volume_basis`.
+
+## Item (e) spec: S0 supplies `volume_basis` (2026-11-24, indicagent-94; design only, no code edited)
+
+Facts checked against live code (2026-11-24):
+- `kernel_source.kernel_source` takes `volume_basis` and refuses a volume kernel without it ("the panel carries no vendor provenance (todo 555)", `kernel_source.py:187`). The runner's S0 path calls it through `snapshot._run_kernel` (`snapshot.py:795-807`), which passes no basis, so every volume kernel member (`rk_vwap_dev`) is refused at S0 today, on top of the withheld certificates (`null_battery_persistent.py:152-160`).
+- The battery's own source array hard-codes one basis: `volume_basis=np.full(close.shape, VOLUME_BASIS_CONSOLIDATED)` (`null_battery_persistent.py:604`). The certificate cells therefore assume one consolidated basis; nothing proves a real panel has it.
+- Canonical now holds only Massive and Alpaca, both `VOLUME_BASIS_CONSOLIDATED` (`vendor_kind.py:238-262`, `volume_basis()`; an unmapped pair raises, a basis never defaults). A mixed basis cannot occur in canonical after the IBKR removal, so a mixed-basis battery cell has nothing to certify; the missing piece is S0 proving the single basis instead of assuming it.
+- Bars are read from `market_data_ohlcv_tradeable`, which carries `vendor` and `kind` per bar (`_VENDOR_SET_SQL`, `snapshot.py:83-86`, already queries the distinct pairs for intraday tfs).
+
+End state. For a kernel member whose kernel declares `volume` without `volume_basis_safe` (the registry's own rule, `registry.py:735`), S0 reads the distinct (vendor, kind) pairs of the source tf's bars over the fetch span, maps each through `vendor_kind.volume_basis`, and:
+- if every pair maps to one basis (NONE pairs carry none), passes `volume_basis = np.full(shape, that basis)` to the kernel and records `{basis, vendor_kinds}` in the member's evidence (`info`), so the claim is data in the snapshot, not a constant in a battery;
+- if the pairs map to more than one basis, or a pair is unmapped, refuses the member loudly naming the pairs (`ValueError`, as `_run_kernel` does for `KernelSourceRefused`);
+- on a derived 15m or 1h source, reads the pairs of the 5m constituents over the span (derived bars carry `DERIVED_PAIR`, whose basis comes from its constituents, `grid_volume_basis`), with the same rule.
+No new spec field: the need is derived from the registry, so no spec hash moves and no `_OPTIONAL_*_FIELDS` entry is added. Members that do not read volume get exactly the arrays and manifest they get today.
+
+Checkable scope list.
+1. `src/intelligence/research/snapshot.py` only: a `_BASIS_VENDOR_SQL` beside `_VENDOR_SET_SQL`, a `_volume_basis_for(...)` helper (pure, takes the pairs, returns the basis or raises), the need test, the `volume_basis` argument of `_run_kernel` and the evidence key. Do not edit `Panel` or `panel.py` (it is in every recorded battery's code key), `kernel_source.py` (in the persistent battery's closure) or `vendor_kind.py`.
+2. Tests (`tests/unit/research/test_snapshot_volume_basis.py`): one consolidated pair gives a full CONSOLIDATED array and the kernel runs; Alpaca plus an IBKR SMART pair refuses naming both; an unmapped pair raises; a kernel that does not read volume (and a `volume_basis_safe` one) gets no basis and an unchanged evidence dict; the derived-tf path reads 5m constituent pairs; the evidence records basis and pairs.
+3. Optional second step, a lead ruling and a methodology-ledger line (not part of this landing): restore the two `rk_vwap_dev` certificates in `WITHHELD_CERTIFICATES` under the precondition "S0 verified one consolidated basis". That edits `null_battery_persistent.py` and the `test_passing_certificates_match_report` contract; it moves only the persistent battery's code key, and no bound pass record uses that battery (`research/battery_passes/` holds daily residual, seasonality and family 10 records, whose closures do not contain `null_battery_persistent`, checked by `import_closure` 2026-11-24). Recommendation: do step 3 with a ledger line once step 1 has landed and run on real bars; until then the certificates stay withheld.
+
+Which hashes move. Spec hashes: none. Recorded battery keys: none, provided only `snapshot.py` outside `session_dates` is edited (`battery_code_key` hashes `snapshot.py` by the `session_dates` function only, `battery_pass.py:174-190`; `panel.py` is in the closure of the daily residual, volume shock and persistent batteries, which is why `Panel` stays untouched). Snapshot bytes of recorded runs: unchanged (verified by `repro_frozen`). `rebuild_code_key()`: unchanged; the writer's import closure is 61 modules and none is under `src/intelligence/research/` (`writer_code_modules()` 2026-11-24).
+
+Gates. Unit suite exit code, ruff, black, glossary, `/simplify`, `/review`; `repro_frozen` bit-identical (`python -m scripts.research.determinism.repro_frozen <scratch> --logs /home/bg/dev/indicagent/logs`); `battery_code_key` of the three bound records recomputed equal (the `test_battery_pass` suite does this when the tree is clean); a real-data check on one name (read-only): the pairs and the basis printed for `rk_vwap_dev`'s 1d source.
+
+Landing constraint. It edits research code: lands after the corpus pilot and the family 10 counted runs, before the pin of any counted corpus test, in a detached worktree off origin/main, never beside a live counted run (a live run imports `snapshot.py`; `code_content_key` hashes it). It does not touch `rebuild_code_key()`. It does not need the pilot's result.
+
+Size: about 80 lines of code and about 120 of tests; one session.
+
