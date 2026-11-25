@@ -9,6 +9,7 @@ WORKERS=${WORKERS:-4}         # owner raises to 8 once airflow is fixed and a ru
 mkdir -p "$SCRATCH"
 GATE_C=60                     # start only if both DIMM sensors read this or less
 STOP_C=92; RESUME_C=80; KILL_C=100; MAX_PAUSE_S=1200
+MEM_FLOOR_KB=$((40 * 1024 * 1024))   # 40 GiB of MemAvailable, compared in kB (exact GiB in the message)
 
 log()  { echo "$(date -u +%FT%TZ) $*" >> "$STATUS"; }
 fail() { log "ABORT $*"; exit 3; }
@@ -22,6 +23,13 @@ dimm_temps() {   # millidegrees of every spd5118 sensor, one per line
 }
 dimm_max_c() { dimm_temps | sort -n | tail -1 | awk '{printf "%d", $1/1000}'; }
 
+mem_available_kb() { awk '/^MemAvailable:/{print $2}' "${MEMINFO:-/proc/meminfo}"; }
+
+mem_gate() {     # MemAvailable in kB against the floor in kB; the message gives the exact GiB
+  local kb; kb=$(mem_available_kb)
+  [ "${kb:-0}" -ge "$MEM_FLOOR_KB" ] || fail "only $(awk -v k="${kb:-0}" 'BEGIN{printf "%.2f", k/1048576}') GiB available, need $((MEM_FLOOR_KB / 1048576)) GiB"
+}
+
 host_gate() {    # refuse to start on a host that is not demonstrably healthy
   [ -f "$SCRATCH/memtester_clean" ] || fail "no memtester_clean file (operator records a clean pass)"
   pgrep -x memtester >/dev/null && fail "memtester still running"
@@ -30,8 +38,7 @@ host_gate() {    # refuse to start on a host that is not demonstrably healthy
   journalctl -k -b --no-pager 2>/dev/null | grep -q -E 'segfault|Bad page|Bad swap|general protection' && fail "kernel log shows memory-fault signatures this boot"
   local n; n=$(dimm_temps | wc -l); [ "$n" -ge 2 ] || fail "expected 2 spd5118 sensors, found $n"
   local t; t=$(dimm_max_c); [ "$t" -le "$GATE_C" ] || fail "DIMM at ${t}C, gate ${GATE_C}C"
-  local avail; avail=$(free -g | awk '/^Mem:/{print $7}')
-  [ "${avail:-0}" -ge 40 ] || fail "only ${avail} GB available, need 40"
+  mem_gate
 }
 
 # run_guarded <outfile> <cmd...>: runs cmd in its own process group with the temperature
