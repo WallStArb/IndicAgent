@@ -82,6 +82,7 @@ from services.batch_support.bulk_load import (
     parse_run_id,
     prior_completed_unit,
 )
+from services.batch_support.cell_spool import CellSpool
 from services.batch_support.db import load_config_service_sync, short_lived_conn, table_column_types
 from services.batch_support.digests import (
     BAR_DIGEST_ABSENT_SYMBOL,
@@ -804,34 +805,150 @@ def _sorted_rows(rows: list[tuple]) -> list[tuple]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Cell spool (todo 668): a block's finished result survives a kill, losslessly
+# ---------------------------------------------------------------------------
+
+_SPOOL_ROOT = project_root / "logs" / "ic_measure_spool"
+
+
+def _encode_cell(cell: IcCell, prefix: str = "") -> dict[str, np.ndarray]:
+    arrays = {
+        f"{prefix}{f.name}": np.asarray(getattr(cell, f.name))
+        for f in dataclasses.fields(IcCell)
+        if f.name != "features"
+    }
+    arrays[f"{prefix}features"] = np.array(cell.features, dtype=str)
+    return arrays
+
+
+def _decode_cell(arrays: Mapping[str, np.ndarray], prefix: str = "") -> IcCell:
+    values: dict[str, Any] = {}
+    for f in dataclasses.fields(IcCell):
+        stored = arrays[f"{prefix}{f.name}"]
+        values[f.name] = (
+            tuple(stored.tolist())
+            if f.name == "features"
+            else int(stored) if f.name in ("n_degenerate", "stride") else stored
+        )
+    return IcCell(**values)
+
+
+def _encode_term(term: TermStructure) -> dict[str, np.ndarray]:
+    arrays = _encode_cell(term.proposer_cell, "cell.")
+    arrays["features"] = np.array(term.features, dtype=str)
+    arrays["horizons"] = np.array(term.horizons, dtype=np.int64)
+    for name in ("ic", "n_obs", "p_value", "peak_horizon"):
+        arrays[name] = getattr(term, name)
+    return arrays
+
+
+def _decode_term(arrays: Mapping[str, np.ndarray]) -> TermStructure:
+    return TermStructure(
+        features=tuple(arrays["features"].tolist()),
+        horizons=tuple(int(h) for h in arrays["horizons"]),
+        ic=arrays["ic"],
+        n_obs=arrays["n_obs"],
+        p_value=arrays["p_value"],
+        peak_horizon=arrays["peak_horizon"],
+        proposer_cell=_decode_cell(arrays, "cell."),
+    )
+
+
+def _encode_cells(cells: Mapping[str, IcCell]) -> dict[str, np.ndarray]:
+    arrays = {"labels": np.array(list(cells), dtype=str)}
+    for i, cell in enumerate(cells.values()):
+        arrays.update(_encode_cell(cell, f"{i}."))
+    return arrays
+
+
+def _decode_cells(arrays: Mapping[str, np.ndarray]) -> dict[str, IcCell]:
+    return {str(label): _decode_cell(arrays, f"{i}.") for i, label in enumerate(arrays["labels"])}
+
+
+def _encode_series(series: Sequence[MemberIcSeries]) -> dict[str, np.ndarray]:
+    arrays: dict[str, np.ndarray] = {"members": np.array([s.member for s in series], dtype=str)}
+    for i, s in enumerate(series):
+        for f in dataclasses.fields(MemberIcSeries):
+            if f.name != "member":
+                arrays[f"{i}.{f.name}"] = np.asarray(getattr(s, f.name))
+    return arrays
+
+
+def _decode_series(arrays: Mapping[str, np.ndarray]) -> list[MemberIcSeries]:
+    out = []
+    for i, member in enumerate(arrays["members"]):
+        values: dict[str, Any] = {"member": str(member)}
+        for f in dataclasses.fields(MemberIcSeries):
+            if f.name == "member":
+                continue
+            stored = arrays[f"{i}.{f.name}"]
+            values[f.name] = stored if stored.ndim else stored.item()
+        out.append(MemberIcSeries(**values))
+    return out
+
+
+def _cached(
+    spool: CellSpool | None,
+    cell: str,
+    names: Sequence[str],
+    build: Callable[[], Any],
+    encode: Callable[[Any], dict[str, np.ndarray]],
+    decode: Callable[[Mapping[str, np.ndarray]], Any],
+) -> Any:
+    """`build()` unless the spool already holds this cell for these names; a built cell is
+    stored. No spool computes as before, so the unit's value never depends on it."""
+    if spool is None:
+        return build()
+    stored = spool.load(cell, names)
+    if stored is not None:
+        try:
+            return decode(stored)
+        except (KeyError, ValueError, IndexError) as error:  # a cache entry that does not decode
+            _logger.warning("ic_measure.spool_undecodable", cell=cell, error=str(error))
+    value = build()
+    spool.store(cell, names, encode(value))
+    return value
+
+
 def compute_proposer_rows(
     ctx: TfContext,
     source: FeatureSource,
     inputs: FamilyInputs,
     params: MeasureParams,
     horizons: Sequence[int],
+    spool: CellSpool | None = None,
 ) -> list[tuple]:
     """Term structure per block (its first horizon's cell is the proposer cell, the only one
     bootstrapped), then Benjamini-Hochberg once over the whole family: blocking bounds memory and
-    never reaches a value or an FDR decision."""
+    never reaches a value or an FDR decision. A spooled block is loaded, not recomputed."""
     horizons = tuple(horizons)
     end = np.datetime_as_string(ctx.grid.end_exclusive, unit="s")
     complete = inputs.complete[ALL_ROWS]
-    terms: list[TermStructure] = []
-    for block in source.blocks:
-        grid = _verified_block(source, block, inputs)
-        terms.append(
-            term_structure(
-                grid,
-                block,
-                ctx.panels,
-                horizons,
-                end,
-                params,
-                present=ctx.present,
-                complete=complete,
-            )
+
+    def block_term(block: tuple[str, ...]) -> TermStructure:
+        return term_structure(
+            _verified_block(source, block, inputs),
+            block,
+            ctx.panels,
+            horizons,
+            end,
+            params,
+            present=ctx.present,
+            complete=complete,
         )
+
+    terms: list[TermStructure] = [
+        _cached(
+            spool,
+            f"proposer-{index}",
+            block,
+            lambda block=block: block_term(block),
+            _encode_term,
+            _decode_term,
+        )
+        for index, block in enumerate(source.blocks)
+    ]
     term = merge_term_structures(terms)
     adjusted, passes = family_fdr(term.proposer_cell.p_value, params.fdr_alpha)
     ends = {h: _window_end(ctx.stack(h)) for h in horizons}
@@ -845,6 +962,7 @@ def compute_disclosure_rows(
     labels: np.ndarray,
     params: MeasureParams,
     horizons: Sequence[int],
+    spool: CellSpool | None = None,
 ) -> list[tuple]:
     complete = {
         key.removeprefix(_LABEL_PREFIX): mask
@@ -852,12 +970,27 @@ def compute_disclosure_rows(
         if key.startswith(_LABEL_PREFIX)
     }
     rows: list[tuple] = []
-    for block in source.blocks:
-        grid = _verified_block(source, block, inputs)
+    for index, block in enumerate(source.blocks):
+        grid: np.ndarray | None = None  # fetched on the first cell of the block that needs it
         for horizon in horizons:
             stack = ctx.stack(horizon)
-            cells, _n_unlabelled = regime_volatility_disclosure(
-                grid, block, stack, labels, params, present=ctx.present, complete=complete
+
+            def build(horizon=horizon, stack=stack, block=block) -> dict[str, IcCell]:
+                nonlocal grid
+                if grid is None:
+                    grid = _verified_block(source, block, inputs)
+                cells, _n_unlabelled = regime_volatility_disclosure(
+                    grid, block, stack, labels, params, present=ctx.present, complete=complete
+                )
+                return cells
+
+            cells = _cached(
+                spool,
+                f"regime_volatility-{index}-{horizon}",
+                block,
+                build,
+                _encode_cells,
+                _decode_cells,
             )
             rows.extend(disclosure_rows(ctx.tf, block, cells, horizon, _window_end(stack)))
     return _sorted_rows(rows)
@@ -869,14 +1002,23 @@ def compute_monitoring_rows(
     inputs: FamilyInputs,
     params: MeasureParams,
     horizon: int,
+    spool: CellSpool | None = None,
 ) -> list[tuple]:
     stack = ctx.stack(horizon)
     ends = _window_ends(stack, params.monitor_window_sessions)
     rows: list[tuple] = []
-    for block in source.blocks:
-        grid = _verified_block(source, block, inputs)
-        for i, member in enumerate(block):
-            series = member_ic_over_time(grid[:, :, i], member, stack, params, present=ctx.present)
+    for index, block in enumerate(source.blocks):
+
+        def build(block=block) -> list[MemberIcSeries]:
+            grid = _verified_block(source, block, inputs)
+            return [
+                member_ic_over_time(grid[:, :, i], member, stack, params, present=ctx.present)
+                for i, member in enumerate(block)
+            ]
+
+        for series in _cached(
+            spool, f"monitoring-{index}-{horizon}", block, build, _encode_series, _decode_series
+        ):
             rows.extend(member_rows(ctx.tf, series, horizon, ends))
     return _sorted_rows(rows)
 
@@ -891,6 +1033,7 @@ class UnitPlan:
     job: str
     spec: BulkLoadSpec  # carries replace_where: the unit owns the rows it names
     compute: Callable[[], list[tuple]]
+    spool: CellSpool | None = None  # finished cells of this unit; removed once its rows are loaded
 
 
 @dataclasses.dataclass(frozen=True)
@@ -933,9 +1076,13 @@ def execute_unit(
     if result.status == "skipped":
         # Completed by another session between the check and the lock: not this run's skip, so
         # the corpus rerun never adopts it (186-31).
+        if unit.spool is not None:
+            unit.spool.remove()
         return UnitOutcome(
             unit.job, spec.writer, "skipped_concurrent", 0, spec.batch_key, spec.unit_key
         )
+    if unit.spool is not None:
+        unit.spool.remove()  # the rows are loaded; the cells are no longer needed
     replaced = replacing or result.rows_replaced > 0
     return UnitOutcome(
         unit.job,
@@ -1003,6 +1150,7 @@ _COMMON_ENTRIES = (
 _OWN_MODULES = (
     "services.ic_measure",
     "services.batch_support.bulk_load",
+    "services.batch_support.cell_spool",
     "services.batch_support.digests",
 )
 _UNHASHED_BATCH_SUPPORT = {
@@ -1100,6 +1248,7 @@ class TfRun:
     bar_digests: Mapping[str, str]  # per measured symbol, taken before the panel build
     snapshot: Mapping[str, Any]  # the units' computational apr_snapshot
     run_id: str | None = None  # the corpus_run every unit's provenance row records (578)
+    spool_root: Path | None = None  # where units keep finished cells; None for a dry run
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1118,17 +1267,22 @@ class UnitCompute:
     source: FeatureSource
     inputs: FamilyInputs
     labels: np.ndarray | None
+    spool: CellSpool | None = None
 
     def __call__(self) -> list[tuple]:
-        params, horizons = self.run.params, self.run.horizons
+        params, horizons, spool = self.run.params, self.run.horizons, self.spool
         if self.job == JOB_PROPOSER:
-            return compute_proposer_rows(self.ctx, self.source, self.inputs, params, horizons)
+            return compute_proposer_rows(
+                self.ctx, self.source, self.inputs, params, horizons, spool
+            )
         if self.job == JOB_REGIME_VOLATILITY:
             assert self.labels is not None
             return compute_disclosure_rows(
-                self.ctx, self.source, self.inputs, self.labels, params, horizons
+                self.ctx, self.source, self.inputs, self.labels, params, horizons, spool
             )
-        return compute_monitoring_rows(self.ctx, self.source, self.inputs, params, horizons[0])
+        return compute_monitoring_rows(
+            self.ctx, self.source, self.inputs, params, horizons[0], spool
+        )
 
 
 class IcMeasure:
@@ -1261,6 +1415,7 @@ class IcMeasure:
                     None if membership_inputs is None else membership_inputs.manifest["membership"],
                 ),
                 run_id=self.args.run_id,
+                spool_root=None if self.args.dry_run else _SPOOL_ROOT,
             )
             names = feature_names(read_conn, self.args.feature_table)
             for unit in self._units(read_conn, run, ctx, names, keys, jobs):
@@ -1418,11 +1573,13 @@ class IcMeasure:
         }
         for job in jobs:
             extra = {"labels": scan.labels_key} if job == JOB_REGIME_VOLATILITY else {}
-            identity = _identity(job, common, family, extra)
+            spec = _spec(job, run, ctx, _identity(job, common, family, extra))
+            spool = _unit_spool(run, spec)
             yield UnitPlan(
                 job=job,
-                spec=_spec(job, run, ctx, identity),
-                compute=UnitCompute(job, run, ctx, scan.source, scan.inputs, scan.labels),
+                spec=spec,
+                compute=UnitCompute(job, run, ctx, scan.source, scan.inputs, scan.labels, spool),
+                spool=spool,
             )
 
     def _monitoring_unit(
@@ -1449,11 +1606,13 @@ class IcMeasure:
         else:
             inputs = scan_family(source, ctx, run.params, {})
         family = {"family": family_digest(members, run.params), "features": inputs.features_key}
-        identity = _identity(JOB_MONITORING, common, family, {})
+        spec = _spec(JOB_MONITORING, run, ctx, _identity(JOB_MONITORING, common, family, {}))
+        spool = _unit_spool(run, spec)
         return UnitPlan(
             job=JOB_MONITORING,
-            spec=_spec(JOB_MONITORING, run, ctx, identity),
-            compute=UnitCompute(JOB_MONITORING, run, ctx, source, inputs, None),
+            spec=spec,
+            compute=UnitCompute(JOB_MONITORING, run, ctx, source, inputs, None, spool),
+            spool=spool,
         )
 
 
@@ -1475,6 +1634,11 @@ def job_replace_where(job: str, tf: str) -> dict[str, str]:
     job_writer, the one definition of the unit (its unit_key) that a reader resolving a unit to
     its provenance row recomputes (the canary gate, 186-30)."""
     return {"tf": tf, "symbol": POOLED_SYMBOL, "regime_scope": _JOB_SCOPE[job]}
+
+
+def _unit_spool(run: TfRun, spec: BulkLoadSpec) -> CellSpool | None:
+    """The unit's cell spool, keyed by its batch key; none when the run keeps no spool."""
+    return None if run.spool_root is None else CellSpool(run.spool_root, spec.batch_key)
 
 
 def _spec(job: str, run: TfRun, ctx: TfContext, identity: Mapping[str, Any]) -> BulkLoadSpec:

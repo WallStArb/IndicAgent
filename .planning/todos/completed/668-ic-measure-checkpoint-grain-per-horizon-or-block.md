@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-11-24
 source: indicagent-3d, todo 470 merged into 471 (ruled by the lead 2026-11-24)
@@ -42,3 +42,11 @@ Read from `services/ic_measure.py`: the proposer unit makes one `term_structure`
 7. Compatible with 667: when time chunking lands the cell id gains the chunk index and the pass 1 mask becomes a cached cell with the same key rule.
 
 Failure modes the build must refuse: a spool read when the unit key differs (impossible by directory), a cell loaded for a different block width (compare stored names), a spool left behind after a completed load (cleanup test), two runs writing one unit directory (the temporary-name-then-rename write makes concurrent writers of the same cell harmless because both write identical bytes; if the build finds that is not so, take a file lock from `src/core/file_lock.py`).
+
+## Closure 2026-11-24 (indicagent-fb)
+
+Built per the build spec above, with these differences: the monitoring cell is per (block, horizon) and the disclosure cell per (block, horizon), as in the spec; `bulk_load`'s advisory lock covers only the write (`services/batch_support/bulk_load.py:405`), so two computers of one unit may write the same cell file, which is harmless (identical bytes, temp name per process, then rename), and no `file_lock` is used; the spool is removed after a successful load and on `skipped_concurrent`, kept after a failed write; a cell that reads back but does not decode is a miss. `cell_spool` is in `_OWN_MODULES`, so it is hashed. The digest cache was not built (gated on the pilot measurement in todo 471).
+
+Code keys (`job_code_key`) at the landing commit, replacing the pre-668 keys (proposer 5ba3e3dbe5ae, regime_volatility bc9109547e6d, monitoring 52295a65f1ac): proposer 66f08959516fdc8e47b539ed34a68ca363c605b7b2caba9ca37c4e99c8046c89; regime_volatility e0227a8f97817b1ec5e3887b112cf651053982aff2aaf4736a6889c1acd75808; monitoring 7647bbf53c9a739710193ad4c0e1a3136630a5132909187e0c5943d704a61a79. `rebuild_code_key()` is unchanged (09708ae249f2). No IC unit had completed under the old keys, so nothing is re-keyed in practice.
+
+Tests: `TestCellSpool` in `tests/unit/test_ic_measure.py`: rerun loads every cell with zero block fetches and is bit-identical; kill on the third block resumes to the uninterrupted rows; partial temp and corrupt files recompute; other unit, other names and reserved names never read a cell; cleanup after load, after `skipped_concurrent`, and not after a failed write; an undecodable cell is recomputed.

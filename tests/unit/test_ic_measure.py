@@ -1447,3 +1447,157 @@ class TestCodeKeyClosure:
         finally:
             for path in created:
                 path.unlink(missing_ok=True)
+
+
+class TestCellSpool:
+    """Todo 668: a unit's finished cells survive a kill and give the same rows as a clean run."""
+
+    def _setup(self):
+        ctx = _context()
+        features = _family_features(ctx)
+        n, m = len(ctx.grid.timestamps), len(ctx.grid.symbols)
+        labels = np.where(np.arange(n)[:, None] % 3 == 0, "high", "low").astype("<U8")
+        labels = np.broadcast_to(labels, (n, m)).copy()
+        return ctx, features, labels
+
+    def _jobs(self, ctx, features, labels, spool, fetch_hook=None):
+        """The three jobs' rows over blocks of 4 (three blocks for the family, one for members)."""
+        from services.batch_support.cell_spool import CellSpool  # noqa: F401  (type of spool)
+
+        def source(feats, names, size):
+            base = _source(feats, names, size)
+            if fetch_hook is None:
+                return base
+            return ic_measure.FeatureSource(
+                base.blocks, lambda block: (fetch_hook(block), base.fetch(block))[1]
+            )
+
+        fam = source(features, _FAMILY, 4)
+        fam_inputs = _scan(ctx, _source(features, _FAMILY, 4), _params(), labels=labels)
+        members = (_FAMILY[0], _FAMILY[2], _FAMILY[5])
+        idx = [_FAMILY.index(x) for x in members]
+        mem = source(features[:, :, idx], members, 2)
+        mem_inputs = _scan(ctx, _source(features[:, :, idx], members, 2), _params())
+        return {
+            "proposer": ic_measure.compute_proposer_rows(
+                ctx, fam, fam_inputs, _params(), (1, 2), spool
+            ),
+            "disclosure": ic_measure.compute_disclosure_rows(
+                ctx, fam, fam_inputs, labels, _params(), (1, 2), spool
+            ),
+            "monitoring": ic_measure.compute_monitoring_rows(
+                ctx, mem, mem_inputs, _params(), 1, spool
+            ),
+        }
+
+    def test_a_rerun_on_the_spool_loads_every_cell_and_gives_identical_rows(self, tmp_path) -> None:
+        from services.batch_support.cell_spool import CellSpool
+
+        ctx, features, labels = self._setup()
+        reference = self._jobs(ctx, features, labels, None)
+        assert all(reference.values())
+        spool = CellSpool(tmp_path, "a" * 64)
+        assert self._jobs(ctx, features, labels, spool) == reference  # computes and stores
+        fetched: list[tuple] = []
+        again = self._jobs(ctx, features, labels, spool, fetch_hook=fetched.append)
+        assert again == reference  # element for element, floats bit for bit
+        assert fetched == []  # every cell came from the spool: no block was fetched
+
+    def test_a_kill_mid_unit_resumes_to_the_uninterrupted_rows(self, tmp_path) -> None:
+        from services.batch_support.cell_spool import CellSpool
+
+        ctx, features, labels = self._setup()
+        reference = self._jobs(ctx, features, labels, None)
+        spool = CellSpool(tmp_path, "b" * 64)
+        seen: list[tuple] = []
+
+        def die_on_third_block(block) -> None:
+            seen.append(tuple(block))
+            if len(seen) == 3:
+                raise KeyboardInterrupt("killed")
+
+        with pytest.raises(KeyboardInterrupt):
+            self._jobs(ctx, features, labels, spool, fetch_hook=die_on_third_block)
+        stored = len(list(spool.directory.glob("*.npz")))
+        assert stored == 2  # the two finished blocks are on disk
+        resumed: list[tuple] = []
+        assert self._jobs(ctx, features, labels, spool, fetch_hook=resumed.append) == reference
+        assert len(resumed) < 9  # fewer block fetches than a clean run needs
+
+    def test_a_partial_write_is_a_miss_and_recomputes(self, tmp_path) -> None:
+        from services.batch_support.cell_spool import CellSpool
+
+        ctx, features, labels = self._setup()
+        reference = self._jobs(ctx, features, labels, None)
+        spool = CellSpool(tmp_path, "c" * 64)
+        spool.directory.mkdir(parents=True)
+        (spool.directory / "deadbeef.npz.4242.tmp").write_bytes(b"half a file")  # a killed write
+        assert self._jobs(ctx, features, labels, spool) == reference
+        for path in spool.directory.glob("*.npz"):  # now corrupt every final file
+            path.write_bytes(path.read_bytes()[:40])
+        assert self._jobs(ctx, features, labels, spool) == reference
+
+    def test_another_unit_or_other_names_never_read_a_cell(self, tmp_path) -> None:
+        from services.batch_support.cell_spool import CellSpool
+
+        spool = CellSpool(tmp_path, "d" * 64)
+        spool.store("proposer-0", ("f0", "f1"), {"x": np.arange(3.0)})
+        assert spool.load("proposer-0", ("f0", "f1"))["x"].tolist() == [0.0, 1.0, 2.0]
+        assert spool.load("proposer-0", ("f0", "f2")) is None  # a different block
+        assert spool.load("proposer-1", ("f0", "f1")) is None  # a different cell
+        assert CellSpool(tmp_path, "e" * 64).load("proposer-0", ("f0", "f1")) is None  # a unit
+        with pytest.raises(ValueError):
+            spool.store("proposer-0", ("f0",), {"__names__": np.zeros(1)})
+        with pytest.raises(ValueError):
+            CellSpool(tmp_path, "../x")
+
+    def test_a_loaded_unit_removes_its_spool_and_a_failed_one_keeps_it(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        from services.batch_support.cell_spool import CellSpool
+
+        spool = CellSpool(tmp_path, _spec().batch_key)
+        spool.store("proposer-0", ("f0",), {"x": np.zeros(1)})
+        unit = ic_measure.UnitPlan(
+            job="proposer", spec=_spec(), compute=lambda: [_good_row()], spool=spool
+        )
+        monkeypatch.setattr(ic_measure, "completed_provenance_batch", lambda conn, spec: None)
+        monkeypatch.setattr(ic_measure, "prior_completed_unit", lambda conn, spec: False)
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("write failed")
+
+        monkeypatch.setattr(ic_measure, "bulk_load", boom)
+        with pytest.raises(RuntimeError):
+            ic_measure.execute_unit(unit, FakeConn(), _Write(), _OOS, dry_run=False)
+        assert spool.directory.exists()  # a failed write keeps the cells for the resume
+        monkeypatch.setattr(
+            ic_measure,
+            "bulk_load",
+            lambda conn, spec, columns, rows, **kw: BulkLoadResult(spec.batch_key, "loaded", 1, 0),
+        )
+        ic_measure.execute_unit(unit, FakeConn(), _Write(), _OOS, dry_run=False)
+        assert not spool.directory.exists()
+        spool.store("proposer-0", ("f0",), {"x": np.zeros(1)})  # a unit another session finished
+        monkeypatch.setattr(
+            ic_measure,
+            "bulk_load",
+            lambda conn, spec, columns, rows, **kw: BulkLoadResult(spec.batch_key, "skipped", 0, 0),
+        )
+        outcome = ic_measure.execute_unit(unit, FakeConn(), _Write(), _OOS, dry_run=False)
+        assert outcome.status == "skipped_concurrent" and not spool.directory.exists()
+
+    def test_a_cell_that_reads_back_but_does_not_decode_is_recomputed(self, tmp_path) -> None:
+        from services.batch_support.cell_spool import CellSpool
+
+        spool = CellSpool(tmp_path, "f" * 64)
+        spool.store("cell-0", ("f0",), {"unrelated": np.zeros(2)})  # right names, wrong fields
+        value = ic_measure._cached(
+            spool,
+            "cell-0",
+            ("f0",),
+            lambda: "built",
+            lambda v: {"x": np.zeros(1)},
+            lambda a: a["x"],
+        )
+        assert value == "built" and spool.load("cell-0", ("f0",))["x"].tolist() == [0.0]
