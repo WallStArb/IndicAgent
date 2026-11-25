@@ -227,9 +227,11 @@ def _kernels_for(family: str) -> tuple[Kernel, Kernel]:
             *(none_mask_name(column) for column in spec.numeric_outputs),
         ),
         object_dependent=frozenset(spec.numeric_outputs),
-        # the label-change rate over the churn window: 0.0 when no label changed, a measured
-        # state (todo 652 R2)
-        zero_is_state=frozenset(c for c in spec.numeric_outputs if c.endswith("_churn")),
+        # Every numeric output is NaN wherever no segment is written (the none masks above), so a
+        # 0.0 is a measured value of a written segment: a churn of 0 when no label changed, an
+        # entropy of 0 or a probability of 0 or 1 when a fitted model separates cleanly (todo 652
+        # R2 and R6, ledger 2026-11-24d and 2026-11-25a)
+        zero_is_state=frozenset(spec.numeric_outputs),
         inputs=spec.inputs,
         memory=lambda config: 0,
         compute=_heavy_compute(spec),

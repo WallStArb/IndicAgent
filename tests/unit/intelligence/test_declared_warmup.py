@@ -31,6 +31,7 @@ from src.intelligence.features.contract.registry import (
     default_registry,
 )
 from src.intelligence.features.feature_vector_persistence import feature_vectors_numeric_columns
+from src.intelligence.features.kernels._hmm import FAMILY_SPECS
 from src.intelligence.features.kernels.regime import HmmConfig
 from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR
 from tests.unit.intelligence.test_swing_fib_trend_structure_primitives import _make_cfg
@@ -139,11 +140,11 @@ def test_object_dependence_is_declared_with_a_presence_mask(registry_and_config)
         "reclaim_velocity",
         "struct_accel_bias",
         "bars_since_last_shift",
-        # a measured 0 once the object exists: the event bar, the unchanged label (todo 652 R2)
+        # a measured 0 once the object exists: the event bar, a written HMM segment (todo 652 R2, R6)
         "bars_since_extreme_move_fast",
         "bars_since_extreme_move_slow",
-        "hmm_churn",
-        "hmm_vol_churn",
+        *FAMILY_SPECS["trend"].numeric_outputs,
+        *FAMILY_SPECS["volatility"].numeric_outputs,
     }
     for column in ("momentum_z_fast", "adx", "poc_rolling_dist_atr", "prior_session_high_dist_atr"):
         assert column not in declared, column
