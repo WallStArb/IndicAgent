@@ -41,3 +41,7 @@ Gates: tests by exit code, `repro_frozen` bit-identical, ruff, black, glossary, 
 ## Landing constraint (lead, 2026-11-24)
 
 The `ledger.py` edit (and the new method) lands only while no ledger import and no `ic_measure` import is live, and never beside a counted run: a live run imports `src/intelligence/research/` and its `code_content_key` would change. Land it in a detached worktree off `origin/main`, with `repro_frozen` bit-identical and the methodology line already written (2026-11-24i covers the rulings; the write path itself still needs its own line).
+
+## Build status 2026-11-24 (indicagent-94)
+
+Built and unit-tested on the local branch `wip/670-671-sweep-recorder` (commits 5b961344b and 6eb4540a2, base a70e73758), not pushed. Held: `repro_frozen` (needs the heavy slot) and the push (the branch edits `ledger.py`, `ic_measure.py` and `select_books.py`; it lands only while no pilot or counted run imports them, on the lead's word). The cell lookup is domain-qualified (`_FEATURE_DOMAINS`) instead of widening `_RESEARCH_DOMAINS`, because `ctf_momentum` is both a family and a feature. Migration 618 adds `alpha.ic_sweep.min_names_per_session`. No integration test of the `record_sweep_block` SQL exists (todo 656); the first real block is its test. 670 timing measured: about 81 microseconds per bootstrap draw, about 6 to 8 minutes per StepM run.

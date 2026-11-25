@@ -46,3 +46,7 @@ Gates: unit tests by exit code, ruff, black, glossary, `/simplify` and `/review`
 1. This check is a disclosure, not a gate (E21 rule 6: `n_looks` is the cells measured, never a cap). Its settings are declared in a dated ledger line before it runs. The 90 percent rule is a placeholder and is withdrawn.
 2. The null universe mirrors the sweep's two attempts per cell (long and mirrored short): 2,216 null columns. The measured critical-t figures are in that ledger line; the full table with the options is in commit 0265b878b of this file.
 3. The sweep stays behind the prior-driven families (design note 2026-11-24), behind this check and 671, and behind a ledger line stating its cell list.
+
+## Build status 2026-11-24 (indicagent-94)
+
+Built and unit-tested on the local branch `wip/670-671-sweep-recorder` (commits 5b961344b and 6eb4540a2, base a70e73758), not pushed. Held: `repro_frozen` (needs the heavy slot) and the push (the branch edits `ledger.py`, `ic_measure.py` and `select_books.py`; it lands only while no pilot or counted run imports them, on the lead's word). The cell lookup is domain-qualified (`_FEATURE_DOMAINS`) instead of widening `_RESEARCH_DOMAINS`, because `ctf_momentum` is both a family and a feature. Migration 618 adds `alpha.ic_sweep.min_names_per_session`. No integration test of the `record_sweep_block` SQL exists (todo 656); the first real block is its test. 670 timing measured: about 81 microseconds per bootstrap draw, about 6 to 8 minutes per StepM run.
