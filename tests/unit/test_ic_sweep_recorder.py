@@ -100,6 +100,7 @@ def _measurement():
         panels_key="p",
         features_key="f",
         excluded_no_concept=("zz",),
+        excluded_inadmissible=(),
     )
 
 
@@ -247,6 +248,21 @@ def test_measure_excludes_columns_without_a_feature_concept(monkeypatch):
     session, *_ = _session()
     got = rec.measure(session, {"f0", "f2"}, min_names=5)
     assert got.names == ("f0", "f2") and got.excluded_no_concept == ("f1", "f3")
+
+
+def test_measure_excludes_columns_s0_refuses_as_members(monkeypatch):
+    """Path dependent, builder pass-through and regime columns add no attempts (todo 674 R2, B1j)."""
+    monkeypatch.setattr(rec, "panels_digest", lambda grid, panels: "p")
+    session, *_ = _session()
+    origins = {"f0": "price", "f1": "price", "f2": "regime", "f3": "price"}
+    registry = SimpleNamespace(
+        by_output=lambda n: SimpleNamespace(origin=origins[n]),
+        is_path_dependent=lambda n: n == "f0",
+        builder_path_dependent_source=lambda n: ("src", "why") if n == "f1" else None,
+    )
+    got = rec.measure(session, {"f0", "f1", "f2", "f3"}, min_names=5, registry=registry)
+    assert got.names == ("f3",)
+    assert got.excluded_inadmissible == ("f0", "f1", "f2")
 
 
 def test_an_intraday_clock_is_refused():

@@ -66,9 +66,19 @@ from services.ic_measure import (  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.canonical_json import canonical_json  # noqa: E402
 from src.core.service_utils import format_iso_ts, setup_service_logging  # noqa: E402
+from src.intelligence.features.contract.registry import (  # noqa: E402
+    KernelRegistry,
+    KernelRegistryError,
+    default_registry,
+)
 from src.intelligence.measure.ic import existing_rows  # noqa: E402
 from src.intelligence.measure.session_ic import session_rank_ic  # noqa: E402
 from src.intelligence.research import provenance  # noqa: E402
+from src.intelligence.research.feature_inputs import (  # noqa: E402
+    FeatureInputRefused,
+    refuse_builder_path_dependent,
+    refuse_path_dependent,
+)
 from src.intelligence.research.ledger import (  # noqa: E402
     SWEEP_SPEC_PATH_PREFIX,
     AttemptSeries,
@@ -188,16 +198,45 @@ class Measurement:
     panels_key: str
     features_key: str
     excluded_no_concept: tuple[str, ...]
+    excluded_inadmissible: tuple[str, ...]
 
 
-def measure(session: TfSession, concept_names: set[str], min_names: int) -> Measurement:
+def _inadmissible(names: Sequence[str], registry: KernelRegistry) -> set[str]:
+    """Columns S0 refuses as members (todo 674 R2, B1g, B1j): path dependent, a pass-through of
+    a path-dependent builder, or regime origin (its walk-forward provenance check needs the
+    covering batches, which a sweep does not read, so the column is left out and disclosed).
+    Names the registry does not know pass through, as they did before."""
+    out: set[str] = set()
+    for name in names:
+        try:
+            origin = registry.by_output(name).origin
+            refuse_path_dependent(name, registry)
+            refuse_builder_path_dependent(name, registry)
+        except KernelRegistryError:
+            continue
+        except FeatureInputRefused:
+            out.add(name)
+            continue
+        if origin == "regime":
+            out.add(name)
+    return out
+
+
+def measure(
+    session: TfSession,
+    concept_names: set[str],
+    min_names: int,
+    registry: KernelRegistry | None = None,
+) -> Measurement:
     """Per-session rank IC of every registered feature column at every horizon of the run, on
     the session's one grid (one panel, one slot map, one feature family: the same inputs as the
     proposer's cells). Blocks of columns bound memory only; no value depends on them."""
     ctx, run = session.ctx, session.run
     if ctx.panels[0].bars_per_session != 1:
         raise ValueError("a level 1 sweep cell series is per session: run it on the 1d clock")
-    names = [n for n in session.names if n in concept_names]
+    registered = [n for n in session.names if n in concept_names]
+    refused = _inadmissible(registered, registry if registry is not None else default_registry())
+    names = [n for n in registered if n not in refused]
     excluded = tuple(sorted(set(session.names) - concept_names))
     exists = existing_rows(ctx.grid.valid_grid(), ctx.present)
     block_size = max(int(run.apr[_BLOCK_COLUMNS_KEY]), 1)
@@ -217,6 +256,7 @@ def measure(session: TfSession, concept_names: set[str], min_names: int) -> Meas
         panels_key=panels_digest(ctx.grid, ctx.panels),
         features_key=features_digest(digests, ctx.present),
         excluded_no_concept=excluded,
+        excluded_inadmissible=tuple(sorted(refused)),
     )
 
 
@@ -284,6 +324,7 @@ async def record_blocks(
         "attempts_to_record": to_record,
         "attempts_already_recorded": already,
         "excluded_no_concept": list(m.excluded_no_concept),
+        "excluded_inadmissible": list(m.excluded_inadmissible),
         "unmeasured": {str(h): v for h, v in unmeasured.items()},
         "recorded": 0,
         "dry_run": dry_run,
