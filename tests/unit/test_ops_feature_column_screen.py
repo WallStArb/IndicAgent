@@ -6,6 +6,7 @@ from psycopg import sql
 
 from scripts.ops.ops_feature_column_screen import (
     APR_KEYS,
+    CLOCK_INHERITS,
     EXPECTED_NOT_JUDGED,
     _clock_query,
     _query,
@@ -24,6 +25,7 @@ from scripts.ops.ops_feature_column_screen import (
     null_share_gate,
     registry_declarations,
     screen_rows,
+    stored_first_row,
     uncovered_dividend_clock,
     zero_is_state,
 )
@@ -587,3 +589,27 @@ def test_g6_reports_the_present_share_and_the_names_with_none_for_object_columns
         "x": {"names": 2, "names_none_present": 1, "rows": 2000, "present_share": 0.5}
     }
     assert gate["failing"] == {}
+
+
+def test_a_zero_is_state_column_that_is_exactly_zero_on_every_name_still_fails_g1():
+    """zero_is_state skips G3 only; a broken fit that writes 0.0 on every row of every name is a
+    constant column, dead on every judged name, so G1 names it (todo 652 R6 review)."""
+    rows = [_row("1d", "A", 1200, LIVE, DEAD), _row("1d", "B", 1200, LIVE, DEAD)]
+    report, _ = _screen(rows, fill_exempt=frozenset({"x"}), object_columns=frozenset({"x"}))
+    assert report["1d"]["G3"] == {}
+    assert report["1d"]["G1"]["x"]["n_names"] == 2
+
+
+def test_clock_inherits_is_needed_only_while_the_derived_columns_reach_is_shorter():
+    """CLOCK_INHERITS stands in for todo 674's reach. vix_reversion_product reads vix_z, whose
+    first row is its realized-vol window plus its z-score window less one; once the registry
+    declares the product at or past that row, this fails and the entry is deleted."""
+    registry = default_registry()
+    config = _make_cfg()
+    source_first_row = config.cross_asset_rv_window + config.vix_zscore_window - 1
+    for derived, source in CLOCK_INHERITS.items():
+        assert source == "vix_z"
+        assert stored_first_row(registry, derived, config, "1d") < source_first_row, (
+            f"{derived} now declares its reach past {source}'s first row: delete CLOCK_INHERITS "
+            "and inherit_clocks (todo 674 landed)"
+        )
