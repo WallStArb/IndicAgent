@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import hashlib
-from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -29,7 +29,6 @@ from src.config.classification_service import DEFAULT_SCHEME, SECTOR_LEVEL
 from src.core.database_manager import create_pool
 from src.core.market_calendar import get_market_calendar
 from src.intelligence import universe_membership
-from src.intelligence.bars import vendor_kind
 from src.intelligence.bars.label_inputs import load_label_inputs
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.features.contract.registry import default_registry
@@ -743,9 +742,6 @@ async def _whole_source(
     arrays: dict[str, np.ndarray] = {}
     info = _block_info(tf, "equal" if child is None else "coarser", tried)
     info["columns"], info["unmatched_rows"] = {}, 0
-    proven = await _source_volume_basis(ctx, req, config)
-    if proven is not None:
-        info["volume_basis"] = proven[1]
     stored = [m for m in req.members if m.kind == "feature"]
     if stored:
         columns = sorted({m.column for m in stored})
@@ -768,9 +764,7 @@ async def _whole_source(
             info["columns"][column] = {"warmup": warm[column], "coverage": cov}
             arrays[feature_inputs.feature_array_name(tf, column)] = masked[column]
     for m in (k for k in req.members if k.kind == "kernel"):
-        result = _run_kernel(
-            grid, m, config, req.need_high_low, None if proven is None else proven[0]
-        )
+        result = _run_kernel(grid, m, config, req.need_high_low)
         values = result.values[m.column]
         cov = None
         if m.coverage_floor is not None:
@@ -798,71 +792,7 @@ def _coverage(counts, column: str, tf: str, floor: float) -> dict:
         raise ValueError(str(error)) from error
 
 
-def volume_basis_of(pairs: Iterable[tuple[str, str]]) -> int:
-    """The one volume basis of the bars' canonical (vendor, kind) pairs (todo 588 item e). A pair
-    with no volume carries none; an unmapped pair raises (a basis never defaults); more than one
-    basis, or none at all, refuses: a rolling volume statistic must never span two bases, and the
-    battery's cells assume one."""
-    found: dict[int, set[tuple[str, str]]] = {}
-    seen = sorted({(str(v), str(k)) for v, k in pairs})
-    for vendor, kind in seen:
-        basis = vendor_kind.volume_basis(vendor, kind)
-        if basis != vendor_kind.VOLUME_BASIS_NONE:
-            found.setdefault(basis, set()).add((vendor, kind))
-    if len(found) != 1:
-        raise ValueError(
-            f"a volume kernel needs one volume basis; the bars' (vendor, kind) pairs {seen} give "
-            f"{sorted(found) or 'none'}"
-        )
-    return next(iter(found))
-
-
-def _needs_volume_basis(req: SourceRequest, config) -> bool:
-    """A kernel member whose closure reads volume without `volume_basis_safe` (the registry's own
-    rule): its source needs a proven basis."""
-    for m in req.members:
-        if m.kind != "kernel":
-            continue
-        registry = kernel_source.kernel_registry(dict(m.windows or {}), config)
-        if any(
-            "volume" in k.inputs and not k.volume_basis_safe
-            for k in registry.topological_order((m.column,))
-        ):
-            return True
-    return False
-
-
-async def _source_volume_basis(ctx: _Ctx, req: SourceRequest, config) -> tuple[int, dict] | None:
-    """(basis, evidence) of the source's bars over the fetch span, or None when no member needs
-    one. Reads the distinct (vendor, kind) pairs per symbol chunk (an ANY list over the whole
-    universe is superlinear); a derived 15m or 1h bar takes its basis from the 5m constituents
-    (`vendor_kind.grid_volume_basis`), so those are the bars read."""
-    if not _needs_volume_basis(req, config):
-        return None
-    tf = req.tf
-    bar_tf = "5m" if tf in feature_inputs.INTRADAY_DERIVED_TFS else tf
-    lo = warmup_fetch_start(ctx.scored_lo, tf, ctx.warmup_sessions)
-    symbols = ctx.book.symbols
-    pairs: set[tuple[str, str]] = set()
-    for i in range(0, len(symbols), ctx.chunk):
-        rows = await ctx.pool.fetch(
-            _VENDOR_SET_SQL, bar_tf, list(symbols[i : i + ctx.chunk]), lo, ctx.hi
-        )
-        pairs.update((str(r["vendor"]), str(r["kind"])) for r in rows)
-    try:
-        basis = volume_basis_of(pairs)
-    except ValueError as error:
-        raise ValueError(f"{tf} source refused (todo 588 e): {error}") from error
-    return basis, {"basis": basis, "bar_tf": bar_tf, "vendor_kinds": sorted(map(list, pairs))}
-
-
-def _run_kernel(
-    grid: Panel,
-    m: MemberSourceRequest,
-    config,
-    need_high_low: bool,
-    volume_basis: int | None = None,
-):
+def _run_kernel(grid: Panel, m: MemberSourceRequest, config, need_high_low: bool):
     try:
         return kernel_source.kernel_source(
             grid,
@@ -872,11 +802,6 @@ def _run_kernel(
             max_gap_rows=int(m.max_gap_rows),  # type: ignore[arg-type]
             high=grid.high if need_high_low else None,
             low=grid.low if need_high_low else None,
-            volume_basis=(
-                None
-                if volume_basis is None
-                else np.full(np.shape(grid.close), volume_basis, dtype=np.int64)
-            ),
         )
     except kernel_source.KernelSourceRefused as error:
         raise ValueError(str(error)) from error
@@ -919,7 +844,6 @@ async def _finer_source(ctx: _Ctx, req: SourceRequest, tried: dict) -> tuple[dic
     lo = warmup_fetch_start(ctx.scored_lo, tf, ctx.warmup_sessions)
     sql = _bars_sql(fields)
     chunks = [symbols[i : i + ctx.chunk] for i in range(0, m_book, ctx.chunk)]
-    proven = await _source_volume_basis(ctx, req, config)
 
     # pass 1: the one grid axis, from timestamps (and finite closes) of every symbol
     all_ts, finite_ts = [], []
@@ -986,9 +910,7 @@ async def _finer_source(ctx: _Ctx, req: SourceRequest, tried: dict) -> tuple[dic
                     warm[c][key] = v if key == "memory_bars" else warm[c][key] + v
         for m in req.members:
             if m.kind == "kernel":
-                result = _run_kernel(
-                    grid, m, config, req.need_high_low, None if proven is None else proven[0]
-                )
+                result = _run_kernel(grid, m, config, req.need_high_low)
                 arr = result.values[m.column]
                 kernel_info[m.member]["gap_masked"] += result.gap_masked[m.column]
                 kernel_info[m.member]["warmup_masked"] += result.warmup_masked[m.column]
@@ -1027,8 +949,6 @@ async def _finer_source(ctx: _Ctx, req: SourceRequest, tried: dict) -> tuple[dic
             "coverage": _coverage(counts[name], name, tf, floor) if floor is not None else None,
         }
     info["members"] = {m.member: {"max_age_rows": m.max_age_rows} for m in req.members}
-    if proven is not None:
-        info["volume_basis"] = proven[1]
     arrays: dict[str, np.ndarray] = {f"src_ts__{tf}": src_ts, f"src_valid__{tf}": src_valid}
     for m in req.members:
         used = [p[1] for p in pieces[m.member]]
