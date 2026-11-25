@@ -140,7 +140,6 @@ def test_a_failed_row_that_recorded_any_outcome_or_is_not_failed_stays_a_gap():
 import asyncio  # noqa: E402
 import json  # noqa: E402
 
-from scripts.research import select_books  # noqa: E402
 from scripts.research.stepm_null_battery import REAL_SESSIONS, stepm_source_sha256  # noqa: E402
 
 _SESSIONS = [str(d) for d in np.arange("2018-01-01", "2019-06-01", dtype="datetime64[D]")]

@@ -22,9 +22,10 @@ as unmeasured and records nothing.
 
 A real run needs `--declared-n-looks`, the attempt count the ledger line declares before the
 batch (E21 rule 6), and refuses unless it equals the attempts this run will record. The code
-commit recorded is HEAD, and a real run refuses a dirty tree. Targets come from the kernel
-(`panel.forward_returns`) on panels ending at `alpha.validation.oos_start`, so no series reaches
-the forward span.
+commit recorded is HEAD, and a real run refuses a dirty tree and a HEAD that is not an
+ancestor of origin/main (run it from a detached worktree at a pushed commit). Targets come from
+the kernel (`panel.forward_returns`) on panels ending at `alpha.validation.oos_start`, so no
+series reaches the forward span.
 
 Usage:
     python services/ic_sweep_recorder.py --tf 1d --dry-run
@@ -69,18 +70,21 @@ from src.intelligence.measure.ic import existing_rows  # noqa: E402
 from src.intelligence.measure.session_ic import session_rank_ic  # noqa: E402
 from src.intelligence.research import provenance  # noqa: E402
 from src.intelligence.research.ledger import (  # noqa: E402
+    SWEEP_SPEC_PATH_PREFIX,
     AttemptSeries,
     LedgerRefusal,
     PostgresLedger,
-    SWEEP_SPEC_PATH_PREFIX,
     RunRequest,
 )
 from src.intelligence.statistics.hac import hac_mean_test  # noqa: E402
 from src.observability.metrics import (  # noqa: E402
+    IC_SWEEP_BLOCKS_RECORDED_TOTAL,
+    IC_SWEEP_CELLS_RECORDED_TOTAL,
     JOB_COMPLETED_TOTAL,
     flush_and_shutdown_metrics,
 )
 from src.observability.otel import OTelInitError, init_otel_providers  # noqa: E402
+from src.observability.spans import observed_span  # noqa: E402
 
 _logger = structlog.get_logger(__name__)
 
@@ -277,6 +281,8 @@ async def record_blocks(
         "tf": tf,
         "horizons": list(horizons),
         "batch_attempts": batch,
+        "n_looks_to_declare": batch,  # what the ledger line declares: unmeasured cells add none
+        "declared_n_looks": declared_n_looks,
         "attempts_to_record": to_record,
         "attempts_already_recorded": already,
         "excluded_no_concept": list(m.excluded_no_concept),
@@ -312,7 +318,11 @@ async def record_blocks(
             )
             for name, series in cells.items()
         }
-        await ledger.record_sweep_block(request, payload)
+        attrs = {"tf": tf, "horizon": horizon, "direction": direction}
+        async with observed_span("ic_sweep_recorder.record_block", cells=len(cells), **attrs):
+            await ledger.record_sweep_block(request, payload)
+        IC_SWEEP_BLOCKS_RECORDED_TOTAL.add(1, attrs)
+        IC_SWEEP_CELLS_RECORDED_TOTAL.add(len(cells), attrs)
         report["recorded"] += len(cells)
         _logger.info(
             "ic_sweep_recorder.block_recorded",
@@ -322,6 +332,19 @@ async def record_blocks(
             cells=len(cells),
         )
     return report
+
+
+async def _measure_observed(
+    session: TfSession, concepts: set[str], min_names: int, tf: str
+) -> Measurement:
+    """`measure` inside its span (the hours-long step of a run); a sync body in a one-shot loop."""
+    async with observed_span(
+        "ic_sweep_recorder.measure",
+        tf=tf,
+        horizons=",".join(str(h) for h in session.run.horizons),
+        features=len(concepts),
+    ):
+        return measure(session, concepts, min_names)
 
 
 def _horizons(requested: Sequence[int] | None, available: Sequence[int]) -> tuple[int, ...]:
@@ -347,6 +370,7 @@ def run(args: argparse.Namespace, dsn: str) -> dict[str, Any]:
     if not args.dry_run:
         provenance.require_clean(root)
         code_commit = provenance.head_commit(root)
+        provenance.require_published(root, code_commit)
     measure_args = argparse.Namespace(
         symbols=args.symbols,
         start=args.start,
@@ -379,7 +403,7 @@ def run(args: argparse.Namespace, dsn: str) -> dict[str, Any]:
             session = dataclasses.replace(
                 session, run=dataclasses.replace(session.run, horizons=horizons)
             )
-            measurement = measure(session, concepts, min_names)
+            measurement = asyncio.run(_measure_observed(session, concepts, min_names, args.tf))
     _logger.info(
         "ic_sweep_recorder.measured",
         tf=args.tf,

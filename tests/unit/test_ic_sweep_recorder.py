@@ -144,6 +144,30 @@ def test_dry_run_writes_nothing_and_needs_no_declaration():
     ledger = FakeLedger()
     report = _record(ledger, _measurement(), dry_run=True, declared_n_looks=None)
     assert ledger.blocks == [] and report["recorded"] == 0 and report["attempts_to_record"] == 8
+    # the dry run prints what the ledger line must say: the declaration it needs, the declared
+    # value (none here), and the columns left out (no concept row, nothing measured)
+    assert report["n_looks_to_declare"] == 8 and report["declared_n_looks"] is None
+    assert report["excluded_no_concept"] == ["zz"] and report["unmeasured"] == {
+        "1": ["c"],
+        "5": ["c"],
+    }
+
+
+def test_each_recorded_block_counts_its_blocks_and_cells(monkeypatch):
+    class _Counter:
+        def __init__(self):
+            self.calls = []
+
+        def add(self, value, attrs):
+            self.calls.append((value, attrs))
+
+    blocks, cells = _Counter(), _Counter()
+    monkeypatch.setattr(rec, "IC_SWEEP_BLOCKS_RECORDED_TOTAL", blocks)
+    monkeypatch.setattr(rec, "IC_SWEEP_CELLS_RECORDED_TOTAL", cells)
+    _record(FakeLedger(), _measurement())
+    assert len(blocks.calls) == 4 and all(v == 1 for v, _ in blocks.calls)
+    assert sum(v for v, _ in cells.calls) == 8
+    assert {a["direction"] for _, a in blocks.calls} == {"long", "short"}
 
 
 def test_a_recorded_block_is_skipped_and_the_declaration_is_the_whole_batch():

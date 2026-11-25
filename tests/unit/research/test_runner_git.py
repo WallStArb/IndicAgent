@@ -12,6 +12,7 @@ from src.intelligence.research.provenance import (
     loaded_first_party_files,
     require_clean,
     require_committed,
+    require_published,
 )
 
 SPEC = "research/specs/f.yaml"
@@ -107,3 +108,14 @@ def test_head_commit_is_forty_hex(repo):
     commit = head_commit(repo)
     assert commit == _git(repo, "rev-parse", "HEAD")
     assert len(commit) == 40
+
+
+def test_a_commit_must_be_an_ancestor_of_the_published_ref(repo):
+    published = head_commit(repo)
+    _git(repo, "update-ref", "refs/remotes/origin/main", published)
+    require_published(repo, published)
+    (repo / "src/intelligence/x.py").write_text("X = 2\n")
+    _git(repo, "commit", "-q", "-am", "local only")
+    with pytest.raises(ProvenanceRefusal, match="not an ancestor of origin/main"):
+        require_published(repo, head_commit(repo))
+    require_published(repo, published)  # an older, published commit still passes

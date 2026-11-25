@@ -82,6 +82,13 @@ def loaded_first_party_files(root: Path) -> list[str]:
     return sorted(found)
 
 
+def require_published(root: Path, commit: str, ref: str = "origin/main") -> None:
+    """Refuses unless `commit` is an ancestor of `ref`: a counted record's code_commit must be a
+    commit anyone can check out, not a local one a rebase or a branch switch can lose."""
+    if _git(root, "merge-base", "--is-ancestor", commit, ref, check=False).returncode != 0:
+        raise ProvenanceRefusal(f"code commit {commit} is not an ancestor of {ref}; push it first")
+
+
 def require_clean(root: Path, extra: Sequence[str] = ()) -> None:
     dirty = dirty_paths(root, [*_CHECKED, *loaded_first_party_files(root), *extra])
     if dirty:
