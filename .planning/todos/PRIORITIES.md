@@ -37,9 +37,9 @@ the pre-removal tree is the local tag `archive/v2x-ai-stack-2026-10`). History o
 git and in each todo's own closure note, not in this file. Durable reasoning behind this file (process rules,
 active sequencing decisions): `docs/research/priorities-decision-log.md`.
 
-## Critical path (current 2026-11-24)
+## Critical path (current 2026-11-25)
 
-Next actions in order: `.planning/STATE.md` Handoff and Queue. The heavy slot runs one job at a time under the DIMM watchdog (`docs/operations/guarded-run-runbook.md`). Block 2 of the family 10 battery is done (ledger 2026-11-24g); the corpus pilot (run 7c5612f0) stopped at the data gate on one name (BKH, indicagent-fb). Then the four family 10 counted runs, then `stage_1d` to `feature_complete`. IC measure waits on todos 670 and 671 (ledger 2026-11-24f). The dated Massive plan call (renew or lapse before about 2026-12-10) is in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
+Next actions in order: `.planning/STATE.md` Handoff and Queue. The heavy slot runs one job at a time under the DIMM watchdog (`docs/operations/guarded-run-runbook.md`). Block 2 of the family 10 battery is done (ledger 2026-11-24g). The corpus pilot (run f9f69166) failed its column screen; triage is in todo 652 and the fixes are held on branches that land in one re-pin. Order: the four family 10 counted runs, then the single re-pin landing, then a new pilot and `stage_1d` to `feature_complete`. IC measure waits on todos 670 and 671 (ledger 2026-11-24f). The dated Massive plan call (renew or lapse before about 2026-12-10) is in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
 
 Ranked P0 and P1 order by the path to a counted test (lead pass 2026-11-24; "code key" = the todo edits code a live or resumable run imports, so it lands only when that run is quiet):
 
