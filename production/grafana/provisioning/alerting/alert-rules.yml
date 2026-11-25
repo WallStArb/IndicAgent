@@ -383,6 +383,45 @@ groups:
           severity: high
           contact_point: discord-ops
 
+      - uid: bar_freshness_1d_unlisted_uid
+        title: bar_freshness_1d_unlisted
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              expr: last_over_time(bar_integrity_failing_names{check="freshness_1d_unlisted"}[36h])
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "current members whose ticker may have ended with no listing_end row"
+          description: "bar_integrity_failing_names is {{ $value }} for check freshness_1d_unlisted in the latest D7 report: that many current universe members fail freshness_1d and have no listing_end row. The names, sessions behind and last bar are in the bar_reconciliation.findings log line of check freshness_1d_unlisted. First confirm the feed is not late (the Alpaca nightly answered no_data for the name); if the ticker ended, record a listing_end row by migration with the exchange notice (pattern: migrations 609 and 616) before the name has six missing sessions, when proven_start_1d fails and the corpus data gate refuses it (BKH, 2026-11-24)."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
       - uid: revision_refused_uid
         title: revision_refused
         condition: C

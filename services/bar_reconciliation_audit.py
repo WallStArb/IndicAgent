@@ -53,7 +53,7 @@ import json
 import math
 import statistics
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
@@ -1100,6 +1100,13 @@ WHERE l.request_ids IS NULL
 # none, checked 2026-10-29.)
 # A name's recorded last session (migration 518, todo 519): freshness_1d judges it up to there.
 _LISTING_END_SQL = "SELECT symbol, last_session FROM listing_end_current"
+# The current members of the universe (the latest membership month; todo 673).
+_CURRENT_MEMBERS_SQL = (
+    "SELECT DISTINCT symbol FROM universe_membership "
+    "WHERE as_of = (SELECT max(as_of) FROM universe_membership)"
+)
+STALE_UNLISTED_CHECK = "freshness_1d_unlisted"
+_STALE_UNLISTED_SAMPLE_CAP = 50
 
 _EMPTY_SESSIONS_SQL = """
 SELECT symbol, (verified_from AT TIME ZONE 'UTC')::date AS span_start,
@@ -1113,6 +1120,45 @@ _FIRST_1D_BAR_SQL = """
 SELECT min("timestamp") AS first_bar FROM market_data_ohlcv
 WHERE timeframe = '1d' AND vendor = ANY($1::text[]) AND kind = ANY($2::text[])
 """
+
+
+class StaleUnlisted(NamedTuple):
+    """A current member failing freshness_1d with no recorded listing end (todo 673)."""
+
+    symbol: str
+    sessions_behind: int
+    last_bar: date | None
+
+
+def stale_unlisted_members(
+    failing: Mapping[str, tuple[int, date | None]],
+    members: Collection[str],
+    recorded: Collection[str],
+) -> tuple[StaleUnlisted, ...]:
+    """The names of `failing` (symbol to sessions behind and latest bar date, the failing
+    freshness_1d verdicts) that are current members and have no `listing_end` row: a ticker that
+    ended and nobody recorded. The action is a listing_end migration with the exchange notice, or
+    confirming that the feed is late. Most stale first. Pure; never infers or writes a listing end.
+    """
+    member_set, recorded_set = set(members), set(recorded)
+    rows = [
+        StaleUnlisted(symbol, behind, last_bar)
+        for symbol, (behind, last_bar) in failing.items()
+        if symbol in member_set and symbol not in recorded_set
+    ]
+    return tuple(sorted(rows, key=lambda r: (-r.sessions_behind, r.symbol)))
+
+
+def stale_unlisted_result(stale: Sequence[StaleUnlisted]) -> CheckResult:
+    """The report line of the stale unlisted members: the count and up to 50 'SYMBOL|n sessions
+    behind|last bar' samples (the rest as a count)."""
+    samples = [
+        f"{r.symbol}|{r.sessions_behind} sessions behind|last bar {r.last_bar}" for r in stale
+    ]
+    if len(samples) > _STALE_UNLISTED_SAMPLE_CAP:
+        rest = len(samples) - _STALE_UNLISTED_SAMPLE_CAP
+        samples = samples[:_STALE_UNLISTED_SAMPLE_CAP] + [f"... and {rest} more"]
+    return CheckResult(len(stale), tuple(samples))
 
 
 def merge_failing_by_check(*reports: Mapping[str, int]) -> dict[str, int]:
@@ -1219,6 +1265,10 @@ class _VerdictRun(NamedTuple):
     n_names: int
     # Held names failing freshness_1d, with the hold's cause (plan 185-51).
     held_stale: tuple[str, ...] = ()
+    # Current members failing freshness_1d with no listing_end row (todo 673), and how many
+    # current members were judged.
+    stale_unlisted: tuple[StaleUnlisted, ...] = ()
+    n_members: int = 0
 
 
 @dataclass(frozen=True)
@@ -1954,6 +2004,9 @@ class BarReconciliationAudit(BaseBatch):
                 holds=holds,
             )
             checks["untraced_quarantined_1d"] = verdicts.untraced_hidden
+            checks[STALE_UNLISTED_CHECK] = _Judged(
+                stale_unlisted_result(verdicts.stale_unlisted), verdicts.n_members
+            )
 
         await self._report(pool, window, params, checks, grid)
         async with pool.acquire() as conn:
@@ -1971,6 +2024,9 @@ class BarReconciliationAudit(BaseBatch):
                 verdicts.failing_by_check,
                 zero_for_judged(intraday.passing_by_check),
                 intraday.failing_by_check,
+                {
+                    STALE_UNLISTED_CHECK: len(verdicts.stale_unlisted)
+                },  # 0 records, so the alert resolves
             ),
             previous_verdict_at=previous_verdict_at,
             run_start=now,
@@ -2337,6 +2393,9 @@ class BarReconciliationAudit(BaseBatch):
             spans[r["symbol"]].append((r["span_start"], r["span_end"]))
         latest_load = {r["symbol"]: r["loaded_at"] for r in await conn.fetch(_LATEST_1D_LOAD_SQL)}
         listing_end = {r["symbol"]: r["last_session"] for r in await conn.fetch(_LISTING_END_SQL)}
+        recorded_ends = frozenset(listing_end)
+        members = {r["symbol"] for r in await conn.fetch(_CURRENT_MEMBERS_SQL)}
+        stale_failing: dict[str, tuple[int, date | None]] = {}
         for symbol, last in (last_sessions or {}).items():  # the earlier end wins
             listing_end[symbol] = min(last, listing_end.get(symbol, last))
         seams = findings_by_symbol(seam_samples)
@@ -2434,6 +2493,9 @@ class BarReconciliationAudit(BaseBatch):
                 (v for v in report.verdicts if v.check == CHECK_FRESHNESS_1D and not v.passed),
                 None,
             )
+            if stale is not None:
+                last_bar = max((b.timestamp.date() for b in inputs.stored), default=None)
+                stale_failing[symbol] = (int(stale.metric_value), last_bar)
             if name_holds and stale is not None:
                 held_stale.append(
                     f"{symbol}: freshness_1d {stale.metric_value:.0f} sessions behind; held: "
@@ -2452,6 +2514,8 @@ class BarReconciliationAudit(BaseBatch):
             untraced,
             len(names),
             tuple(held_stale),
+            stale_unlisted_members(stale_failing, members, recorded_ends),
+            len(members & set(names)),
         )
 
     @staticmethod

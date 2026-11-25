@@ -31,6 +31,8 @@ from services.bar_reconciliation_audit import (
     confirmed_spans_from_requests,
     nightly_run_status,
     session_slots,
+    stale_unlisted_members,
+    stale_unlisted_result,
 )
 from src.intelligence.bars.daily_rule import RULE_VERSION
 from src.intelligence.bars.gap_plan import AnsweredWindows
@@ -592,6 +594,8 @@ class _FakeConn:
                 for s, n in self.names.items()
                 if "listing_end" in n
             ]
+        if sql == audit._CURRENT_MEMBERS_SQL:
+            return [{"symbol": s} for s, n in self.names.items() if n.get("member")]
         symbol = args[0]
         data = self.names[symbol]
         if sql == audit._SELECT_DAILY_RAW_SQL:
@@ -897,6 +901,37 @@ def test_a_stale_name_fails_freshness_1d_and_is_counted():
     assert verdicts[("AAA|1d", "freshness_1d")][3:6] == (5.0, 2.0, False)
     assert verdicts[("BBB|1d", "freshness_1d")][5] is False  # BBB ends 01-04 too
     assert run.failing_by_check["freshness_1d"] == 2
+    assert run.stale_unlisted == ()  # no current members: nothing to record
+
+
+def test_a_stale_member_without_a_listing_end_is_listed_with_its_last_bar():
+    ended, listed, other = _good_name(), _good_name(), _good_name()
+    for name in (ended, listed):
+        name["stored"] = name["stored"][:1]  # latest bar 2024-01-02
+        name["observations"] = name["observations"][:1]
+        name["digests"] = []
+    ended["member"] = listed["member"] = True  # `other` is stale too but not a member
+    listed["listing_end"] = date(2024, 1, 9)  # recorded: stale by the bars, yet excluded by its row
+
+    class _Late(_Window):
+        last_session = date(2024, 1, 9)
+
+    import asyncio
+
+    run = asyncio.run(
+        audit.BarReconciliationAudit._verdict_report_1d(
+            _FakeConn({"AAA": ended, "BBB": listed, "CCC": other}),
+            audit._IntegrityParams.from_apr({}),
+            _Late(),
+            ["AAA", "BBB", "CCC"],
+            [],
+            _NOW,
+        )
+    )
+    assert [(r.symbol, r.sessions_behind, r.last_bar) for r in run.stale_unlisted] == [
+        ("AAA", 5, date(2024, 1, 2))
+    ]
+    assert run.n_members == 2
 
 
 def test_last_sessions_end_a_names_judgement():
@@ -944,6 +979,54 @@ def test_alert_gauges_carry_freshness_1d_and_record_zero_when_it_clears(monkeypa
     points = sorted(gauges["BAR_INTEGRITY_FAILING_NAMES"].points, key=lambda p: p[1]["check"])
     assert points == [(0, {"check": "freshness_1d"}), (240, {"check": "session_coverage"})]
     assert {key for _, attributes in points for key in attributes} == {"check"}
+
+
+# ---------------------------------------------------------------------------
+# Stale members with no listing end (todo 673, BKH 2026-11-24)
+# ---------------------------------------------------------------------------
+
+
+def test_stale_unlisted_members_selects_current_members_without_a_listing_end():
+    failing = {
+        "BKH": (6, date(2026, 11, 13)),  # member, ticker ended, no row: listed
+        "NWE": (6, date(2026, 11, 13)),  # member with a listing end: not listed
+        "GONE": (9, date(2026, 10, 1)),  # not a current member: not listed
+        "LATE": (3, date(2026, 11, 20)),
+    }
+    stale = stale_unlisted_members(failing, {"BKH", "NWE", "LATE"}, {"NWE"})
+    assert [r.symbol for r in stale] == ["BKH", "LATE"]  # most stale first
+    assert stale[0].sessions_behind == 6 and stale[0].last_bar == date(2026, 11, 13)
+
+
+def test_stale_unlisted_members_empty_records_zero_and_the_gauge_clears(monkeypatch):
+    assert stale_unlisted_members({}, {"BKH"}, set()) == ()
+    result = stale_unlisted_result(())
+    assert result.n_findings == 0 and result.samples == ()
+    gauges = _patched_gauges(monkeypatch)
+    audit.record_alert_gauges(
+        failing_by_check=audit.merge_failing_by_check(
+            audit.zero_for_judged({"freshness_1d": 3}), {audit.STALE_UNLISTED_CHECK: 0}
+        ),
+        previous_verdict_at=None,
+        run_start=datetime(2026, 11, 25, 6, 0, tzinfo=UTC),
+        max_age_hours=30,
+        refused_by_source={},
+    )
+    assert (0, {"check": "freshness_1d_unlisted"}) in gauges["BAR_INTEGRITY_FAILING_NAMES"].points
+
+
+def test_stale_unlisted_result_carries_names_sessions_behind_and_caps_the_samples():
+    stale = tuple(audit.StaleUnlisted(f"S{i:03d}", 100 - i, date(2026, 11, 13)) for i in range(60))
+    result = stale_unlisted_result(stale)
+    assert result.n_findings == 60
+    assert result.samples[0] == "S000|100 sessions behind|last bar 2026-11-13"
+    assert len(result.samples) == 51 and result.samples[-1] == "... and 10 more"
+
+
+def test_grafana_rule_exists_for_the_unlisted_label():
+    rules = read_source("production/grafana/provisioning/alerting/alert-rules.yml")
+    assert 'bar_integrity_failing_names{check="freshness_1d_unlisted"}' in rules
+    assert audit.STALE_UNLISTED_CHECK == "freshness_1d_unlisted"
 
 
 # ---------------------------------------------------------------------------
