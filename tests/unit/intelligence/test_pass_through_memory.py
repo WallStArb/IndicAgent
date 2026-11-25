@@ -56,7 +56,48 @@ def test_every_pass_through_column_is_accounted_for() -> None:
     assert outputs == covered, sorted(outputs ^ covered)
 
 
-@pytest.mark.parametrize("column", sorted(MARKED))
+def _consumers_of_marked() -> set[str]:
+    """Every output whose kernel reads, directly or through other kernels, a marked output,
+    derived from the registry's inputs (no column list)."""
+    registry = default_registry()
+    external = {e.name for e in registry.external_inputs}
+    produced = {o for k in registry.kernels for o in k.outputs}
+
+    def reads_marked(output: str, seen: frozenset[str] = frozenset()) -> bool:
+        kernel = registry.by_output(output)
+        for name in kernel.inputs:
+            if name in seen or name in external or name not in produced:
+                continue
+            if name in MARKED or reads_marked(name, seen | {output}):
+                return True
+        return False
+
+    return {o for o in produced if o not in MARKED and reads_marked(o)}
+
+
+def test_a_consumer_of_a_marked_output_is_refused_like_the_output() -> None:
+    """A column computed from a marked pass-through inherits its dependence on the builder's
+    series start; admitting it would be a silent wrong answer (todo 674 finding 1)."""
+    consumers = _consumers_of_marked()
+    assert consumers, "the registry has consumers of a marked output (macro products)"
+    registry = default_registry()
+    for column in sorted(consumers):
+        with pytest.raises(FeatureInputRefused, match="through its input"):
+            column_memory_bars(column, CONFIG, registry)
+
+
+def test_only_marked_outputs_and_their_consumers_are_refused() -> None:
+    registry = default_registry()
+    refused = {
+        o
+        for k in registry.kernels
+        for o in k.outputs
+        if registry.builder_path_dependent_source(o) is not None
+    }
+    assert refused == set(MARKED) | _consumers_of_marked()
+
+
+@pytest.mark.parametrize("column", sorted(MARKED | _consumers_of_marked()))
 def test_the_spec_check_refuses_a_marked_pass_through_without_a_config(column: str) -> None:
     """The refusal needs no data and no config, so it fires at spec load like its path-dependent
     sibling (B1g), not only once a provenance config is built."""

@@ -440,6 +440,30 @@ class KernelRegistry:
         series starts (its kernel's `builder_path_dependent`); None when it does not."""
         return self.by_output(output).builder_path_dependent.get(output)
 
+    def builder_path_dependent_source(self, output: str) -> tuple[str, str] | None:
+        """(marked output, reason) for the first output `output` is, or reads through its kernel
+        inputs, that is a marked pass-through of a path-dependent builder; None when none is.
+        A consumer of a marked output inherits its dependence on the builder's series start."""
+        seen: set[str] = set()
+        external = self._external_names()
+
+        def walk(name: str) -> tuple[str, str] | None:
+            if name in seen:
+                return None
+            seen.add(name)
+            kernel = self.by_output(name)
+            reason = kernel.builder_path_dependent.get(name)
+            if reason is not None:
+                return name, reason
+            for inp in kernel.inputs:
+                if inp not in BAR_FIELDS and inp not in DERIVED_INPUTS and inp not in external:
+                    found = walk(inp)
+                    if found is not None:
+                        return found
+            return None
+
+        return walk(output)
+
     def effective_memory_bars(self, name: str, config: FeatureFactoryConfig) -> int:
         kernel = self.by_name(name)
         source = self._path_dependent_source(kernel)

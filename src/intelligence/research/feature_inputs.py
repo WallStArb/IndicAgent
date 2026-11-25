@@ -390,12 +390,15 @@ def refuse_path_dependent(column: str, registry: KernelRegistry) -> None:
 
 def refuse_builder_path_dependent(column: str, registry: KernelRegistry) -> None:
     """A pass-through of a path-dependent builder is no member: its memory is 0 for the rebuild
-    (D-26), but its value depends on where the builder's series starts (todo 674)."""
-    reason = registry.builder_path_dependent_reason(column)
-    if reason is not None:
+    (D-26), but its value depends on where the builder's series starts (todo 674). The refusal
+    is transitive: a column computed from a marked output inherits the dependence."""
+    source = registry.builder_path_dependent_source(column)
+    if source is not None:
+        origin, reason = source
+        via = "" if origin == column else f" through its input {origin}"
         raise FeatureInputRefused(
-            f"{column} is a pass-through of a path-dependent builder ({reason}): its stored value "
-            "depends on the series start, so it has no finite reach (B1g, todo 674)"
+            f"{column} depends{via} on a pass-through of a path-dependent builder ({reason}): its "
+            "stored value depends on the series start, so it has no finite reach (B1g, todo 674)"
         )
 
 
