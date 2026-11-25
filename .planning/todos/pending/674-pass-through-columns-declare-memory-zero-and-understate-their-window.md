@@ -44,7 +44,7 @@ Kernel, builder module, and where the window lives; the window is the stored APR
 | `dividend_yield_pass_through` (`dividend.py`) | `dividend_yield` | the dividend kernel's memory `dividend_yield_window + 1` (line 160) | 0 (none declared) |
 | `ctf_passthrough` (`cross_tf.py`) | `ctf_momentum`, `ctf_vwap_align` | `ctf_vwap_window` (cross-timeframe grid) | 0 (none declared) |
 
-That is 3 + 5 + 10 + 1 + 2 = 21. The ten macro columns, the three distribution columns, the dividend column and the two cross-timeframe columns declare no `definition`, so even the first-row number is 0 there: the fix must read the builder's own window for them, not `definition_warmup`.
+That is 3 + 5 + 10 + 1 + 2 = 21. Fourteen columns have a first-row number of 0: the eight macro columns other than the two beta ones, the three distribution columns, the dividend column and the two cross-timeframe columns, so even `definition_warmup` says 0 there: the fix must read the builder's own window for them, not `definition_warmup`.
 
 ## Scope
 
