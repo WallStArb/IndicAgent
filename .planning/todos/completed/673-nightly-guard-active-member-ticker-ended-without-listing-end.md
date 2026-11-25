@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-11-24
 source: indicagent-fb, BKH data gate refusal (corpus pilot 7c5612f0, step data_gate), lead brief 2026-11-24
@@ -38,3 +38,7 @@ Cost and failure modes: one list over names already judged, no extra query beyon
 ## Done when
 
 The D7 audit logs and gauges, per night, the active members that fail `freshness_1d` with no `listing_end` row, with names and sessions behind; a Grafana rule names the action; `rebuild_code_key()` is unchanged by the edit; the tests above pass. Land after the corpus run is quiet.
+
+## Closure 2026-11-24 (indicagent-fb, d2049eb56)
+
+Landed per the spec: `services/bar_reconciliation_audit.py` adds the pure `stale_unlisted_members` and `stale_unlisted_result`, one `universe_membership` read (latest `as_of`) and the check `freshness_1d_unlisted`: the existing `bar_reconciliation.findings` log line carries the names (cap 50), sessions behind and last bar, and `bar_integrity_failing_names{check="freshness_1d_unlisted"}` records 0 when empty. Grafana rule `bar_freshness_1d_unlisted` names the action. No new service, APR key or threshold; no verdict changes; it never writes `listing_end`. `rebuild_code_key()` printed 09708ae249f2 before and after (the pin of the live corpus run). Tests: audit unit file, the metric-ref test, the full unit suite at -n 4 (exit 0, run before a one-line signature simplification; the audit file and the lints were re-run after it). The JSON report in the spec does not exist in the audit (it reports through logs and facts); the log line and the check's summary fact are the record. Delivery still waits on a wired receiver (`docs/development/alerting.md`).

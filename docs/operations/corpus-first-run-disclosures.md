@@ -13,7 +13,7 @@ Status 2026-11-24: draft for the first 1d `feature_complete` report (pin `09708a
 | 1.5 | SCCO and CTVA are held (unclassified rescale), have no canonical 1d and no `universe_membership` row, so no compute reads them. | 0 membership rows each (2026-11-24); 1,875 (CTVA) and 5,299 (SCCO) Massive 1d slots held | `.planning/todos/completed/608-*.md` closure 2026-11-24 |
 | 1.6 | Names whose ticker ended carry a recorded `listing_end` and are judged to it. BKH ends 2026-11-13 (its merger with NorthWestern closed 2026-11-16 and the survivor trades under a new ticker; reason `merged`); the new ticker is a separate instrument (reused-ticker class), not BKH's continuation. BKH and NWE were both 5 sessions behind in the 2026-11-21 dry run. | BKH last bar 2026-11-13 at both vendors; migration 616 | ledger 2026-11-24h; ledger 2026-11-21e (BKH, NWE) |
 | 1.7 | Inactive members are verified to the span the compute can read, not to the last session; a tail cut before the true end is not chased. | of 11,348 inactive members, 2,767 have the last bar more than 10 days before the judged end, 211 more than 31 days (none beyond 92) | ledger 2026-11-21e |
-| 1.8 | Instruments with no listing end that have stopped printing are caught only by `freshness_1d` (todo 673 adds the named list). | todo 673 | `.planning/todos/pending/673-*.md` |
+| 1.8 | Instruments with no listing end that have stopped printing are caught only by `freshness_1d` (todo 673, landed d2049eb56, adds the named list). | todo 673 | `.planning/todos/completed/673-*.md` |
 
 ## 2. Bars and prices
 
