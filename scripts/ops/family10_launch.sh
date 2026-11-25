@@ -4,11 +4,19 @@
 # Preconditions: memtester_clean file, DIMMs <= 60C, family10_block2_rerun.sh reported IDENTICAL, lead go.
 # LAUNCH_COMMIT (default BOUND) is the commit the runs build from: it must be on origin/main, its battery key must equal the
 # bound record (the runner's own static_gate), its spec hashes must equal the recorded rows' and StepM must be the attested one.
-# PREFLIGHT_ONLY=1 stops after those checks (light, read-only: no host gate, no repro_frozen, no run).
+# PREFLIGHT_ONLY=1 stops after those checks. It writes only: a `git fetch` (remote-tracking refs), a throwaway worktree
+# $SCRATCH/wt-f10pre-<pid> removed on exit, and its messages on the terminal (not the status file). It never touches the live
+# run's worktree path, prunes nothing, skips the host gate and repro_frozen, and refuses while a run_spec process is live.
 set -u
 . "$(dirname "$0")/guarded_run_common.sh"
+[ -z "${PREFLIGHT_ONLY:-}" ] || STATUS=/dev/stdout   # preflight talks to the terminal, never the run's status file
 : >> "$STATUS"; exec 2>> "$STATUS"
 WT=$SCRATCH/wt-f10run
+if [ -n "${PREFLIGHT_ONLY:-}" ]; then
+  pgrep -f 'python.*run_spec' >/dev/null && fail "a run_spec process is live: preflight refuses while a counted run may use the shared checkout"
+  WT=$SCRATCH/wt-f10pre-$$
+  trap 'git -C "$REPO" worktree remove --force "$WT" >/dev/null 2>&1' EXIT
+fi
 BOUND=c0832b091
 SPECS=("$@"); [ ${#SPECS[@]} -gt 0 ] || SPECS=(family10_volume_shock_h5 family10_volume_shock_h5_core)
 LAUNCH=${LAUNCH_COMMIT:-$BOUND}
@@ -21,7 +29,7 @@ git cat-file -e "$LAUNCH^{commit}" && git merge-base --is-ancestor "$LAUNCH" ori
 git diff --quiet "$LAUNCH" origin/main -- src/intelligence/research src/intelligence/statistics research config || fail "research code or specs differ from $LAUNCH (the run itself builds from $LAUNCH)"
 [ -f research/battery_passes/family10_volume_shock_2026-11-24.json ] || fail "battery record missing"
 
-rm -rf "$WT"; git worktree prune
+[ -n "${PREFLIGHT_ONLY:-}" ] || { rm -rf "$WT"; git worktree prune; }
 git worktree add --detach "$WT" "$LAUNCH" >/dev/null || fail "worktree"
 cd "$WT" || fail "cd worktree"
 ln -s "$REPO/.venv" .venv; ln -sfn "$REPO/logs" logs
