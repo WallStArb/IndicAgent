@@ -388,11 +388,35 @@ def refuse_path_dependent(column: str, registry: KernelRegistry) -> None:
         )
 
 
-def column_memory_bars(column: str, config: FeatureFactoryConfig, registry: KernelRegistry) -> int:
-    """Declared memory in bars of `column` under the verified config (the registry's one
-    definition, `feature_memory_bars`)."""
+def refuse_builder_path_dependent(column: str, registry: KernelRegistry) -> None:
+    """A pass-through of a path-dependent builder is no member: its memory is 0 for the rebuild
+    (D-26), but its value depends on where the builder's series starts (todo 674)."""
+    reason = registry.builder_path_dependent_reason(column)
+    if reason is not None:
+        raise FeatureInputRefused(
+            f"{column} is a pass-through of a path-dependent builder ({reason}): its stored value "
+            "depends on the series start, so it has no finite reach (B1g, todo 674)"
+        )
+
+
+def column_memory_bars(
+    column: str, config: FeatureFactoryConfig, registry: KernelRegistry, tf: str = "1d"
+) -> int:
+    """The reach in bars of `column` as a feature member of source tf `tf` (the registry's one
+    definition, `feature_memory_bars`). Refused: a path-dependent column, a pass-through of a
+    path-dependent builder, and a pass-through whose reach is a daily-bar definition on a source
+    that is not daily (its builder window is in daily bars, so the reach in the source's own bars
+    would be understated; todo 674)."""
     refuse_path_dependent(column, registry)
-    return feature_memory_bars(column, config, registry)
+    refuse_builder_path_dependent(column, registry)
+    reach = feature_memory_bars(column, config, registry, tf)
+    memory = registry.effective_memory_bars(registry.by_output(column).name, config)
+    if tf != "1d" and reach > memory:
+        raise FeatureInputRefused(
+            f"{column} reaches back {reach} daily bars through an external builder, which is not "
+            f"its reach in {tf} bars: refused as a {tf}-source member (todo 674)"
+        )
+    return reach
 
 
 def warmup_mask(

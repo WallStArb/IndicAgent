@@ -495,6 +495,7 @@ def _check_input_column(m: MemberSpec) -> None:
             registry = default_registry()
             feature_inputs.check_columns([inp.column], registry, inp.tf)
             feature_inputs.refuse_path_dependent(inp.column, registry)
+            feature_inputs.refuse_builder_path_dependent(inp.column, registry)
         elif kernel_source.kernel_registry(inp.windows, None).is_path_dependent(inp.column):
             raise RunRefused(f"member {m.name}: {inp.column} is path dependent (B1g)")
     except (ValueError, KernelRegistryError) as error:
@@ -651,7 +652,9 @@ def _member_memory(
         raise RunRefused(f"member {m.name}: no verified provenance config for source tf {inp.tf}")
     try:
         if inp.kind == "feature":
-            source_bars = feature_inputs.column_memory_bars(inp.column, config, default_registry())
+            source_bars = feature_inputs.column_memory_bars(
+                inp.column, config, default_registry(), inp.tf
+            )
         else:
             source_bars = kernel_source.kernel_member_memory_bars(inp.column, inp.windows, config)
         return feature_member_memory(

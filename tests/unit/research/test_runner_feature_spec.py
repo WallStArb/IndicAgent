@@ -790,7 +790,7 @@ def test_b1_the_real_gate_is_the_ceiling_the_certificates_own_cells_held(certs):
 
 def test_m2_unmatched_rows_inside_the_scored_span_refuse():
     ts = np.array(["2010-01-04", "2010-01-05", "2010-01-06"], dtype="datetime64[ns]")
-    grid = SimpleNamespace(timestamps=ts)
+    grid = SimpleNamespace(timestamps=ts, tf="1d")
     scored_lo = datetime(2010, 1, 5, tzinfo=UTC)
     scored = np.array([False, True, True])
 

@@ -718,7 +718,7 @@ def _feature_rows_to_grid(
     present = feature_inputs.present_mask(rows, grid.timestamps, symbols)
     masked, warm = {}, {}
     for column in columns:
-        memory = feature_inputs.column_memory_bars(column, config, registry)
+        memory = feature_inputs.column_memory_bars(column, config, registry, grid.tf)
         masked[column], warm[column] = feature_inputs.warmup_mask(
             arrays[column], memory, present=present
         )
