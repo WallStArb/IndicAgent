@@ -46,7 +46,6 @@ src/intelligence/bars/complete_bars.py:0: error: Returning Any from function
 src/intelligence/bars/digest.py:0: error: Argument 1 to "float" has
 src/intelligence/bars/digest.py:0: error: Argument 1 to "float" has
 src/intelligence/bars/integrity_checks.py:0: error: Argument 5 to "BarValues"
-src/intelligence/bars/integrity_checks.py:0: error: Item "None" of
 src/intelligence/bars/labels.py:0: error: Returning Any from function declared
 src/intelligence/bars/level_seams.py:0: error: Argument 3 to "SeamVerdict"
 src/intelligence/bars/level_seams.py:0: error: Argument 3 to "SeamVerdict"

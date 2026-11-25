@@ -2501,7 +2501,7 @@ async def _finish_subset_refit(
         )
         return
     t = result.timing
-    await ctx.ledger.finish_run(
+    await ctx.ledger.finish_run(  # type: ignore[union-attr]  # ctx.ledger is typed optional; start_subset_refits above already uses it unguarded
         sub_run,
         status="completed",
         snapshot_hash=snapshot_hash,

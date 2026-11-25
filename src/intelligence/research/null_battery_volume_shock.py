@@ -150,7 +150,7 @@ def member_arrays(spec, volume: np.ndarray, resid: np.ndarray) -> dict[str, np.n
     battery panel has no non-member cells."""
     ranked = member_sources.compute_panel_members(
         spec,
-        _VolumePanel(volume),
+        _VolumePanel(volume),  # type: ignore[arg-type]  # _VolumePanel is the duck-typed Panel the member kernel reads
         bars_per_session=1,
     )
     return member_sources.orthogonalize_members(spec, ranked, resid, bars_per_session=1)
@@ -218,7 +218,7 @@ def scenarios() -> tuple[VolumeScenario, ...]:
             s1=True,
             **base,
             **other,  # type: ignore[arg-type]  # mypy cannot type ** of a float-valued dict into the scenario fields
-            **volume_hostile,
+            **volume_hostile,  # type: ignore[arg-type]  # volume_hostile keys are the VolumeScenario fields, typed per field
         ),
         VolumeScenario("volume_convex_stress", convex=True, static_sd=GATE_STATIC_SD, **base),
         VolumeScenario(

@@ -57,7 +57,7 @@ def compute_panel_members(
     """S2 for the panel_source members: the member function over the panel field, then the
     membership mask when the panel carries one (as `runner.compute_members` does)."""
     out = {
-        m.name: _fn(spec, m, bars_per_session)(panel_source_array(panel, m.panel_source))
+        m.name: _fn(spec, m, bars_per_session)(panel_source_array(panel, m.panel_source))  # type: ignore[arg-type]  # the caller passes only members whose panel_source is set (panel members)
         for m in panel_source_members(spec)
     }
     if panel.member is not None:
