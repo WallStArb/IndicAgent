@@ -46,7 +46,7 @@ Ranked P0 and P1 order by the path to a counted test (lead pass 2026-11-24; "cod
 | Rank | Todo | Blocker | Owner | Size | Code-key note |
 |---|---|---|---|---|---|
 | 1 | 584 | BKH data gate, then pilot, family 10 runs, `stage_1d` | lead, indicagent-fb | heavy slot, hours | is the pin |
-| 2 | 649 | timer `indicagent-split-feed-auditor.timer` is built but not installed (`systemctl` reports not-found); install before the Massive lapse removes `massive_reference` | ops session | small, no code edit | none |
+| 2 | 649 | timer `indicagent-split-feed-auditor.timer` installed 2026-11-26 (daily 07:45Z, first run clean); left: measure the base rate over a month, then close | ops session | small, no code edit | none |
 | 3 | 600 | owner decision: renew or lapse by 2026-12-10, filings sizing by 2026-12-01 | owner | decision | none |
 | 4 | 669 | after the four family 10 runs and the StepM read; one route plus new battery cells | research session | medium | edits `src/intelligence/research`: `repro_frozen` bit-identical, rebinds, never beside a live counted run; before the pin of any counted corpus test |
 | 5 | 588 | part C (real-data dry S0) needs the scope-all rerun (item (e) deleted 2026-11-25: S0 refuses rk_vwap_dev loudly; tag `archive/588e-volume-basis-2026-11`) | research session | medium | S0 code: after the pilot |
@@ -90,7 +90,7 @@ Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22
 
 | Todo | Why now |
 |---|---|
-| [649](pending/649-splits-after-the-massive-seam-need-a-detector.md) | P1. SNDK 8:1 split (ex-date 2026-11-20) failed the nightly on a basis-change flag; second post-seam split in two days after VIXM. The SNDK row is applied (91c77af37); measure the base rate, then decide a proposal-only detector from the Alpaca corporate-actions feed. Detector built 2026-11-23 (services/split_feed_auditor.py, migration 612); the timer is not yet installed. |
+| [649](pending/649-splits-after-the-massive-seam-need-a-detector.md) | P1. SNDK 8:1 split (ex-date 2026-11-20) failed the nightly on a basis-change flag; second post-seam split in two days after VIXM. The SNDK row is applied (91c77af37); measure the base rate, then decide a proposal-only detector from the Alpaca corporate-actions feed. Detector built 2026-11-23 (services/split_feed_auditor.py, migration 612); the timer is installed (2026-11-26). |
 | [614](pending/614-refactor-audit-2026-11-14.md) | New 2026-11-14, P1. Sixteen ranked refactor candidates from the lead audit. Rows 1, 2, 6, 8 and 12 (the rebuild code key hole, the survivorship caveat that reads zero after step 7, dead v2.x schema, zero-fill in the streaming path) land before the 584 run is created; 3, 9, 10, 11 and 13 after step 7 proves itself. |
 
 **Pre-rerun window (lands before the corpus rerun at the new pin; 571 right after it)**

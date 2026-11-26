@@ -16,7 +16,7 @@
 
 Why: after the plan lapses, `massive_reference` stops supplying split rows for active names (about 3 a month), so the nightly restatement flag and a human would be the only alarm. The auditor reads the Alpaca corporate-actions feed daily, compares it with `corporate_action_current`, and writes candidate row files to `logs/split_candidates/`. It never writes `corporate_action`; apply and review stay manual.
 
-State checked 2026-11-25: unit and timer are in `production/systemd/`, not installed (`systemctl is-enabled indicagent-split-feed-auditor.timer` reports not-found); its five `infra.split_feed_auditor.*` keys are live in `config_state` (migration 612).
+Done 2026-11-26 (lead, with the owner's standing sudo permission): unit and timer installed and enabled (next fire 07:45 UTC daily), one run made now: exit 0, 74 feed splits, 2 recorded, 72 inactive ignored, 0 candidates, 0 unseen, 0 overdue. Nothing further here; the commands below are kept for a reinstall.
 
 ```bash
 cd /home/bg/dev/indicagent
