@@ -17,8 +17,7 @@ grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICA
 workers_now=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select config_value from config_state where config_key='infra.feature_factory.workers'")
 [ "$workers_now" = "4" ] || fail "infra.feature_factory.workers is $workers_now, expected 4"
 host_gate
-# the pilot must end before the Alpaca nightly (04:40Z); refuse to start inside the last 3 hours
-now_h=$(date -u +%H); [ "$now_h" -lt 1 ] || [ "$now_h" -ge 5 ] || fail "inside the 04:40Z nightly window"
+# host_gate also refuses inside the 01:00 to 05:00Z nightly window and while a blocking timer's service runs
 verdict_preflight
 if [ -n "$RESUME" ]; then
   RUN=$RESUME

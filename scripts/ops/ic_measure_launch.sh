@@ -48,7 +48,7 @@ WT="$(dirname "$REPO")/$(basename "$REPO")-corpus-run-$RUN"
 
 # One live heavy job at a time: host_gate's list does not name the corpus runner, the rebuild or the sweep recorder.
 pgrep -f 'python.*(services\.corpus_rerun|services\.ic_measure|ic_sweep_recorder|backfill_feature_factory)' >/dev/null && fail "a corpus run, ic_measure or rebuild process is live"
-now_h=$(date -u +%H); [ "$now_h" -lt 1 ] || [ "$now_h" -ge 5 ] || fail "inside the 04:40Z nightly window"
+window_gate
 
 scope=$("${PSQL[@]}" "select measured->>'data_gate_scope' from corpus_run where run_id='$RUN'") || fail "corpus_run query"
 recorded=$("${PSQL[@]}" "select code_commit from corpus_run where run_id='$RUN'")

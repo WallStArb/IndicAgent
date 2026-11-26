@@ -9,19 +9,31 @@ WORKERS=${WORKERS:-4}         # owner raises to 8 once airflow is fixed and a ru
 mkdir -p "$SCRATCH"
 GATE_C=60                     # start only if both DIMM sensors read this or less
 STOP_C=92; RESUME_C=80; KILL_C=100; MAX_PAUSE_S=1200
+HWMON_ROOT=${DIMM_HWMON_ROOT:-/sys/class/hwmon}   # a test points this at a fake tree
+POLL_S=${POLL_S:-20}                              # watchdog poll interval (seconds)
+MAX_SENSOR_MISSES=3           # consecutive polls without two readable DIMM sensors before the run is killed
+KILL_GRACE_S=30               # seconds between TERM and KILL when the group will not exit
 MEM_FLOOR_KB=$((40 * 1024 * 1024))   # 40 GiB of MemAvailable, compared in kB (exact GiB in the message)
+WINDOW_START_H=1; WINDOW_END_H=5     # UTC hours [start, end): the 04:40Z Alpaca nightly and its lead-in
+HEAVY_JOB_RE='python.*(run_spec|e17_null_battery|ic_measure|ops_corpus|ops_bar_nightly|ops_member_verdicts_1d|repro_frozen|services\.corpus_rerun|backfill_feature_factory|ic_sweep_recorder)'
 
 log()  { echo "$(date -u +%FT%TZ) $*" >> "$STATUS"; }
 fail() { log "ABORT $*"; exit 3; }
 
-dimm_temps() {   # millidegrees of every spd5118 sensor, one per line
+dimm_temps() {   # millidegrees of every readable spd5118 sensor, one per line; an empty or non-numeric read is dropped
   local h f
-  for h in /sys/class/hwmon/hwmon*/; do
+  for h in "$HWMON_ROOT"/hwmon*/; do
     [ "$(cat "$h/name" 2>/dev/null)" = spd5118 ] || continue
-    for f in "$h"temp*_input; do cat "$f"; done
-  done
+    for f in "$h"temp*_input; do cat "$f" 2>/dev/null; done
+  done | grep -E '^[0-9]+$'
 }
-dimm_max_c() { dimm_temps | sort -n | tail -1 | awk '{printf "%d", $1/1000}'; }
+# Hottest DIMM in whole degrees C. Prints nothing and returns 1 unless both sensors give a number, so a lost
+# sensor can never read as "cool" (an empty string would make every `[ "$t" -ge N ]` test false).
+dimm_max_c() {
+  local temps; temps=$(dimm_temps)
+  [ "$(printf '%s\n' "$temps" | grep -c .)" -ge 2 ] || return 1
+  printf '%s\n' "$temps" | sort -n | tail -1 | awk '{printf "%d", $1/1000}'
+}
 
 mem_available_kb() { awk '/^MemAvailable:/{print $2}' "${MEMINFO:-/proc/meminfo}"; }
 
@@ -30,41 +42,91 @@ mem_gate() {     # MemAvailable in kB against the floor in kB; the message gives
   [ "${kb:-0}" -ge "$MEM_FLOOR_KB" ] || fail "only $(awk -v k="${kb:-0}" 'BEGIN{printf "%.2f", k/1048576}') GiB available, need $((MEM_FLOOR_KB / 1048576)) GiB"
 }
 
+# window_gate: refuse a start inside the nightly window (UTC hours [WINDOW_START_H, WINDOW_END_H)); NOW_H injects the hour.
+window_gate() {
+  local h=${NOW_H:-$(date -u +%H)}; h=$((10#$h))
+  { [ "$h" -lt "$WINDOW_START_H" ] || [ "$h" -ge "$WINDOW_END_H" ]; } || fail "inside the 04:40Z nightly window (${WINDOW_START_H}:00 to ${WINDOW_END_H}:00Z)"
+}
+
+blocking_timer_units() {   # the timers a corpus run quiesces (APR infra.corpus_rerun.blocking_timers), one per line
+  PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select config_value from config_state where config_key='infra.corpus_rerun.blocking_timers'" \
+    | "$PY" -c 'import json,sys; print("\n".join(json.load(sys.stdin)))'
+}
+
+# timers_gate: refuse while the service of any blocking timer is running (a timer firing now rewrites the bars under the run).
+timers_gate() {
+  local units u n=0
+  units=$(blocking_timer_units) || fail "cannot read the blocking timers from APR"
+  while read -r u; do
+    [ -n "$u" ] || continue
+    n=$((n + 1))
+    case "$(systemctl is-active "${u%.timer}.service" 2>/dev/null)" in
+      active|activating|reloading) fail "${u%.timer}.service is running (a blocking timer is firing)";;
+    esac
+  done <<< "$units"
+  [ "$n" -gt 0 ] || fail "no blocking timers listed in APR"
+}
+
+heavy_job_live() { pgrep -f "$HEAVY_JOB_RE" >/dev/null; }
+
 host_gate() {    # refuse to start on a host that is not demonstrably healthy
   [ -f "$SCRATCH/memtester_clean" ] || fail "no memtester_clean file (operator records a clean pass)"
   pgrep -x memtester >/dev/null && fail "memtester still running"
-  pgrep -f 'python.*(run_spec|e17_null_battery|ic_measure|ops_corpus|ops_bar_nightly|repro_frozen)' >/dev/null && fail "another heavy job is live"
+  heavy_job_live && fail "another heavy job is live"
+  window_gate
+  timers_gate
   [ "$(cat /proc/sys/kernel/tainted)" = "0" ] || fail "kernel tainted: $(cat /proc/sys/kernel/tainted)"
   journalctl -k -b --no-pager 2>/dev/null | grep -q -E 'segfault|Bad page|Bad swap|general protection' && fail "kernel log shows memory-fault signatures this boot"
   local n; n=$(dimm_temps | wc -l); [ "$n" -ge 2 ] || fail "expected 2 spd5118 sensors, found $n"
-  local t; t=$(dimm_max_c); [ "$t" -le "$GATE_C" ] || fail "DIMM at ${t}C, gate ${GATE_C}C"
+  local t; t=$(dimm_max_c); [ "$t" -le "$GATE_C" ] || fail "DIMM at ${t:-no reading}C, gate ${GATE_C}C"
   mem_gate
+}
+
+# group_alive <pgid>: true while the process group has a member that is not a zombie.
+group_alive() { ps -eo pgid=,stat= | awk -v p="$1" '$1 == p && $2 !~ /^Z/ {f = 1} END {exit !f}'; }
+
+# stop_group <pgid>: CONT then TERM, KILL after KILL_GRACE_S, then check that nothing is left.
+stop_group() {
+  local pgid=$1 i
+  kill -CONT -- "-$pgid" 2>/dev/null; kill -TERM -- "-$pgid" 2>/dev/null
+  for ((i = 0; i < KILL_GRACE_S; i++)); do group_alive "$pgid" || return 0; sleep 1; done
+  kill -KILL -- "-$pgid" 2>/dev/null; log "watchdog escalated to KILL for pgid $pgid"; sleep 1
+  ! group_alive "$pgid" || log "ABORT pgid $pgid still has live members after KILL"
 }
 
 # run_guarded <outfile> <cmd...>: runs cmd in its own process group with the temperature
 # watchdog; returns cmd's exit code, or 143 when the watchdog killed it (ABORT already logged).
+# Fail closed: a poll without two readable DIMM sensors stops the group, and MAX_SENSOR_MISSES in a row kill it.
 run_guarded() {
   local out=$1; shift
   setsid "$@" > "$out" 2>&1 &
   local pid=$!; local pgid=""; local i
   for i in 1 2 3 4 5; do pgid=$(ps -o pgid= -p "$pid" | tr -d ' '); [ -n "$pgid" ] && break; sleep 0.2; done
   [ -n "$pgid" ] || { log "ABORT cannot read pgid of $pid"; kill "$pid" 2>/dev/null; return 1; }
-  local paused_at=0 killed=0 t now
+  local paused_at=0 killed=0 misses=0 t now why
   while kill -0 "$pid" 2>/dev/null; do
-    t=$(dimm_max_c); now=$(date +%s)
+    now=$(date +%s)
+    if t=$(dimm_max_c); then misses=0; else t=""; misses=$((misses + 1)); fi
     rss_mb=$(ps -eo pgid=,rss= | awk -v p="$pgid" '$1==p{s+=$2} END{printf "%d", s/1024}')
-    echo "$(date -u +%FT%TZ) pid=$pid max_c=$t rss_mb=$rss_mb paused=$([ $paused_at -gt 0 ] && echo 1 || echo 0)" >> "$TEMPLOG"
-    if [ "$t" -ge "$KILL_C" ] || { [ $paused_at -gt 0 ] && [ $((now - paused_at)) -gt $MAX_PAUSE_S ]; }; then
-      kill -CONT -- "-$pgid" 2>/dev/null; kill -TERM -- "-$pgid" 2>/dev/null
-      log "ABORT watchdog killed pgid $pgid at ${t}C (paused_at=$paused_at)"; killed=1; break
+    echo "$(date -u +%FT%TZ) pid=$pid max_c=${t:-none} rss_mb=$rss_mb paused=$([ $paused_at -gt 0 ] && echo 1 || echo 0)" >> "$TEMPLOG"
+    if [ -n "$t" ] && [ "$t" -ge "$KILL_C" ]; then
+      why="DIMM at ${t}C"; killed=1; break
+    elif [ $paused_at -gt 0 ] && [ $((now - paused_at)) -gt $MAX_PAUSE_S ]; then
+      why="paused more than ${MAX_PAUSE_S}s"; killed=1; break
+    elif [ -z "$t" ]; then
+      [ "$misses" -lt "$MAX_SENSOR_MISSES" ] || { why="DIMM sensors unreadable for $misses polls"; killed=1; break; }
+      [ $paused_at -gt 0 ] || { kill -STOP -- "-$pgid"; paused_at=$now; log "watchdog STOP: DIMM sensors unreadable"; }
     elif [ "$t" -ge "$STOP_C" ] && [ $paused_at -eq 0 ]; then
       kill -STOP -- "-$pgid"; paused_at=$now; log "watchdog STOP at ${t}C"
     elif [ "$t" -le "$RESUME_C" ] && [ $paused_at -gt 0 ]; then
       kill -CONT -- "-$pgid"; paused_at=0; log "watchdog CONT at ${t}C"
     fi
-    sleep 20
+    sleep "$POLL_S"
   done
-  [ $killed -eq 1 ] && { wait "$pid" 2>/dev/null; return 143; }
+  if [ $killed -eq 1 ]; then
+    log "ABORT watchdog killed pgid $pgid: $why (paused_at=$paused_at)"
+    stop_group "$pgid"; wait "$pid" 2>/dev/null; return 143
+  fi
   wait "$pid"
 }
 
