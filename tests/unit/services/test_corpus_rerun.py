@@ -171,6 +171,7 @@ class FakeStore:
 def _stage_summary(keys, *, failed=0, adopted=(), bpr=1379.0, sps=0.37, rows=100, blind=()):
     return {
         "units_total": len(keys),
+        "units_loaded": len(keys) - failed - len(adopted),
         "units_failed": failed,
         "units_abandoned": 0,
         "disk_refused": None,

@@ -1504,6 +1504,35 @@ class CorpusRerun:
 
     # -- pilot -----------------------------------------------------------------
 
+    def _accumulate_pilot_stage(self, daily: Mapping[str, Any], seconds: float) -> dict[str, float]:
+        """Fold this invocation's 1d stage into the run's pilot measurement and return the running
+        figures: wall seconds over every invocation, units computed (loaded or failed: a failed unit
+        was computed too, and a resumed run computes it again), the largest bytes per row and stored
+        per spool seen. The per-unit time is cumulative seconds over cumulative computed units, the
+        same figure an uninterrupted pilot gives; a pilot that computed nothing has none to give."""
+        prior = self.run.measured
+        record = {
+            "pilot_stage_seconds": float(prior.get("pilot_stage_seconds", 0.0)) + seconds,
+            "pilot_units_computed": int(prior.get("pilot_units_computed", 0))
+            + int(daily["units_loaded"])
+            + int(daily["units_failed"]),
+            "pilot_bytes_per_row_1d_max": max(
+                float(prior.get("pilot_bytes_per_row_1d_max", 0.0)), daily["bytes_per_row_max"]
+            ),
+            "pilot_stored_per_spool_1d_max": max(
+                float(prior.get("pilot_stored_per_spool_1d_max", 0.0)),
+                daily["stored_per_spool_max"],
+            ),
+        }
+        self._merge_measured(record)
+        if not record["pilot_units_computed"]:
+            raise StepFailed("pilot: no unit was computed in any invocation, nothing to time", {})
+        return {
+            "seconds_per_unit": record["pilot_stage_seconds"] / record["pilot_units_computed"],
+            "bytes_per_row_1d": record["pilot_bytes_per_row_1d_max"],
+            "stored_per_spool_1d": record["pilot_stored_per_spool_1d_max"],
+        }
+
     def _step_pilot(self, step: Step) -> dict[str, Any]:
         pins = self._require_pin(step)
         d = self.deps
@@ -1520,6 +1549,9 @@ class CorpusRerun:
             raise StepFailed(f"pilot sample: {error}", {"pin_checks": pins}) from error
         daily = self._stage(timeframes=[self.PILOT_DAILY_TF], chunk_indices=sample_chunks)
         t1 = d.monotonic()
+        # Recorded before any later refusal, so a resumed pilot measures the whole pilot, not its
+        # last invocation (the 2026-11-26 resume divided 9 computed units' time by all 63 chunks).
+        stage = self._accumulate_pilot_stage(daily, t1 - t0)
         hourly = self._pilot_hourly_unit() if self.scope == SCOPE_ALL else None
         t2 = d.monotonic()
         load_after = d.db_load()
@@ -1583,14 +1615,16 @@ class CorpusRerun:
         stages = [daily] if hourly is None else [daily, hourly]
         measured: dict[str, Any] = {
             "pilot_hmm_written_share": hmm_written_share(gates["G1-G3"][1]),
-            "pilot_bytes_per_row_1d": daily["bytes_per_row_max"],
-            "pilot_stored_per_spool": max(s["stored_per_spool_max"] for s in stages),
-            "pilot_seconds_1d_chunk": round((t1 - t0) / len(sample_chunks), 1),
+            "pilot_bytes_per_row_1d": stage["bytes_per_row_1d"],
+            "pilot_stored_per_spool": max(
+                [stage["stored_per_spool_1d"], *(s["stored_per_spool_max"] for s in stages[1:])]
+            ),
+            "pilot_seconds_1d_chunk": round(stage["seconds_per_unit"], 1),
         }
         counts = self._counts()
         every = (datetime(1970, 1, 1, tzinfo=UTC), datetime(9999, 1, 1, tzinfo=UTC))
         n_chunks = len(counts.chunks()) or 1
-        per_chunk = (t1 - t0) / len(sample_chunks)
+        per_chunk = stage["seconds_per_unit"]
         measured["extrapolated_seconds"] = {"stage_1d": round(per_chunk * n_chunks, 0)}
         if hourly is not None:
             hourly_rows = max(hourly["rows_loaded"], 1)
