@@ -618,7 +618,7 @@ The TEMPORARY count here is taken before the 185-44 guards existed. The single_w
 - .planning/todos/pending/474-kernels-fill-neutral-values-for-undefined-instead-of-nan.md
 - .planning/todos/pending/475-macro-kernels-branch-on-symbol-and-timeframe-names.md
 - .planning/todos/pending/477-pivot-detection-repeated-per-row-across-structure-kernels.md
-- .planning/todos/pending/479-service-timer-logs-root-owned-break-single-module-unit-tests.md
+- .planning/todos/completed/479-service-timer-logs-root-owned-break-single-module-unit-tests.md
 - .planning/todos/pending/481-rates-regime-curve-label-measures-rate-direction-not-slope.md
 - .planning/todos/pending/483-record-2026-midterm-forward-window-result.md
 - .planning/todos/pending/484-htf-lane-honor-quarantined-symbols-file.md

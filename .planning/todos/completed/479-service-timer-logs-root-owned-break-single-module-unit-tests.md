@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-09-30
 source: 186-18 follow-up
@@ -15,3 +15,11 @@ because an earlier module configures logging first. Other timer-run services pro
 
 Fix: have the timer units write logs as the checkout owner (`User=bg`), or have
 `setup_service_logging` fall back to a temp path when the file is not writable under a test run.
+
+## Resolution (2026-11-26)
+
+Cause: `indicagent-regime-coverage-auditor.service` and `indicagent-feature-parity-auditor.service` had no `User=`, so
+the timer runs wrote root-owned files under `logs/`. Both units now declare `User=bg`; the regression test
+`tests/unit/test_systemd_units_run_as_checkout_owner.py` fails any unit that runs the repo venv Python without it.
+Installed units need a copy and `systemctl daemon-reload` (owner sudo step), and the existing root-owned
+`logs/regime_coverage_auditor.log` must be chowned to bg once.
