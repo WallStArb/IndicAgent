@@ -17,8 +17,17 @@ MEM_FLOOR_KB=$((40 * 1024 * 1024))   # 40 GiB of MemAvailable, compared in kB (e
 WINDOW_START_H=1; WINDOW_END_H=5     # UTC hours [start, end) refused for a start: the 04:40Z Alpaca nightly's lead-in
 HEAVY_JOB_RE='python.*(run_spec|e17_null_battery|ic_measure|ops_corpus|ops_bar_nightly|ops_member_verdicts_1d|repro_frozen|services\.corpus_rerun|backfill_feature_factory|ic_sweep_recorder)'
 
-log()  { echo "$(date -u +%FT%TZ) $*" >> "$STATUS"; }
-fail() { log "ABORT $*"; exit 3; }
+# Check mode (corpus_pilot.sh --check): COLLECT_REFUSALS=1 makes fail() record the refusal and return 1 instead of
+# exiting, so every gate runs and every refusal is reported at once, and log() prints instead of appending to the
+# status file: a check writes nothing.
+REFUSALS=()
+log()  { if [ -n "${COLLECT_REFUSALS:-}" ]; then echo "$*"; else echo "$(date -u +%FT%TZ) $*" >> "$STATUS"; fi; }
+fail() { if [ -n "${COLLECT_REFUSALS:-}" ]; then REFUSALS+=("$*"); return 1; fi; log "ABORT $*"; exit 3; }
+refusals_report() { local r; for r in "${REFUSALS[@]}"; do echo "REFUSED: $r"; done; [ "${#REFUSALS[@]}" -eq 0 ]; }
+apr_value_gate() {   # key, expected value, why (the reason the launch needs it); refuses on any other value
+  local now; now=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select config_value from config_state where config_key='$1'")
+  [ "$now" = "$2" ] || fail "$1 is $now, expected $2${3:+ ($3)}"
+}
 
 dimm_temps() {   # millidegrees of every readable spd5118 sensor, one per line; an empty or non-numeric read is dropped
   local h f

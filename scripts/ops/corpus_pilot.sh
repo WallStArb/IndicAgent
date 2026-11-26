@@ -3,26 +3,38 @@
 # -> release timers. See docs/operations/guarded-run-runbook.md.
 # Usage: setsid -f bash corpus_pilot.sh <expected_rebuild_code_key_prefix> [commit_sha]
 #        setsid -f bash corpus_pilot.sh --resume <run_id>   (same run, same pin; timers already held)
+#        bash corpus_pilot.sh --check [--resume <run_id>]   (every refusal a launch would meet, read-only, at once)
 # Preconditions: block 2 compare IDENTICAL in the status file; memtester_clean present; the lead has
 # set infra.feature_factory.workers to 4 (config_history reason recorded); no heavy job live.
 set -u
 . "$(dirname "$0")/guarded_run_common.sh"
-: >> "$STATUS"; exec 2>> "$STATUS"
+CHECK=""
+if [ "${1:-}" = "--check" ]; then CHECK=1; COLLECT_REFUSALS=1; shift; fi
+[ -n "$CHECK" ] || { : >> "$STATUS"; exec 2>> "$STATUS"; }   # a check writes nothing, not even the status file
 CR="$PY -m services.corpus_rerun"
 cd "$REPO" || fail "cd repo"
 RESUME=""
-if [ "${1:-}" = "--resume" ]; then RESUME=${2:?run id}; else EXPECT=${1:?expected rebuild_code_key prefix}; COMMIT=${2:-}; fi
+if [ "${1:-}" = "--resume" ]; then RESUME=${2:?run id}; elif [ -z "$CHECK" ]; then EXPECT=${1:?expected rebuild_code_key prefix}; COMMIT=${2:-}; fi
 
 grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
-workers_now=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select config_value from config_state where config_key='infra.feature_factory.workers'")
-[ "$workers_now" = "4" ] || fail "infra.feature_factory.workers is $workers_now, expected 4"
+apr_value_gate infra.feature_factory.workers 4
 # The run pins the IC block width in its apr_hash at --new-run and ic_measure_launch.sh refuses any other width (todo 471);
 # a wrong value found there costs a repeat of stage_1d, so the pilot refuses at minute zero. Keep in step with WIDTH_RULED there.
-width_now=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select config_value from config_state where config_key='alpha.ic.feature_block_columns'")
-[ "$width_now" = "16" ] || fail "alpha.ic.feature_block_columns is $width_now, expected 16 (the run pins it; ic_measure_launch.sh refuses any other width)"
+apr_value_gate alpha.ic.feature_block_columns 16 "the run pins it; ic_measure_launch.sh refuses any other width"
 host_gate
 # host_gate also refuses inside the 01:00 to 05:00Z nightly window and while a blocking timer's service runs
 verdict_preflight
+if [ -n "$CHECK" ]; then   # the run-side checks: the same gates the launch meets (services/corpus_rerun_check.py)
+  if [ -n "$RESUME" ]; then
+    WT="$(dirname "$REPO")/$(basename "$REPO")-corpus-run-$RESUME"
+    if [ -d "$WT" ]; then (cd "$WT" && $PY -m services.corpus_rerun --run-id "$RESUME" --check) || fail "services.corpus_rerun --check refused (above)"
+    else fail "no worktree $WT for run $RESUME"; fi
+  else
+    $CR --new-run --check --data-gate-scope 1d || fail "services.corpus_rerun --new-run --check refused (above)"
+  fi
+  refusals_report
+  exit $?
+fi
 if [ -n "$RESUME" ]; then
   RUN=$RESUME
   WT="$(dirname "$REPO")/$(basename "$REPO")-corpus-run-$RUN"

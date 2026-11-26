@@ -28,6 +28,7 @@ _STUBS = {
     "python": """#!/bin/sh
 echo "$*" >> "$STUB_LOG"
 case "$*" in
+  *--check*) echo "corpus_rerun check output"; exit "${CHECK_RC:-0}";;
   *--quiesce*) exit "${QUIESCE_RC:-0}";;
   *--release*) exit "${RELEASE_RC:-0}";;
   *--new-run*) [ "${NEWRUN_RC:-0}" = 0 ] || { echo "new-run failed"; exit "$NEWRUN_RC"; }
@@ -462,3 +463,57 @@ def test_a_resume_also_refuses_a_wrong_ic_block_width(lab: Lab) -> None:
     result = _pilot(lab, "--resume", RUN_ID, RECORDED_COMMIT=head, WIDTH_NOW="32")
     assert result.returncode == 3
     assert not _calls_with(lab, "--through pilot")
+
+
+# ---------------------------------------------------------------------------------------------
+# corpus_pilot.sh --check: every refusal at once, nothing written
+# ---------------------------------------------------------------------------------------------
+
+
+def _writes(lab: Lab) -> list[str]:
+    """What a check must not do: a timer change, a run, a pilot, a status line."""
+    return [c for c in lab.calls() if any(w in c for w in ("--quiesce", "--release", "--through"))]
+
+
+def test_check_reports_every_refusal_at_once_and_exits_nonzero(lab: Lab) -> None:
+    before = lab.status_text()
+    result = _pilot(
+        lab, "--check", WORKERS_NOW="8", WIDTH_NOW="32", STUB_TAINTED="4096", STUB_HEAVY="1"
+    )
+    assert result.returncode == 1
+    for refusal in (
+        "infra.feature_factory.workers is 8, expected 4",
+        "alpha.ic.feature_block_columns is 32, expected 16",
+        "kernel tainted: 4096",
+        "another heavy job is live",
+    ):
+        assert f"REFUSED: {refusal}" in result.stdout, result.stdout
+    assert lab.status_text() == before and not _writes(lab)
+
+
+def test_check_of_a_healthy_launch_exits_zero_and_writes_nothing(lab: Lab) -> None:
+    before = lab.status_text()
+    result = _pilot(lab, "--check")
+    assert result.returncode == 0, result.stdout
+    assert "REFUSED" not in result.stdout and "corpus_rerun check output" in result.stdout
+    assert _calls_with(lab, "--new-run --check --data-gate-scope 1d")
+    assert lab.status_text() == before and not _writes(lab)
+
+
+def test_check_adds_the_runner_refusals_to_the_gate_refusals(lab: Lab) -> None:
+    result = _pilot(lab, "--check", CHECK_RC="1", WORKERS_NOW="8")
+    assert result.returncode == 1
+    assert "REFUSED: infra.feature_factory.workers is 8" in result.stdout
+    assert "REFUSED: services.corpus_rerun --new-run --check refused (above)" in result.stdout
+
+
+def test_check_of_a_run_runs_the_runner_check_in_the_runs_worktree(lab: Lab) -> None:
+    _run_worktree(lab)
+    result = _pilot(lab, "--check", "--resume", RUN_ID)
+    assert result.returncode == 0, result.stdout
+    assert _calls_with(lab, f"--run-id {RUN_ID} --check") and not _writes(lab)
+
+
+def test_check_of_a_run_without_a_worktree_is_refused(lab: Lab) -> None:
+    result = _pilot(lab, "--check", "--resume", RUN_ID)
+    assert result.returncode == 1 and "REFUSED: no worktree" in result.stdout
