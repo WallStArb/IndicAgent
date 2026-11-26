@@ -119,7 +119,7 @@ from services.corpus_rerun_budget import (
     span_peak,
     step_increment,
 )
-from services.corpus_rerun_quiesce import timer_is_quiet
+from services.corpus_rerun_quiesce import QuiesceError, service_of, timer_is_quiet
 from src.config.settings import Settings
 from src.core.canonical_json import canonical_json
 from src.core.service_utils import setup_service_logging
@@ -992,6 +992,9 @@ class Deps:
     module_files: Callable[[], list[str]]
     fetcher_lock_free: Callable[[], bool]
     systemctl: Callable[[str, str], str]
+    service_of: Callable[
+        [str], str
+    ]  # timer -> the service it triggers (systemd, not a guessed name)
     no_live_run: Callable[[], Any]
     preconditions: Callable[[bool, Mapping[str, int]], list[Any]]
     free_bytes: Callable[[], int]
@@ -1221,7 +1224,11 @@ class CorpusRerun:
         check("fetcher_lock", free, "FetcherLock free" if free else "FetcherLock is held")
         for timer in self.apr.blocking_timers:
             enabled = d.systemctl("is-enabled", timer)
-            service = timer.removesuffix(".timer") + ".service"
+            try:
+                service = d.service_of(timer)
+            except QuiesceError as error:
+                check(f"timer:{timer}", False, str(error))
+                continue
             active = d.systemctl("is-active", service)
             check(
                 f"timer:{timer}",
@@ -1905,6 +1912,7 @@ def real_deps(settings: Settings, conn: Any, worktree: Path) -> Deps:
         module_files=module_files,
         fetcher_lock_free=lambda: fetcher_lock_free(settings.database_url),
         systemctl=systemctl,
+        service_of=service_of,
         no_live_run=lambda: rp.check_no_live_run(rp.fetch_process_lines(), ""),
         preconditions=lambda intraday, disk: rebuild_precondition_results(
             conn, settings, intraday, disk

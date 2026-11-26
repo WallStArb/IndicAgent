@@ -19,6 +19,7 @@ import pytest
 import services.corpus_rerun as cr
 from services.corpus_rerun_apr import CorpusRerunApr
 from services.corpus_rerun_budget import RowCounts
+from services.corpus_rerun_quiesce import QuiesceError
 
 RUN = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
 OTHER = "6fa459ea-ee8a-3ca4-894e-db77e160355e"
@@ -219,6 +220,13 @@ class World:
     state: dict
 
 
+def _service_of(state, timer):
+    """The fake systemd: a timer triggers the same-named service unless the world says it is unresolved."""
+    if state.get("unresolved"):
+        raise QuiesceError(f"{timer} is not loaded")
+    return timer.removesuffix(".timer") + ".service"
+
+
 def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
     store = FakeStore(run or _run())
     rebuild = FakeRebuild(store)
@@ -270,6 +278,7 @@ def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
         module_files=lambda: state["module_files"],
         fetcher_lock_free=lambda: state["lock_free"],
         systemctl=lambda verb, unit: state["enabled"] if verb == "is-enabled" else state["active"],
+        service_of=lambda timer: _service_of(state, timer),
         no_live_run=lambda: SimpleNamespace(name="no_live_run", ok=True, detail="quiet"),
         preconditions=lambda intraday, disk: [
             SimpleNamespace(name="disk_guard", ok=True, detail="ok")
@@ -474,6 +483,10 @@ def test_the_new_run_needs_a_data_gate_scope_and_a_run_records_its_own():
         ({"enabled": "enabled"}, f"timer:{TIMERS[0]}"),
         ({"active": "active"}, f"timer:{TIMERS[0]}"),
         ({"enabled": ""}, f"timer:{TIMERS[0]}"),  # an unknown unit is not proof it is off
+        (
+            {"unresolved": True},
+            f"timer:{TIMERS[0]}",
+        ),  # a timer whose service cannot be read is not quiet
     ],
 )
 def test_the_pin_gate_refuses(override, failing):

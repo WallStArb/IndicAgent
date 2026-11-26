@@ -38,11 +38,37 @@ class QuiesceError(RuntimeError):
     """A refusal or a unit that did not reach the wanted state; the record file stays."""
 
 
+def _show(prop: str, unit: str) -> str:
+    done = subprocess.run(
+        ["systemctl", "show", "-p", prop, "--value", unit],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.stdout.strip()
+
+
+def service_of(timer: str) -> str:
+    """The unit the timer triggers, read from systemd. It does not follow from the timer's name: the
+    dividend timer starts a template instance, indicagent-dividend-event-writer@yahoo.service, and
+    `is-active` on a guessed name that does not exist prints "inactive", which reads as quiet. A timer
+    that is not loaded or triggers anything but one unit is a refusal."""
+    if _show("LoadState", timer) != "loaded":
+        raise QuiesceError(f"{timer} is not loaded")
+    triggers = _show("Triggers", timer).split()
+    if len(triggers) != 1:
+        raise QuiesceError(
+            f"{timer} triggers {triggers or 'no unit'}, expected exactly one service"
+        )
+    return triggers[0]
+
+
 @dataclass(frozen=True)
 class QuiesceDeps:
     query: Callable[[str, str], str]  # systemctl is-enabled | is-active <unit> -> first line
     change: Callable[[str, str], None]  # systemctl disable | stop | enable | start <unit>; raises
     no_live_run: Callable[[], Any]  # a CheckResult: .ok, .detail
+    service_of: Callable[[str], str] = service_of  # timer -> the service it triggers
     sleep: Callable[[float], None] = time.sleep
     monotonic: Callable[[], float] = time.monotonic
 
@@ -59,10 +85,6 @@ def real_change(verb: str, unit: str) -> None:
 
 def state_path(logs_dir: Path) -> Path:
     return logs_dir / STATE_FILE_NAME
-
-
-def service_of(timer: str) -> str:
-    return timer.removesuffix(".timer") + ".service"
 
 
 def _read_record(path: Path) -> dict[str, dict[str, bool]]:
@@ -98,6 +120,7 @@ def quiesce(
 ) -> None:
     """Record, disable and stop each timer, then wait for its service to settle."""
     _refuse_if_live(deps)
+    services = {timer: deps.service_of(timer) for timer in timers}  # refuse before any change
     recorded = _read_record(path)
     now = {timer: _observe(deps, timer) for timer in timers}
     prior = {
@@ -114,7 +137,7 @@ def quiesce(
         if now[timer]["active"]:
             deps.change("stop", timer)
     deadline = deps.monotonic() + wait_seconds
-    busy = [service_of(t) for t in timers]
+    busy = list(services.values())
     while busy := [s for s in busy if deps.query("is-active", s) not in SETTLED_STATES]:
         if deps.monotonic() >= deadline:
             raise QuiesceError(f"services still running after {wait_seconds:.0f} s: {busy}")
@@ -122,7 +145,7 @@ def quiesce(
     not_quiet = {
         t: deps.query("is-enabled", t)
         for t in timers
-        if not timer_is_quiet(deps.query("is-enabled", t), deps.query("is-active", service_of(t)))
+        if not timer_is_quiet(deps.query("is-enabled", t), deps.query("is-active", services[t]))
     }
     if not_quiet:  # e.g. a unit that no longer exists, or enabled-runtime: the pin gate refuses it
         raise QuiesceError(f"not quiet after the disable, the pin gate would refuse: {not_quiet}")

@@ -7,6 +7,7 @@ duration) and a short poll interval."""
 
 import subprocess
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -22,23 +23,24 @@ def _fake_hwmon(root: Path, temps_c: tuple[int, int] = (40, 40)) -> None:
         (sensor / "temp1_input").write_text(f"{temp * 1000}\n")
 
 
-def _bash(tmp_path: Path, body: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
-    """Run `body` with the common file sourced, private status and temperature logs, 0.2 s polls."""
+def _command(tmp_path: Path, body: str) -> tuple[list[str], dict[str, str]]:
+    """`body` with the common file sourced, private status and temperature logs, 0.2 s polls."""
     preamble = (
         f'source "{SCRIPT}"; STATUS="{tmp_path}/status"; TEMPLOG="{tmp_path}/temp.log"; '
         'POLL_S=0.2; KILL_GRACE_S=1; : >> "$STATUS"; '
     )
+    env = {
+        "GUARDED_RUN_DIR": str(tmp_path),
+        "DIMM_HWMON_ROOT": str(tmp_path / "hw"),
+        "PATH": "/usr/bin:/bin",
+    }
+    return ["bash", "-c", preamble + body], env
+
+
+def _bash(tmp_path: Path, body: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    command, env = _command(tmp_path, body)
     return subprocess.run(
-        ["bash", "-c", preamble + body],
-        env={
-            "GUARDED_RUN_DIR": str(tmp_path),
-            "DIMM_HWMON_ROOT": str(tmp_path / "hw"),
-            "PATH": "/usr/bin:/bin",
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout,
+        command, env=env, capture_output=True, text=True, check=False, timeout=timeout
     )
 
 
@@ -207,20 +209,39 @@ def test_window_gate_refuses_from_one_utc_to_the_launchers_end(
         assert "PASS" in result.stdout
 
 
-def test_window_gate_and_host_gate_require_the_window_end(tmp_path: Path) -> None:
-    for call in ("window_gate", "host_gate"):
-        result = _bash(tmp_path, f"NOW_H=08; {call}; echo PASS")
-        assert result.returncode != 0
-        assert "PASS" not in result.stdout
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        ("window_gate", "window end hour (UTC)"),
+        ("host_gate", "window end hour (UTC), see window_gate"),
+    ],
+)
+def test_window_gate_and_host_gate_require_the_window_end(
+    tmp_path: Path, call: str, message: str
+) -> None:
+    result = _bash(tmp_path, f"NOW_H=08; {call}; echo PASS")
+    assert result.returncode != 0
+    assert "PASS" not in result.stdout
+    assert message in result.stderr
 
 
 def _timers_gate(
-    tmp_path: Path, is_active: str, units: str = "a.timer\nb.timer"
+    tmp_path: Path,
+    is_active: str,
+    units: str = "a.timer\nb.timer",
+    load_state: str = "loaded",
+    triggers_b: str = "b@yahoo.service",
 ) -> subprocess.CompletedProcess[str]:
+    """A fake systemctl: timer a.timer triggers a.service, b.timer triggers `triggers_b` (a template instance)."""
     stub = tmp_path / "bin"
     stub.mkdir(exist_ok=True)
     (stub / "systemctl").write_text(
-        f'#!/bin/sh\n[ "$2" = "b.service" ] && echo {is_active} || echo inactive\n'
+        "#!/bin/sh\n"
+        'case "$1 $3" in\n'
+        f'  "show LoadState") echo {load_state};;\n'
+        '  "show Triggers") [ "$5" = b.timer ] && echo "' + triggers_b + '" || echo a.service;;\n'
+        f'  "is-active "*) [ "$2" = "b@yahoo.service" ] && echo {is_active} || echo inactive;;\n'
+        "esac\n"
     )
     (stub / "systemctl").chmod(0o755)
     body = f'PATH="{stub}:$PATH"; blocking_timer_units() {{ printf "{units}\\n"; }}; timers_gate; echo PASS'
@@ -235,7 +256,7 @@ def test_timers_gate_passes_when_no_blocking_service_runs(tmp_path: Path) -> Non
 def test_timers_gate_refuses_while_a_blocking_service_runs(tmp_path: Path, state: str) -> None:
     result = _timers_gate(tmp_path, state)
     assert result.returncode == 3
-    assert "b.service is running" in _status(tmp_path)
+    assert "b@yahoo.service is running" in _status(tmp_path)
 
 
 def test_timers_gate_refuses_an_empty_timer_list(tmp_path: Path) -> None:
@@ -244,25 +265,71 @@ def test_timers_gate_refuses_an_empty_timer_list(tmp_path: Path) -> None:
     assert "no blocking timers" in _status(tmp_path)
 
 
-def test_heavy_job_list_names_the_corpus_runner_rebuild_and_sweep(tmp_path: Path) -> None:
-    for module in (
+@pytest.mark.parametrize(
+    "module",
+    [
         "services.corpus_rerun",
         "backfill_feature_factory",
         "ic_sweep_recorder",
         "ops_member_verdicts_1d",
-    ):
-        decoy = subprocess.Popen(
-            ["python3", "-c", "import time; time.sleep(30)", f"decoy_{module}"],
-        )
-        try:
-            result = _bash(tmp_path, "heavy_job_live && echo LIVE")
-            assert "LIVE" in result.stdout, module
-        finally:
-            decoy.kill()
-            decoy.wait()
+    ],
+)
+def test_heavy_job_pattern_names_the_corpus_runner_rebuild_sweep_and_verdict_refresh(
+    tmp_path: Path, module: str
+) -> None:
+    result = _bash(
+        tmp_path,
+        f'printf "%s\\n" "python3 -m {module} --run-id x" | grep -Eq "$HEAVY_JOB_RE" && echo LIVE',
+    )
+    assert "LIVE" in result.stdout
+
+
+def test_heavy_job_live_finds_a_matching_process(tmp_path: Path) -> None:
+    token = f"tok_{uuid.uuid4().hex}"  # only this test produces it, so no real process can match
+    decoy = subprocess.Popen(["python3", "-c", "import time; time.sleep(30)", token])
+    try:
+        result = _bash(tmp_path, f'HEAVY_JOB_RE="python.*{token}"; heavy_job_live && echo LIVE')
+        assert "LIVE" in result.stdout
+    finally:
+        decoy.kill()
+        decoy.wait()
 
 
 def test_heavy_job_check_passes_when_nothing_matches(tmp_path: Path) -> None:
     # the bracket keeps the pattern from matching this very `bash -c` command line
     result = _bash(tmp_path, "HEAVY_JOB_RE='no_such_[p]rocess_xyz'; heavy_job_live || echo CLEAR")
     assert "CLEAR" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("load_state", "triggers_b", "message"),
+    [
+        ("not-found", "b@yahoo.service", "is not loaded"),
+        ("loaded", "", "triggers 'no unit'"),
+        ("loaded", "b@yahoo.service c.service", "expected exactly one service"),
+    ],
+)
+def test_timers_gate_refuses_a_timer_it_cannot_resolve(
+    tmp_path: Path, load_state: str, triggers_b: str, message: str
+) -> None:
+    result = _timers_gate(tmp_path, "inactive", load_state=load_state, triggers_b=triggers_b)
+    assert result.returncode == 3
+    assert message in _status(tmp_path)
+
+
+def test_a_signalled_launcher_stops_its_group_and_exits_143(tmp_path: Path) -> None:
+    _fake_hwmon(tmp_path / "hw", (93, 50))  # paused by the watchdog: the worst case to leave behind
+    command, env = _command(tmp_path, f'run_guarded "{tmp_path}/out" sleep 31.006')
+    launcher = subprocess.Popen(
+        command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    try:
+        time.sleep(1.0)
+        assert _alive("sleep 31.006")
+        launcher.terminate()
+        assert launcher.wait(timeout=20) == 143
+    finally:
+        if launcher.poll() is None:
+            launcher.kill()
+    assert "ABORT launcher signalled" in _status(tmp_path)
+    assert not _alive("sleep 31.006")

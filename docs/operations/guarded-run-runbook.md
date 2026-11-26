@@ -39,7 +39,7 @@ Scripts in `scripts/ops/`: `guarded_run_common.sh` (host gate, DIMM watchdog, RS
    `ConfigService(dsn).set("infra.feature_factory.workers", 4, changed_by="indicagent-ee",
    reason="DIMM thermal budget: 4 workers until a measured run holds both DIMMs under 85 C (2026-11-23 fault)")`
    (a one-line async script; the write is reversible by setting 12 and is recorded in `config_history`).
-4. Clock: `host_gate` refuses a start inside the nightly window and while a blocking timer's service runs (`NOW_H` injects the hour in tests) *. The window end is the launcher's: the pilot and the IC measure quiesce the timers and pass 05:00Z; the family 10 launcher and the block 2 rerun do not quiesce and pass 07:00Z, because the timer cluster runs to about 06:30Z (derivations 05:20 and 05:45Z, audits 06:00Z, dividends 06:30Z). The window opens at 01:00Z for all four. The pilot's own length is unknown (the last one took 10 minutes for 25 names);
+4. Clock: `host_gate` refuses a start inside the nightly window and while a blocking timer's service runs (`NOW_H` injects the hour in tests) *. The window end is the launcher's: the pilot and the IC measure quiesce the timers and pass 05:00Z; the family 10 launcher and the block 2 rerun do not quiesce and pass 07:00Z, because the timer cluster runs to about 06:30Z (derivations 05:20 and 05:45Z, audits 06:00Z, dividends 06:30Z). The window opens at 01:00Z for all four. The pilot's own length is unknown
    (the last one took 10 minutes for 25 names).
 5. Main checkout fast-forwards cleanly and `rebuild_code_key()` starts with the expected prefix *.
 6. Thermal cap is on (`systemctl is-active indicagent-host-thermal-cap` = active).

@@ -56,14 +56,21 @@ blocking_timer_units() {   # the timers a corpus run quiesces (APR infra.corpus_
 }
 
 # timers_gate: refuse while the service of any blocking timer is running (a timer firing now rewrites the bars under the run).
+# The service is read from systemd (Triggers), never guessed from the timer's name: the dividend timer starts the template
+# instance indicagent-dividend-event-writer@yahoo.service, and `is-active` on a name that does not exist prints "inactive".
 timers_gate() {
-  local units u n=0
+  local units u svc n=0
   units=$(blocking_timer_units) || fail "cannot read the blocking timers from APR"
   while read -r u; do
     [ -n "$u" ] || continue
     n=$((n + 1))
-    case "$(systemctl is-active "${u%.timer}.service" 2>/dev/null)" in
-      active|activating|reloading) fail "${u%.timer}.service is running (a blocking timer is firing)";;
+    [ "$(systemctl show -p LoadState --value "$u" 2>/dev/null)" = loaded ] || fail "$u is not loaded"
+    svc=$(systemctl show -p Triggers --value "$u" 2>/dev/null)
+    case "$svc" in
+      ""|*" "*) fail "$u triggers '${svc:-no unit}', expected exactly one service";;
+    esac
+    case "$(systemctl is-active "$svc" 2>/dev/null)" in
+      active|activating|reloading) fail "$svc is running (a blocking timer is firing)";;
     esac
   done <<< "$units"
   [ "$n" -gt 0 ] || fail "no blocking timers listed in APR"
@@ -107,6 +114,8 @@ run_guarded() {
   for i in 1 2 3 4 5; do pgid=$(ps -o pgid= -p "$pid" | tr -d ' '); [ -n "$pgid" ] && break; sleep 0.2; done
   [ -n "$pgid" ] || { log "ABORT cannot read pgid of $pid"; kill "$pid" 2>/dev/null; return 1; }
   local paused_at=0 killed=0 misses=0 t now why
+  # A launcher that dies (TERM, INT, HUP) must not leave a run unprotected or a group stopped for good.
+  trap 'log "ABORT launcher signalled: stopping pgid $pgid"; stop_group "$pgid"; exit 143' TERM INT HUP
   while kill -0 "$pid" 2>/dev/null; do
     now=$(date +%s)
     if t=$(dimm_max_c); then misses=0; else t=""; misses=$((misses + 1)); fi
@@ -128,9 +137,12 @@ run_guarded() {
   done
   if [ $killed -eq 1 ]; then
     log "ABORT watchdog killed pgid $pgid: $why (paused_at=$paused_at)"
+    trap - TERM INT HUP
     stop_group "$pgid"; wait "$pid" 2>/dev/null; return 143
   fi
-  wait "$pid"
+  wait "$pid"; local rc=$?
+  trap - TERM INT HUP
+  return "$rc"
 }
 
 # verdict_preflight: refuse when member 1d verdicts are older than the d2_landed freshness window

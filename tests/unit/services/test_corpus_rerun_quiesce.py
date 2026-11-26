@@ -12,13 +12,18 @@ from services import corpus_rerun_quiesce as q
 TIMERS = ("a.timer", "b.timer", "c.timer")
 
 
+def fake_service_of(timer):
+    """The real `service_of` asks systemd; the fake world maps a timer to its service by name."""
+    return timer.removesuffix(".timer") + ".service"
+
+
 class FakeSystemd:
     """enabled and active state per timer; a service runs for `busy_polls` is-active queries."""
 
     def __init__(self, enabled=(), active=(), busy_polls=0, live=False):
         self.enabled = set(enabled)
         self.active = set(active)
-        self.busy_polls = {q.service_of(t): busy_polls for t in TIMERS}
+        self.busy_polls = {fake_service_of(t): busy_polls for t in TIMERS}
         self.live = live
         self.calls: list[tuple[str, str]] = []
         self.now = 0.0
@@ -42,11 +47,15 @@ class FakeSystemd:
             "start": lambda: self.active.add(unit),
         }[verb]()
 
+    def service_of(self, timer):
+        return fake_service_of(timer)
+
     def deps(self):
         return q.QuiesceDeps(
             query=self.query,
             change=self.change,
             no_live_run=lambda: SimpleNamespace(ok=not self.live, detail="live writer process"),
+            service_of=self.service_of,
             sleep=lambda seconds: setattr(self, "now", self.now + seconds),
             monotonic=lambda: self.now,
         )
@@ -194,3 +203,58 @@ def test_migration_593_seeds_both_keys_with_their_history():
         assert sql.count(f"'{key}'") == 2  # config_schema and config_state
     assert "'migration_593'" in sql and "INTO config_history" in sql
     assert sql.count("ON CONFLICT (config_key) DO NOTHING") == 2
+
+
+def test_a_templated_service_is_waited_on_not_a_guessed_name(tmp_path):
+    """indicagent-dividend-event-writer-yahoo.timer triggers ...@yahoo.service: a guessed
+    name reads inactive and the quiesce returned while the writer was running."""
+    world = FakeSystemd(enabled={"d-yahoo.timer"}, busy_polls=0)
+    world.service_of = lambda timer: "d@yahoo.service"
+    world.busy_polls["d@yahoo.service"] = 3
+    q.quiesce(
+        ("d-yahoo.timer",),
+        world.deps(),
+        q.state_path(tmp_path),
+        wait_seconds=100.0,
+        poll_seconds=1.0,
+    )
+    assert world.busy_polls["d@yahoo.service"] == 0
+    assert world.now >= 3.0
+
+
+def test_a_timer_that_resolves_to_nothing_refuses_before_any_change(tmp_path):
+    world = FakeSystemd(enabled={"a.timer"}, active={"a.timer"})
+
+    def unresolved(timer):
+        raise q.QuiesceError(f"{timer} is not loaded")
+
+    world.service_of = unresolved
+    with pytest.raises(q.QuiesceError, match="not loaded"):
+        _quiesce(world, tmp_path / "state")
+    assert world.calls == []
+    assert not (tmp_path / "state").exists()
+
+
+@pytest.mark.parametrize(
+    ("load_state", "triggers", "message"),
+    [
+        ("not-found", "", "not loaded"),
+        ("loaded", "", "no unit"),
+        ("loaded", "a.service b.service", "exactly one"),
+    ],
+)
+def test_service_of_refuses_an_unloaded_or_ambiguous_timer(
+    monkeypatch, load_state, triggers, message
+):
+    shown = {"LoadState": load_state, "Triggers": triggers}
+    monkeypatch.setattr(q, "_show", lambda prop, unit: shown[prop])
+    with pytest.raises(q.QuiesceError, match=message):
+        q.service_of("x.timer")
+
+
+def test_service_of_returns_the_triggered_template_instance(monkeypatch):
+    shown = {"LoadState": "loaded", "Triggers": "indicagent-dividend-event-writer@yahoo.service"}
+    monkeypatch.setattr(q, "_show", lambda prop, unit: shown[prop])
+    assert q.service_of("indicagent-dividend-event-writer-yahoo.timer") == (
+        "indicagent-dividend-event-writer@yahoo.service"
+    )
