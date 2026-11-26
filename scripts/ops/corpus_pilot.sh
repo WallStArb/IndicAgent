@@ -63,3 +63,4 @@ if [ "$rc" -eq 0 ]; then
 else
   log "timers held: run $RUN (pilot exit=$rc); resume with: bash scripts/ops/corpus_pilot.sh --resume $RUN; release with --release after the run is abandoned"
 fi
+exit "$rc"

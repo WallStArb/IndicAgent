@@ -390,11 +390,6 @@ def test_a_failed_pilot_after_the_run_exists_holds_the_timers(lab: Lab) -> None:
     assert f"timers held: run {RUN_ID}" in lab.status_text()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='corpus_pilot.sh ends the new-run path without `exit "$rc"`, so a failed or killed pilot '
-    "exits 0 (the --resume path does exit with rc); reported to the lead, fix held until the pilot is done",
-)
 def test_a_failed_pilot_makes_the_launcher_exit_nonzero(lab: Lab) -> None:
     assert _new_run(lab, PILOT_RC="1").returncode == 1
 
