@@ -646,3 +646,4 @@ _fisher_z_ci  # left unused by the todo 554 deletion; same statistics rule as _n
 ic_min  # left unused by the todo 554 deletion of todo445_5m_incremental_ic.py: scripts/research/cost_hurdle.py
 rank_turnover  # left unused by the todo 554 deletion of todo445_5m_incremental_ic.py: scripts/research/cost_hurdle.py
 builder_path_dependent_reason  # read by the registry test that pins the reviewed marker list (tests/unit/intelligence/test_feature_memory_reach.py); editing the registry moves the rebuild pin, so it is kept as the single accessor: src/intelligence/features/contract/registry.py
+_build_obs_matrix  # kept until todo 680 row 7 deletes the _hmm builder; remove this line in that commit: src/intelligence/features/kernels/_hmm.py
