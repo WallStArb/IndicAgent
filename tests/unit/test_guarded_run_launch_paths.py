@@ -384,16 +384,19 @@ def test_a_missing_run_worktree_releases_the_timers(lab: Lab) -> None:
     assert len(_calls_with(lab, "--release")) == 1
 
 
+def test_a_failed_pilot_after_the_run_exists_holds_the_timers(lab: Lab) -> None:
+    _new_run(lab, PILOT_RC="1")
+    assert not _calls_with(lab, "--release")
+    assert f"timers held: run {RUN_ID}" in lab.status_text()
+
+
 @pytest.mark.xfail(
     strict=True,
     reason='corpus_pilot.sh ends the new-run path without `exit "$rc"`, so a failed or killed pilot '
     "exits 0 (the --resume path does exit with rc); reported to the lead, fix held until the pilot is done",
 )
-def test_a_failed_pilot_after_the_run_exists_holds_the_timers(lab: Lab) -> None:
-    result = _new_run(lab, PILOT_RC="1")
-    assert result.returncode == 1
-    assert not _calls_with(lab, "--release")
-    assert f"timers held: run {RUN_ID}" in lab.status_text()
+def test_a_failed_pilot_makes_the_launcher_exit_nonzero(lab: Lab) -> None:
+    assert _new_run(lab, PILOT_RC="1").returncode == 1
 
 
 def test_a_rebuild_key_that_does_not_match_the_plan_refuses_before_any_quiesce(lab: Lab) -> None:
