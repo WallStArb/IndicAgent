@@ -23,6 +23,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.unit._scan_support import assert_scanned
+
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _BANNED_IMPORT_PATTERN = re.compile(
     r"^\s*(?:import\s+prometheus_client\b|from\s+prometheus_client\b)"
@@ -32,12 +34,16 @@ _SEARCH_DIRS = ("src", "services")
 
 def test_no_prometheus_client_import_in_src_or_services():
     hits: dict[str, int] = {}
-    for search_dir in _SEARCH_DIRS:
-        for path in (_REPO_ROOT / search_dir).rglob("*.py"):
-            text = path.read_text(encoding="utf-8", errors="ignore")
-            count = sum(1 for line in text.splitlines() if _BANNED_IMPORT_PATTERN.match(line))
-            if count:
-                hits[str(path.relative_to(_REPO_ROOT))] = count
+    files = assert_scanned(
+        (p for d in _SEARCH_DIRS for p in (_REPO_ROOT / d).rglob("*.py")),
+        240,
+        "src and services .py",
+    )  # 302 on 2026-11-26
+    for path in files:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        count = sum(1 for line in text.splitlines() if _BANNED_IMPORT_PATTERN.match(line))
+        if count:
+            hits[str(path.relative_to(_REPO_ROOT))] = count
     assert not hits, (
         f"Live `prometheus_client` import(s) found, banned by CLAUDE.md: {hits}. "
         "Use src/observability/metrics.py's direct OTel SDK instead -- prometheus_client "

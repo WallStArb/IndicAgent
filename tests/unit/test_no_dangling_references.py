@@ -29,6 +29,8 @@ import re
 import sys
 from pathlib import Path
 
+from tests.unit._scan_support import assert_scanned
+
 REPO = Path(__file__).resolve().parents[2]
 SYSTEMD = REPO / "production" / "systemd"
 BASELINE = Path(__file__).with_name("dangling_reference_baseline.json")
@@ -47,7 +49,10 @@ _HISTORY_DIRS = ("docs/archive", "docs/research", "docs/plans/archive", "docs/id
 
 
 def _unit_files() -> set[str]:
-    return {path.name for path in SYSTEMD.iterdir() if path.is_file()}
+    files = assert_scanned(
+        (p for p in SYSTEMD.iterdir() if p.is_file()), 38, "production/systemd files"
+    )  # 47
+    return {path.name for path in files}
 
 
 def _unit_exists(unit: str, files: set[str]) -> bool:
@@ -156,7 +161,9 @@ def _doc_files() -> list[Path]:
         if any(relative == h or relative.startswith(h + "/") for h in _HISTORY_DIRS):
             continue
         files.extend(Path(directory) / name for name in names if name.endswith(".md"))
-    return sorted(files)
+    return sorted(
+        assert_scanned(files, 125, "live docs (.md outside the history directories)")
+    )  # 159
 
 
 def _dangling_doc_references() -> set[str]:

@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tests.unit._migration_catalog import REPO_ROOT, migration_catalog
+from tests.unit._scan_support import assert_scanned
 
 _SEARCH_DIRS = ("services", "src", "scripts")
 _FILE_GLOBS = ("*.py", "*.sh", "*.sql")
@@ -315,6 +316,17 @@ def test_every_canonical_table_has_a_single_registered_writer():
     tables, _ = migration_catalog()
     canonical = _canonical_tables(tables)
     scanned = [table for table in canonical if not isinstance(_REGISTRY.get(table), Covered)]
+    assert_scanned(  # the writer scan walks these; 415 files on 2026-11-26
+        (
+            p
+            for d in _SEARCH_DIRS
+            for g in _FILE_GLOBS
+            for p in (REPO_ROOT / d).rglob(g)
+            if "__pycache__" not in p.parts
+        ),
+        330,
+        "services, src and scripts files",
+    )
     problems = registry_violations(
         canonical, _REGISTRY, scan_writers(REPO_ROOT, scanned), REPO_ROOT
     )

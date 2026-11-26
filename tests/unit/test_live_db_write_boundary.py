@@ -27,6 +27,8 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 
+from tests.unit._scan_support import assert_scanned
+
 _REPO_UNIT = Path(__file__).resolve().parent
 _LIVE_DSN = re.compile(
     r"postgres(?:ql)?[\w+]*://[^\"'\n]*(?:localhost|127\.0\.0\.1)(?::\d+)?/indicagent(?!\w)"
@@ -85,7 +87,9 @@ _LIVE_DSN_FILES: Mapping[str, str] = {
 def _unit_files() -> dict[str, str]:
     return {
         str(path.relative_to(_REPO_UNIT)): path.read_text()
-        for path in sorted(_REPO_UNIT.rglob("*.py"))
+        for path in sorted(
+            assert_scanned(_REPO_UNIT.rglob("*.py"), 450, "tests/unit .py")
+        )  # 565 on 2026-11-26
         if path.name != "test_live_db_write_boundary.py"
     }
 

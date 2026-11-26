@@ -70,6 +70,8 @@ import functools
 import re
 from pathlib import Path
 
+from tests.unit._scan_support import assert_scanned
+
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _MIGRATIONS_DIR = _REPO_ROOT / "production" / "migrations"
 
@@ -109,7 +111,10 @@ def _migrations_missing_a_required_vacuum() -> list[str]:
     hypertable's chunks (the specific round trip that leaves decompressed-page bloat
     behind) without a matching bare VACUUM statement for each such table."""
     violations: list[str] = []
-    for path in sorted(_MIGRATIONS_DIR.glob("*.sql")):
+    migrations = assert_scanned(
+        _MIGRATIONS_DIR.glob("*.sql"), 480, "migration files"
+    )  # 603 on 2026-11-26
+    for path in sorted(migrations):
         sql = _SQL_LINE_COMMENT_RE.sub("", path.read_text(encoding="utf-8", errors="ignore"))
         does_round_trip = _DECOMPRESS_CALL_RE.search(sql) and _COMPRESS_CALL_RE.search(sql)
         if not does_round_trip:

@@ -50,6 +50,7 @@ from pathlib import Path
 
 from src.core.agent.base import _to_snake_case
 from tests.unit._allow_list_scan import stale_allow_list_entries, unexpected_violations
+from tests.unit._scan_support import assert_scanned
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _SERVICES_DIR = _REPO_ROOT / "services"
@@ -106,12 +107,14 @@ def _base_class_graph() -> dict[str, list[str]]:
     a name collision would only cause a false negative-to-positive drift here, not a silent
     pass, since an unresolved base name simply dead-ends the walk."""
     graph: dict[str, list[str]] = {}
-    for search_dir in (_SRC_DIR, _SERVICES_DIR):
-        for path in search_dir.rglob("*.py"):
-            tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"), filename=str(path))
-            for node in tree.body:
-                if isinstance(node, ast.ClassDef):
-                    graph[node.name] = _class_bases(node)
+    files = assert_scanned(
+        (p for d in (_SRC_DIR, _SERVICES_DIR) for p in d.rglob("*.py")), 240, "src and services .py"
+    )  # 302 on 2026-11-26
+    for path in files:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"), filename=str(path))
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                graph[node.name] = _class_bases(node)
     return graph
 
 
@@ -137,7 +140,10 @@ def _find_candidates() -> dict[str, tuple[str, bool]]:
     candidate class found in services/*.py."""
     agent_ids = _agent_id_to_unit_keys()
     candidates: dict[str, tuple[str, bool]] = {}
-    for path in sorted(_SERVICES_DIR.glob("*.py")):
+    service_files = assert_scanned(
+        _SERVICES_DIR.glob("*.py"), 40, "services/*.py"
+    )  # 50 on 2026-11-26
+    for path in sorted(service_files):
         tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"), filename=str(path))
         for node in tree.body:
             if not isinstance(node, ast.ClassDef):

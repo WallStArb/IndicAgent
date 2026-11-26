@@ -27,6 +27,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from tests.unit._allow_list_scan import stale_allow_list_entries, unexpected_violations
+from tests.unit._scan_support import assert_scanned
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _MIGRATIONS_DIR = _REPO_ROOT / "production" / "migrations"
@@ -57,7 +58,10 @@ _ALLOW_LIST: dict[str, str] = {
 def _duplicate_number_groups() -> dict[str, list[str]]:
     """Returns {number: [filenames]} for every leading number claimed by 2+ files."""
     by_number: dict[str, list[str]] = defaultdict(list)
-    for path in sorted(_MIGRATIONS_DIR.glob("*.sql")):
+    migrations = assert_scanned(
+        _MIGRATIONS_DIR.glob("*.sql"), 480, "migration files"
+    )  # 603 on 2026-11-26
+    for path in sorted(migrations):
         match = _NUMBER_PATTERN.match(path.name)
         if not match:
             continue
