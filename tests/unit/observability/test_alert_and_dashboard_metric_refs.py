@@ -19,6 +19,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.unit._scan_support import assert_scanned
+
 REPO = Path(__file__).resolve().parents[3]
 RULE_FILES = (
     REPO / "production/alertmanager-rules.yml",
@@ -112,7 +114,9 @@ def _writer_snakes() -> list[str]:
     from src.core.agent.base import _to_snake_case
 
     bases: dict[str, set[str]] = {}
-    for path in (REPO / "services").rglob("*.py"):
+    for path in assert_scanned(
+        (REPO / "services").rglob("*.py"), 48, "services .py"
+    ):  # 59 on 2026-11-26
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.ClassDef):
                 bases[node.name] = {getattr(b, "id", getattr(b, "attr", "")) for b in node.bases}
@@ -130,30 +134,34 @@ def _exported_patterns() -> list[re.Pattern[str]]:
     """One pattern per exported series of every metric-factory call in src, services, scripts."""
     writers = "(?:" + "|".join(map(re.escape, _writer_snakes())) + ")"
     patterns: list[re.Pattern[str]] = []
-    for root in ("src", "services", "scripts"):
-        for path in (REPO / root).rglob("*.py"):
-            for node in ast.walk(ast.parse(path.read_text())):
-                if not (isinstance(node, ast.Call) and node.args):
-                    continue
-                func = node.func
-                kind = _FACTORIES.get(
-                    func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+    sources = assert_scanned(  # 404 on 2026-11-26
+        (p for r in ("src", "services", "scripts") for p in (REPO / r).rglob("*.py")),
+        320,
+        "src, services and scripts .py",
+    )
+    for path in sources:
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not (isinstance(node, ast.Call) and node.args):
+                continue
+            func = node.func
+            kind = _FACTORIES.get(
+                func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            )
+            first = node.args[0]
+            if kind is None:
+                continue
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                stem = re.escape(first.value)
+            elif isinstance(first, ast.JoinedStr):
+                stem = "".join(
+                    re.escape(v.value) if isinstance(v, ast.Constant) else writers
+                    for v in first.values
                 )
-                first = node.args[0]
-                if kind is None:
-                    continue
-                if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                    stem = re.escape(first.value)
-                elif isinstance(first, ast.JoinedStr):
-                    stem = "".join(
-                        re.escape(v.value) if isinstance(v, ast.Constant) else writers
-                        for v in first.values
-                    )
-                else:
-                    continue
-                if kind == "counter":
-                    stem = re.sub(r"_total$", "", stem)
-                patterns += [re.compile(stem + re.escape(s)) for s in _SUFFIXES_BY_KIND[kind]]
+            else:
+                continue
+            if kind == "counter":
+                stem = re.sub(r"_total$", "", stem)
+            patterns += [re.compile(stem + re.escape(s)) for s in _SUFFIXES_BY_KIND[kind]]
     return patterns
 
 

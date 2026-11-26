@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from scripts.ops.bars.ops_source_policy import parse_plan
+from tests.unit._scan_support import assert_scanned
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = (ROOT / "production/migrations/520_bar_source_policy_retirement.sql").read_text()
@@ -25,11 +26,15 @@ _PLAN = {
 def test_no_reader_queries_the_policy_table_directly():
     """Retired rows are out of force only if nobody reads around the view."""
     offenders = []
-    for base in ("src", "services", "scripts"):
-        for path in (ROOT / base).rglob("*.py"):
-            text = path.read_text()
-            for m in re.finditer(r"(?:FROM|JOIN)\s+bar_source_policy\b(?!_current|_changes)", text):
-                offenders.append(f"{path.relative_to(ROOT)}:{text[: m.start()].count(chr(10)) + 1}")
+    files = assert_scanned(  # 404 on 2026-11-26
+        (p for b in ("src", "services", "scripts") for p in (ROOT / b).rglob("*.py")),
+        320,
+        "src, services and scripts .py",
+    )
+    for path in files:
+        text = path.read_text()
+        for m in re.finditer(r"(?:FROM|JOIN)\s+bar_source_policy\b(?!_current|_changes)", text):
+            offenders.append(f"{path.relative_to(ROOT)}:{text[: m.start()].count(chr(10)) + 1}")
     assert offenders == []
 
 

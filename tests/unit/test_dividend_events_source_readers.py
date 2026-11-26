@@ -21,6 +21,7 @@ from pathlib import Path
 
 from services import backfill_feature_factory as factory
 from services import bar_reconciliation_audit as audit
+from tests.unit._scan_support import assert_scanned
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _SEARCH_DIRS = ("services", "src", "scripts")
@@ -33,13 +34,17 @@ _WINDOW = 160
 
 def _reads() -> list[tuple[str, int, str]]:
     out = []
-    for search_dir in _SEARCH_DIRS:
-        for path in sorted((_REPO_ROOT / search_dir).rglob("*.py")):
-            text = path.read_text(encoding="utf-8", errors="ignore")
-            for m in _READ.finditer(text):
-                line = text.count("\n", 0, m.start()) + 1
-                rel = str(path.relative_to(_REPO_ROOT))
-                out.append((rel, line, text[m.end() : m.end() + _WINDOW]))
+    files = assert_scanned(  # 404 on 2026-11-26
+        (p for d in _SEARCH_DIRS for p in (_REPO_ROOT / d).rglob("*.py")),
+        320,
+        "services, src and scripts .py",
+    )
+    for path in sorted(files):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for m in _READ.finditer(text):
+            line = text.count("\n", 0, m.start()) + 1
+            rel = str(path.relative_to(_REPO_ROOT))
+            out.append((rel, line, text[m.end() : m.end() + _WINDOW]))
     return out
 
 

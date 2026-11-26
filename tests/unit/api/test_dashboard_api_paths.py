@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 from src.api.main import app
+from tests.unit._scan_support import assert_scanned
 
 REPO = Path(__file__).resolve().parents[3]
 DASHBOARD_SRC = REPO / "dashboard" / "src"
@@ -28,7 +29,9 @@ def _next_route_prefixes() -> set[str]:
 
 def _dashboard_paths() -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
-    for path in DASHBOARD_SRC.rglob("*.ts*"):
+    for path in assert_scanned(
+        DASHBOARD_SRC.rglob("*.ts*"), 30, "dashboard/src .ts and .tsx"
+    ):  # 37 on 2026-11-26
         if "/app/api/" in path.as_posix():
             continue
         for match in _PATH.findall(_COMMENT.sub("", path.read_text())):

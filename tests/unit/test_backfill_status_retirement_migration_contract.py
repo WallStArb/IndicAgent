@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 from tests.unit._migration_catalog import migration_catalog, strip_sql_comments
+from tests.unit._scan_support import assert_scanned
 from tests.unit._source_grep_helpers import read_source
 
 _MIGRATION = ("production", "migrations", "459_drop_backfill_status_retire_superseded_apr.sql")
@@ -155,15 +156,22 @@ def test_retires_every_named_key_and_the_two_families():
 
 def test_no_retired_key_or_dropped_table_is_left_in_code():
     keys = set(_keys(next(s for s in _statements() if s.startswith("DELETE FROM config_schema"))))
-    for search_dir in ("services", "src", "scripts"):
-        for path in (_REPO_ROOT / search_dir).rglob("*"):
-            if path.suffix not in {".py", ".sh", ".sql"}:
-                continue
-            text = path.read_text(encoding="utf-8", errors="ignore")
-            for key in keys:
-                assert key not in text, (key, path)
-            for table in _DROPPED_TABLES:
-                assert not re.search(rf"\b{table}\b", text), (table, path)
+    files = assert_scanned(  # 415 on 2026-11-26
+        (
+            p
+            for d in ("services", "src", "scripts")
+            for p in (_REPO_ROOT / d).rglob("*")
+            if p.suffix in {".py", ".sh", ".sql"}
+        ),
+        330,
+        "services, src and scripts .py .sh .sql",
+    )
+    for path in files:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for key in keys:
+            assert key not in text, (key, path)
+        for table in _DROPPED_TABLES:
+            assert not re.search(rf"\b{table}\b", text), (table, path)
 
 
 def test_catalog_no_longer_creates_or_seeds_them():

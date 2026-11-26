@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.unit._scan_support import assert_scanned
 from tests.unit._source_grep_helpers import read_source
 
 _MIGRATION = ("production", "migrations", "490_retire_bar_campaign_bootstrap_years_apr.sql")
@@ -31,6 +32,9 @@ def test_bootstrap_years_retirement_deletes_history_state_schema_in_one_transact
 
 
 def test_no_reader_of_bootstrap_years_remains() -> None:
-    for root in ("scripts", "services", "src"):
-        for path in (_REPO_ROOT / root).rglob("*.py"):
-            assert _KEY not in path.read_text(encoding="utf-8"), path
+    for path in assert_scanned(
+        (p for d in ("scripts", "services", "src") for p in (_REPO_ROOT / d).rglob("*.py")),
+        320,
+        "services, src and scripts .py",
+    ):  # 404 on 2026-11-26
+        assert _KEY not in path.read_text(encoding="utf-8"), path

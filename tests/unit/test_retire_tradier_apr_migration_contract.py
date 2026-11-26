@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.unit._scan_support import assert_scanned
 from tests.unit._source_grep_helpers import read_source
 
 _MIGRATION = ("production", "migrations", "457_retire_tradier_apr.sql")
@@ -52,9 +53,12 @@ def test_touches_only_the_six_tradier_loader_keys():
 
 
 def test_no_tradier_loader_key_reader_is_left_in_code():
-    for search_dir in ("services", "src", "scripts"):
-        for path in (_REPO_ROOT / search_dir).rglob("*.py"):
-            assert "infra.tradier." not in path.read_text(encoding="utf-8"), path
+    for path in assert_scanned(
+        (p for d in ("services", "src", "scripts") for p in (_REPO_ROOT / d).rglob("*.py")),
+        320,
+        "services, src and scripts .py",
+    ):  # 404 on 2026-11-26
+        assert "infra.tradier." not in path.read_text(encoding="utf-8"), path
 
 
 def test_names_no_market_data_table():

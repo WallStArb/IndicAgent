@@ -17,6 +17,8 @@ from __future__ import annotations
 import ast
 import pathlib
 
+from tests.unit._scan_support import assert_scanned
+
 
 def _has_frames_features_code(source: str) -> bool:
     """Return True if the source contains frames["features"] or frames.get("features")
@@ -62,7 +64,9 @@ def test_no_legacy_features_access() -> None:
     assert root.exists(), "src/intelligence not found from cwd; run from project root"
 
     offenders: list[str] = []
-    for py_file in sorted(root.rglob("*.py")):
+    for py_file in sorted(
+        assert_scanned(root.rglob("*.py"), 130, "src/intelligence .py")
+    ):  # 163 on 2026-11-26
         source = py_file.read_text(encoding="utf-8")
         if _has_frames_features_code(source):
             offenders.append(str(py_file))
