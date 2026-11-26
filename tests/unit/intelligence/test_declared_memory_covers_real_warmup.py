@@ -51,9 +51,11 @@ _INTRADAY_ONLY = "intraday-only: the registry declares it not applicable on 1d"
 _DAILY_RECORD = (
     "daily-record family: external builder, reach pinned in test_feature_memory_reach.py"
 )
-_LONG_WARMUP = (
-    "warmup of 7,560 rows (252 refreshes of 30 bars), longer than the fixture (584 item 6)"
-)
+
+# Columns whose warmup is longer than the 1500-bar fixture, judged on one long single-column
+# fixture instead (hma_slope_z: 252 slopes, one per 30-bar refresh, 7,560 rows, todo 584 item 6).
+LONG_WARMUP_COLUMNS = ("hma_slope_z",)
+LONG_FIXTURE_BARS = 8500
 
 # Columns with no finite value on the 1d fixture, each with its reason. Listed so a column that
 # stops producing values cannot leave the check unnoticed (the equality test below).
@@ -80,7 +82,6 @@ UNMEASURED_ON_THE_1D_FIXTURE = {
     "max_daily_return": _DAILY_RECORD,
     "max_drawdown": _DAILY_RECORD,
     "residual_beta_stability": _DAILY_RECORD,
-    "hma_slope_z": _LONG_WARMUP,
 }
 
 
@@ -124,32 +125,43 @@ def _bars(seed: int, n: int, zero_return_share: float) -> list[dict]:
     ]
 
 
-@cache
 def _first_finite_rows(fixture: str) -> dict[str, int | None]:
+    return _first_finite_rows_of(FIXTURES[fixture], N_BARS, None)
+
+
+@cache
+def _first_finite_rows_of(
+    zero_return_share: float, n_bars: int, columns: tuple[str, ...] | None
+) -> dict[str, int | None]:
     """Per column, the first row with a finite value after the kernel's none mask, computed as
-    the rebuild computes it (one `compute_kernels` call, no warmup mask)."""
+    the rebuild computes it (one `compute_kernels` call, no warmup mask). `columns` limits the
+    compute to those outputs (and their upstream) on a price-only series, for a long fixture."""
     manifest = ref.load_manifest()
     config = ref.build_config(manifest["real_config"])
     config = dataclasses.replace(config, hmm=HmmConfig.from_values(SMALL_HMM_APR.get))
-    total = N_BARS + MACRO_HEAD
-    macro = {symbol: _bars(10 + i, total, 0.0) for i, symbol in enumerate(ref.CROSS_ASSET_SYMBOLS)}
-    series = _bars(99, total, FIXTURES[fixture])[MACRO_HEAD:]
-    cross_asset = build_cross_asset_series(*(macro[s] for s in ref.CROSS_ASSET_SYMBOLS), config)
-    beta = build_symbol_beta_series(series, macro["SPY"], macro["TLT"], "ZZZ", config)
+    total = n_bars + MACRO_HEAD
+    series = _bars(99, total, zero_return_share)[MACRO_HEAD:]
+    if columns is None:
+        macro = {
+            symbol: _bars(10 + i, total, 0.0) for i, symbol in enumerate(ref.CROSS_ASSET_SYMBOLS)
+        }
+        cross_asset = build_cross_asset_series(*(macro[s] for s in ref.CROSS_ASSET_SYMBOLS), config)
+        beta = build_symbol_beta_series(series, macro["SPY"], macro["TLT"], "ZZZ", config)
+        outputs = [c for c in feature_vectors_output_columns() if not _is_regime_column(c)]
+    else:
+        cross_asset, beta, outputs = {}, {}, list(columns)
     arrays = {
         "ts": np.array([int(bar["ts"].timestamp()) * 10**9 for bar in series], dtype=np.int64),
         **{
             f: np.array([bar[f] for bar in series])
             for f in ("open", "high", "low", "close", "volume")
         },
-        "volume_basis": ref.constant_volume_basis(N_BARS),
+        "volume_basis": ref.constant_volume_basis(n_bars),
     }
     inputs = _series_kernel_inputs("ZZZ", "1d", arrays, config, cross_asset, beta, series)
-    registry = default_registry()
-    outputs = [c for c in feature_vectors_output_columns() if not _is_regime_column(c)]
-    computed = compute_kernels(registry, inputs, config, outputs=outputs)
+    computed = compute_kernels(default_registry(), inputs, config, outputs=outputs)
     first: dict[str, int | None] = {}
-    for column in feature_vectors_numeric_columns():
+    for column in columns or feature_vectors_numeric_columns():
         if _is_regime_column(column) or column not in computed:
             continue
         values = np.array(computed[column], dtype=float)
@@ -179,7 +191,10 @@ def _checked_columns() -> list[str]:
     return sorted(
         c
         for c in feature_vectors_numeric_columns()
-        if not _is_regime_column(c) and c not in _exempt() and c not in UNMEASURED_ON_THE_1D_FIXTURE
+        if not _is_regime_column(c)
+        and c not in _exempt()
+        and c not in UNMEASURED_ON_THE_1D_FIXTURE
+        and c not in LONG_WARMUP_COLUMNS
     )
 
 
@@ -208,7 +223,7 @@ def test_every_column_that_never_has_a_value_here_is_listed() -> None:
     """A column that produces nothing on the dense 1d fixture is exempt only by name or by the
     object-dependent declaration; any other silent column fails here."""
     silent = {c for c, row in _first_finite_rows("dense").items() if row is None} - _exempt()
-    assert silent == set(UNMEASURED_ON_THE_1D_FIXTURE)
+    assert silent == set(UNMEASURED_ON_THE_1D_FIXTURE) | set(LONG_WARMUP_COLUMNS)
 
 
 def test_every_object_dependent_column_carries_a_none_mask() -> None:
@@ -228,3 +243,20 @@ def test_a_column_without_its_none_mask_is_not_exempt() -> None:
     assert column not in exempt_by_declaration(objects, outputs - {none_mask_name(column)})
     measured = _first_finite_rows("sparse")[column]
     assert measured is not None and measured > _declared_first_row(column) + WARMUP_GAP_BARS
+
+
+@pytest.mark.parametrize("column", LONG_WARMUP_COLUMNS)
+def test_a_long_warmup_column_reaches_its_first_value_within_its_declared_memory(
+    column: str,
+) -> None:
+    measured = _first_finite_rows_of(0.0, LONG_FIXTURE_BARS, (column,))[column]
+    declared = _declared_first_row(column)
+    assert measured is not None, (
+        f"{column} has no finite value in {LONG_FIXTURE_BARS} bars; its warmup is longer than "
+        "the long fixture"
+    )
+    assert measured <= declared + WARMUP_GAP_BARS, (
+        f"{column}: declared first row {declared}, first finite row {measured} on a "
+        f"{LONG_FIXTURE_BARS}-bar dense series ({measured - declared} later, tolerance "
+        f"{WARMUP_GAP_BARS})"
+    )
