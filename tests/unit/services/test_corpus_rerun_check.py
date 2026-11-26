@@ -141,10 +141,28 @@ def test_check_report_writes_nothing():
     assert world.store.steps == {} and world.commands == []
 
 
-def test_the_check_flag_needs_a_run_and_refuses_through():
+def test_the_check_flag_needs_a_run_or_a_new_launch_and_refuses_through():
     with pytest.raises(SystemExit):
-        cr._parse_args(["--new-run", "--check", "--data-gate-scope", "1d"])
+        cr._parse_args(["--quiesce", "--check"])
     with pytest.raises(SystemExit):
         cr._parse_args(["--run-id", RUN, "--check", "--through", "pilot"])
-    args = cr._parse_args(["--run-id", RUN, "--check"])
-    assert args.check and args.step is None
+    assert cr._parse_args(["--run-id", RUN, "--check"]).step is None
+    assert cr._parse_args(["--new-run", "--check", "--data-gate-scope", "1d"]).check
+
+
+class _Conn:
+    def __init__(self, rows):
+        self.rows, self.sql, self.params = rows, None, None
+
+    def execute(self, sql, params):
+        self.sql, self.params = sql, params
+        return SimpleNamespace(fetchall=lambda: self.rows)
+
+
+def test_fetch_stored_units_reads_blocking_statuses_and_all_rows_without_a_run():
+    row = ("key", "1d", START, END, ["AAA"], OTHER, "completed", 7)
+    conn = _Conn([row])
+    expected = chk.StoredUnit(_unit("key", "AAA"), OTHER, "completed", 7)
+    assert chk.fetch_stored_units(conn, "feature_vectors", None) == [expected]
+    assert conn.params == ("feature_vectors", ["completed", "started"], None, None)
+    assert conn.sql.count("%s") == len(conn.params)

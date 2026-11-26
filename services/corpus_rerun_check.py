@@ -98,15 +98,15 @@ _STORED_UNITS_SQL = """
 SELECT batch_key, tf, range_start, range_end, symbols, run_id::text, status, row_count
   FROM provenance_batch
  WHERE target_table = %s AND status = ANY(%s)
-   AND run_id IS DISTINCT FROM %s::uuid
+   AND (%s::uuid IS NULL OR run_id IS DISTINCT FROM %s::uuid)
 """
 
 
-def fetch_stored_units(conn: Any, target_table: str, run_id: str) -> list[StoredUnit]:
-    """Every blocking-status provenance row of `target_table` not written under `run_id`."""
-    rows = conn.execute(
-        _STORED_UNITS_SQL, (target_table, list(BLOCKING_STATUSES), run_id)
-    ).fetchall()
+def fetch_stored_units(conn: Any, target_table: str, run_id: str | None) -> list[StoredUnit]:
+    """Every blocking-status provenance row of `target_table` not written under `run_id` (every row
+    when it is None: the check of a run that does not exist yet)."""
+    params = (target_table, list(BLOCKING_STATUSES), run_id, run_id)
+    rows = conn.execute(_STORED_UNITS_SQL, params).fetchall()
     return [
         StoredUnit(UnitSpan(key, tf, start, end, tuple(symbols)), owner, status, count)
         for key, tf, start, end, symbols, owner, status, count in rows

@@ -913,6 +913,14 @@ def check_ic_universe_aligned(import_module: Callable[[str], Any] = importlib.im
     return rp.CheckResult("ic_universe_aligned", not problems, detail)
 
 
+def _rebuild_symbols(conn: Any) -> list[str]:
+    """The 1d rebuild's symbols: the corpus universe less ETF contracts, sorted."""
+    from services.backfill_feature_factory import filter_etf_contracts
+    from services.corpus_universe import corpus_universe
+
+    return sorted({c.symbol for c in filter_etf_contracts(corpus_universe(conn), None)})
+
+
 def rebuild_precondition_results(
     conn: Any, settings: Settings, includes_intraday: bool, disk: Mapping[str, int]
 ) -> list[Any]:
@@ -924,7 +932,7 @@ def rebuild_precondition_results(
 
     cfg = load_config_service_sync(conn)
     tfs = get_target_timeframes(cfg)
-    symbols = sorted({c.symbol for c in filter_etf_contracts(corpus_universe(conn), None)})
+    symbols = _rebuild_symbols(conn)
     intraday_symbols = sorted(
         {c.symbol for c in filter_etf_contracts(corpus_universe(conn, intraday=True), None)}
     )
@@ -2033,6 +2041,46 @@ def _print_plan(plan: Plan) -> None:
     print(format_peaks(plan.peaks, plan.inputs.limit_bytes))
 
 
+def new_run_check(
+    conn: Any, settings: Settings, horizon: datetime, scope: str
+) -> tuple[list[str], bool]:
+    """`--new-run --check`: what a launch of a new run and its pilot would meet, read-only and all at
+    once: the data gate, the d2_landed pin precondition (held verdicts applied) and the stored units
+    that would block the stage's units. The pin checks that need a run (worktree, hash) wait for one.
+    """
+    from services import corpus_rerun_check as check
+    from services import rebuild_preconditions as rp
+    from services.backfill_feature_factory import planned_units
+    from services.corpus_rerun_data_gate import run_data_gate
+
+    gate = run_data_gate(
+        conn,
+        settings,
+        load_corpus_rerun_apr(load_config_service_sync(conn)),
+        horizon=horizon,
+        scope=scope,
+    )
+    d2 = rp.check_d2_landed(
+        rp.fetch_d2_inputs(conn, _rebuild_symbols(conn), held=rp.fetch_held_verdicts(conn))
+    )
+    specs, _ = planned_units(settings, conn, horizon, [DAILY_TF] if scope == SCOPE_1D else None)
+    planned = [
+        check.UnitSpan(s.batch_key, s.tf, s.range_start, s.range_end, tuple(s.symbols))
+        for s in specs
+    ]
+    blockers = check.find_blockers(planned, check.fetch_stored_units(conn, "feature_vectors", None))
+    checks = [
+        {
+            "name": "data_gate",
+            "ok": gate.ok,
+            "detail": f"scope {gate.scope}; failing name-years {len(gate.failing_name_years)}; "
+            f"without a proven start {len(gate.names_without_proven_start)}",
+        },
+        {"name": d2.name, "ok": d2.ok, "detail": d2.detail},
+    ]
+    return check.render(checks, [], blockers)
+
+
 def _data_gate_verdict(conn: Any, settings: Settings, horizon: datetime, scope: str) -> None:
     from services.corpus_rerun_data_gate import run_data_gate
 
@@ -2135,15 +2183,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="with --run-id (and optionally --step, default pilot): print every refusal a launch of "
-        "that step would meet, read-only; exits 1 if any",
+        help="print every refusal a launch would meet, read-only; exits 1 if any: with --run-id "
+        "(optionally --step, default pilot) that step of the run, with --new-run "
+        "--data-gate-scope the data gate, d2_landed and the stored units that would block",
     )
     which = parser.add_mutually_exclusive_group()
     which.add_argument("--step", help="with --run-id: run this one step")
     which.add_argument("--through", help="with --run-id: run every step up to and including this")
     args = parser.parse_args(argv)
-    if args.check and not args.run_id:
-        parser.error("--check needs --run-id")
+    if args.check and not (args.run_id or args.new_run):
+        parser.error("--check needs --run-id (a run) or --new-run (a launch)")
     if args.run_id and not (args.step or args.through or args.check):
         parser.error("--run-id needs --step, --through or --check")
     if args.check and args.through:
@@ -2208,6 +2257,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.horizon
                 else default_data_horizon()
             )
+            if args.check:  # read-only: creates no run, no worktree, no timer change
+                lines, ok = new_run_check(conn, settings, horizon, args.data_gate_scope)
+                print("\n".join(lines))
+                return 0 if ok else 1
             if args.plan_only:
                 try:
                     _print_plan(plan_run(conn, settings, horizon, args.data_gate_scope))
