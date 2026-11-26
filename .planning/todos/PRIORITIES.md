@@ -188,6 +188,7 @@ Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22
 | [512](pending/512-exclude-or-replace-names-whose-data-defect-is-not-worth-fixing.md) | New 2026-10-08, owner policy relayed (confirmation pending). Names whose data defect needs per-name hand work leave the compute set with a reason code and date; raw data stays; replacement only by a pre-fixed liquidity-rank rule through the onboarding SOP. Disclose in D0's survivorship bound. |
 | [644](pending/644-closed-list-disclosure-at-book-freeze-and-confirmation.md) | Required at the first book freeze: member counts per month-end after the stage 2 list, plus excluded newcomers once 643 lands. Put the code in the report, not in `universe_membership.py` (inside the rebuild closure). Owner-adopted. |
 | [672](pending/672-ohlcv-revision-load-fk-cascade-to-restrict.md) | New 2026-11-24, P3. `ohlcv_revision.load_id` still cascades on delete of a load row; switch to RESTRICT in a quiet window. Extracted from the closed todo 535. |
+| [676](pending/676-ci-unit-job-has-no-database-so-the-live-db-tests-never-run-in-ci.md) | New 2026-11-26, P2. CI has no Postgres, so about 55 `requires_db` unit tests (append-only trigger, advisory locks, bulk load, stage lock) run only on the host. Design: a timescaledb service container plus a migration replay; cost unmeasured; first step is a local scratch replay to list the migrations that fail on an empty database. |
 
 ## P3: Hygiene, docs, process, performance (opportunistic)
 
@@ -195,6 +196,8 @@ Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22
 
 | Todo | Why now |
 |---|---|
+| [677](pending/677-skipped-tests-that-cannot-gate-basis-guard-panel-snapshot-hmm.md) | New 2026-11-26, P3. Three skips that cannot gate: six basis-guard cases (two kernels), the family 1 snapshot test (delete), the HMM causality test that always skips on its pinned seed. One recommendation each. |
+| [678](pending/678-spread-leg-pair-validity-is-a-data-audit-not-a-unit-test.md) | New 2026-11-26, P3. Move the spread_leg pair validity checks from a live-DB unit test to an ops audit with a report. |
 | [658](pending/658-mypy-baseline-typing-debt-added-by-the-ci-resync.md) | 38 mypy baseline errors (mostly `research/construction.py`). Fix with real annotations only alongside the next planned research edit; blocked while the family 10 runs and the block 2 rerun are live (battery code keys). Run `repro_frozen` after. |
 | [652](pending/652-1d-first-corpus-run-stopped-at-the-pilot-feature-screen.md) | New 2026-11-22, P3. Run a4f6ad40 passed data_gate and pin_gate (23/23) and stopped at the pilot feature column screen (G1 23, G2 84, G3 221, G6 10 on 25 first-alphabetical names). Do the pilot sample rule and 5% null gate fit a 1d scope; are the structure/zone NaNs warm-up? Parked, not on the counted-test path. |
 | [483](pending/483-record-2026-midterm-forward-window-result.md) | Due after 2027-05-03: record the committed midterm window (S&P 500, 2026-11-03 to 2027-05-03) as one observation. The economic series end 2026-09-30 by design (todo 480, loaded by hand, timer disabled); refresh `YAHOO_GSPC_CLOSE` before then (run the oneshot by hand or enable the timer, an owner sudo step). |
