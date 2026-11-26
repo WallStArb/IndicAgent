@@ -495,14 +495,21 @@ def _compute_rel_volume(x, config):
 
 
 def _compute_amihud(x, config):
+    z = _amihud_illiq_z_series_full(
+        x["close"],
+        x["volume"],
+        x["volume_basis"],
+        config.amihud_zscore_window,
+        config.amihud_min_valid_fraction,
+    )
+    return {"amihud_illiq_z": z, none_mask_name("amihud_illiq_z"): np.isnan(z).astype(np.float64)}
+
+
+def _compute_illiquidity_momentum_product(x, config):
+    product = x["amihud_illiq_z"] * x["momentum_z_fast"]
     return {
-        "amihud_illiq_z": _amihud_illiq_z_series_full(
-            x["close"],
-            x["volume"],
-            x["volume_basis"],
-            config.amihud_zscore_window,
-            config.amihud_min_valid_fraction,
-        )
+        "illiquidity_momentum_product": product,
+        none_mask_name("illiquidity_momentum_product"): np.isnan(product).astype(np.float64),
     }
 
 
@@ -700,11 +707,17 @@ KERNELS = (
     ),
     _k(
         "amihud_illiq_z",
-        ("amihud_illiq_z",),
+        ("amihud_illiq_z", none_mask_name("amihud_illiq_z")),
         ("close", "volume", "volume_basis"),
         lambda c: c.amihud_zscore_window + 1,
         _compute_amihud,
         volume_basis_safe=True,
+        # the object: a window holding at least ceil(amihud_min_valid_fraction * amihud_zscore_window)
+        # valid observations. A zero return (a flat close) is no observation, so the first finite row
+        # of an illiquid name sits later than any declared memory (2026-11-26: MLSS, 85 flat closes in
+        # its first 357 bars, finite from bar 357 against 253 for a liquid name); NaN until then by
+        # design (a loud gap beats a silent short window). Pilot G2 does not judge it, G6 does.
+        object_dependent=frozenset({"amihud_illiq_z"}),
     ),
     _k(
         "vwap_dev_sigma",
@@ -852,9 +865,11 @@ KERNELS = (
     # volume guard must not mask this product with the other flow products' volume inputs.
     _k(
         "illiquidity_momentum_product",
-        ("illiquidity_momentum_product",),
+        ("illiquidity_momentum_product", none_mask_name("illiquidity_momentum_product")),
         ("amihud_illiq_z", "momentum_z_fast"),
         lambda c: 0,
-        lambda x, c: {"illiquidity_momentum_product": x["amihud_illiq_z"] * x["momentum_z_fast"]},
+        _compute_illiquidity_momentum_product,
+        # inherits amihud_illiq_z's object: NaN wherever the amihud window is not yet warm
+        object_dependent=frozenset({"illiquidity_momentum_product"}),
     ),
 )
