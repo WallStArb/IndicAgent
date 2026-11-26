@@ -37,6 +37,8 @@ All run on `ubuntu2` unless stated. Confirm `hostname` first; a recovery here is
 
 **Primary lost, standby intact:** promote the standby by hand (runbook Phase 5, step 1; never automatic), then follow the Cloudflare step below. The standby is current to the last replayed WAL.
 
+**Before any compute runs on a promoted host:** the research digests depend on the OpenBLAS kernel numpy picks at import (`docs/reference/gotchas.md`, golden digests). ubuntu1 and ubuntu2 are the same CPU (Ryzen AI 9 HX 370, `avx512f`, so SkylakeX), but ubuntu2 has no `.venv` or numpy today. Build the `.venv` from the same pinned requirements and numpy wheel as ubuntu1, check `OPENBLAS_VERBOSE=2 .venv/bin/python -c "import numpy as n; n.dot(n.ones((4, 4)), n.ones((4, 4)))"` prints `Core: SkylakeX`, and run `repro_frozen` (CLAUDE.md, frozen verdicts) bit-identical on the new primary before the first counted run.
+
 **Point-in-time restore (deleted data, bad write, standby also damaged):** stop writers on the primary first. Pick the target LSN or timestamp, then recover the newest verified base backup plus archived WAL into a scratch container exactly as `restore_drill.sh` does (its comments hold the container and `recovery_target` settings). The archive files are mode 600, so make them readable (`chmod a+r ~/backup/wal/*`) for the container's uid. Copy the needed tables or the whole cluster back with `pg_dump` and `pg_restore`.
 
 **Server rebuilt from nothing:** install the same Ubuntu release, Docker and the repo path; bring up the Postgres image; restore as above. Then recover files from `~/mirror/dev` (`.env`, `production/.env`, `data/`), `git clone` the repo, rebuild the environments, `cd production && docker compose up -d`, and start the services in `_DAG_ORDER`.
