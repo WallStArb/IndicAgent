@@ -517,3 +517,25 @@ def test_check_of_a_run_runs_the_runner_check_in_the_runs_worktree(lab: Lab) -> 
 def test_check_of_a_run_without_a_worktree_is_refused(lab: Lab) -> None:
     result = _pilot(lab, "--check", "--resume", RUN_ID)
     assert result.returncode == 1 and "REFUSED: no worktree" in result.stdout
+
+
+def test_collect_mode_keeps_running_the_later_gates_after_a_failed_first_one(lab: Lab) -> None:
+    (lab.scratch / "memtester_clean").unlink()  # the first host gate refuses
+    result = lab.run("host_gate; refusals_report", COLLECT_REFUSALS="1", STUB_TAINTED="4096")
+    assert result.returncode == 1
+    assert "REFUSED: no memtester_clean file" in result.stdout
+    assert "REFUSED: kernel tainted: 4096" in result.stdout  # a later gate still ran
+
+
+def test_a_failed_verdict_query_in_collect_mode_gives_one_clean_refusal(lab: Lab) -> None:
+    result = lab.run(
+        "verdict_preflight; refusals_report", COLLECT_REFUSALS="1", PSQL_VERDICT_FAIL="1"
+    )
+    assert result.stdout.count("REFUSED:") == 1 and "integer expression" not in result.stderr
+    assert "verdict preflight query failed" in result.stdout
+
+
+def test_a_check_creates_no_scratch_directory(lab: Lab) -> None:
+    shutil.rmtree(lab.scratch)
+    lab.run("true", COLLECT_REFUSALS="1")
+    assert not lab.scratch.exists()

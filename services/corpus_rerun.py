@@ -1509,11 +1509,16 @@ class CorpusRerun:
         """Fold this invocation's stage into the run's pilot measurement under `prefix` and return the
         running figures: wall seconds, units and rows loaded over every invocation, the largest bytes
         per row and stored per spool seen. The per-unit time is cumulative seconds over cumulative
-        LOADED units, the figure an uninterrupted pilot gives. An invocation that loaded nothing adds
-        no seconds (it adopted or refused; there was no work to time). The remaining bias is upward,
-        the safe side for a schedule: a unit that failed after computing cost time but loaded
-        nothing, so its seconds stay in the numerator while the unit is counted once, when a resume
-        loads it. A pilot that loaded no unit in any invocation has no time to give: it refuses."""
+        LOADED units, the figure an uninterrupted pilot gives. `seconds` is the stage call alone (the
+        sample's setup is outside it). An invocation that loaded nothing adds no seconds (it adopted
+        or refused; there was no work to time). The remaining bias is upward, the safe side for a
+        schedule: a unit that failed after computing cost time but loaded nothing, so its seconds
+        stay in the numerator while the unit is counted once, when a resume loads it. The stage call also
+        ends with a fixed cost no unit caused: `compression_bound` replans the whole corpus, about 600 s
+        a call on 2026-11-26 (last unit loaded to rebuild_complete: 602 s and 600 s), spread here over
+        the units that call loaded. Both biases are upward, so the per-unit time and the stage_1d
+        projection are a pessimistic bound (9.4 h against about 6 h for that run). A pilot that loaded
+        no unit in any invocation has no time to give: it refuses."""
         prior = self.run.measured
         loaded = int(summary["units_loaded"])
         record = {
@@ -1547,7 +1552,6 @@ class CorpusRerun:
         pins = self._require_pin(step)
         d = self.deps
         load_before = d.db_load()
-        t0 = d.monotonic()
         # The 1d pilot sample is a rule (ledger 2026-11-22d, services/corpus_pilot_sample.py): the
         # names are computed as whole chunks, so the unit identities stay the full run's and
         # stage_1d adopts them. Refused here, before any compute, when too few members qualify.
@@ -1557,6 +1561,7 @@ class CorpusRerun:
             sample_chunks = pilot_rule.sample_chunk_indices(sample, chunks)
         except (pilot_rule.PilotSampleShort, ValueError) as error:
             raise StepFailed(f"pilot sample: {error}", {"pin_checks": pins}) from error
+        t0 = d.monotonic()  # the stage alone: the sample's setup is a fixed cost, not a unit's
         daily = self._stage(timeframes=[self.PILOT_DAILY_TF], chunk_indices=sample_chunks)
         t1 = d.monotonic()
         # Recorded before any later refusal, so a resumed pilot measures the whole pilot, not its

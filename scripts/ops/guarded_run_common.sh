@@ -6,7 +6,7 @@ SCRATCH=${GUARDED_RUN_DIR:-$REPO/logs/guarded_run}   # memtester_clean, worktree
 STATUS=$REPO/logs/family10_run_status.txt
 TEMPLOG=$REPO/logs/family10_dimm_temp.log
 WORKERS=${WORKERS:-4}         # owner raises to 8 once airflow is fixed and a run stays under 85C
-mkdir -p "$SCRATCH"
+[ -n "${COLLECT_REFUSALS:-}" ] || mkdir -p "$SCRATCH"   # a check writes nothing
 GATE_C=60                     # start only if both DIMM sensors read this or less
 STOP_C=92; RESUME_C=80; KILL_C=100; MAX_PAUSE_S=1200
 HWMON_ROOT=${DIMM_HWMON_ROOT:-/sys/class/hwmon}   # a test points this at a fake tree
@@ -69,7 +69,7 @@ blocking_timer_units() {   # the timers a corpus run quiesces (APR infra.corpus_
 # instance indicagent-dividend-event-writer@yahoo.service, and `is-active` on a name that does not exist prints "inactive".
 timers_gate() {
   local units u svc n=0
-  units=$(blocking_timer_units) || fail "cannot read the blocking timers from APR"
+  units=$(blocking_timer_units) || { fail "cannot read the blocking timers from APR"; return 1; }
   while read -r u; do
     [ -n "$u" ] || continue
     n=$((n + 1))
@@ -94,8 +94,10 @@ heavy_job_live() { pgrep -f "$HEAVY_JOB_RE" >/dev/null; }
 kernel_fault_gate() {
   local klog line addr sp
   klog=$(journalctl -k -b --no-pager 2>/dev/null)
-  [ -n "$klog" ] || fail "kernel log unreadable (journalctl -k -b returned nothing)"
-  grep -q -E 'Bad page|Bad swap|general protection' <<< "$klog" && fail "kernel log shows memory-fault signatures this boot"
+  [ -n "$klog" ] || { fail "kernel log unreadable (journalctl -k -b returned nothing)"; return 1; }
+  if grep -q -E 'Bad page|Bad swap|general protection' <<< "$klog"; then
+    fail "kernel log shows memory-fault signatures this boot"; return 1
+  fi
   while IFS= read -r line; do
     read -r addr sp < <(sed -n 's/.*segfault at \([0-9a-f]\{1,16\}\) ip [0-9a-f]\+ sp \([0-9a-f]\{1,16\}\) error .*/\1 \2/p' <<< "$line")
     if [ -n "$addr" ] && [ -n "$sp" ] && [ $((16#$addr)) -eq $((16#$sp)) ]; then
@@ -115,7 +117,7 @@ host_gate() {    # refuse to start on a host that is not demonstrably healthy
   [ "$(cat /proc/sys/kernel/tainted)" = "0" ] || fail "kernel tainted: $(cat /proc/sys/kernel/tainted)"
   kernel_fault_gate
   local n; n=$(dimm_temps | wc -l); [ "$n" -ge 2 ] || fail "expected 2 spd5118 sensors, found $n"
-  local t; t=$(dimm_max_c); [ "$t" -le "$GATE_C" ] || fail "DIMM at ${t:-no reading}C, gate ${GATE_C}C"
+  local t; t=$(dimm_max_c); { [ -n "$t" ] && [ "$t" -le "$GATE_C" ]; } || fail "DIMM at ${t:-no reading}C, gate ${GATE_C}C"
   mem_gate
 }
 
@@ -193,7 +195,7 @@ verdict_preflight() {
   local out limit stale total delivered
   # A verdict taken before the nightly capture delivers the last completed session judges it
   # missing for every name (todo 675; pilot run 0e020c5a), so check that first.
-  delivered=$($PY "$REPO/scripts/ops/ops_capture_delivered.py") || fail "${delivered:-ops_capture_delivered.py failed, see its stderr}"
+  delivered=$($PY "$REPO/scripts/ops/ops_capture_delivered.py") || { fail "${delivered:-ops_capture_delivered.py failed, see its stderr}"; return 1; }
   out=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAF' ' -c "
     WITH m AS (SELECT DISTINCT symbol || '|1d' AS subject FROM universe_membership),
          v AS (SELECT subject, max(evaluated_at) AS at FROM integrity_monitor
@@ -204,8 +206,8 @@ verdict_preflight() {
     SELECT (SELECT h FROM l),
            count(*) FILTER (WHERE v.at IS NULL OR v.at < now() - (SELECT h FROM l) * interval '1 hour'),
            count(*)
-    FROM m LEFT JOIN v USING (subject)") || fail "verdict preflight query failed"
+    FROM m LEFT JOIN v USING (subject)") || { fail "verdict preflight query failed"; return 1; }
   read -r limit stale total <<< "$out"
-  [ -n "${stale:-}" ] || fail "verdict preflight read nothing"
+  [ -n "${stale:-}" ] || { fail "verdict preflight read nothing"; return 1; }
   [ "$stale" -eq 0 ] || fail "$stale of $total member 1d verdicts are older than ${limit} h; refresh: cd $REPO && setsid -f $PY scripts/ops/bars/ops_member_verdicts_1d.py --apply > logs/member_verdicts_1d_\$(date -u +%F).out 2>&1 (about 1.8 h measured 2026-11-25; the report logs progress and an ETA), then relaunch"
 }

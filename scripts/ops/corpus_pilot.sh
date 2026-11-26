@@ -7,9 +7,9 @@
 # Preconditions: block 2 compare IDENTICAL in the status file; memtester_clean present; the lead has
 # set infra.feature_factory.workers to 4 (config_history reason recorded); no heavy job live.
 set -u
-. "$(dirname "$0")/guarded_run_common.sh"
 CHECK=""
-if [ "${1:-}" = "--check" ]; then CHECK=1; COLLECT_REFUSALS=1; shift; fi
+if [ "${1:-}" = "--check" ]; then CHECK=1; COLLECT_REFUSALS=1; shift; fi   # before sourcing: collect mode reads it there
+. "$(dirname "$0")/guarded_run_common.sh"
 [ -n "$CHECK" ] || { : >> "$STATUS"; exec 2>> "$STATUS"; }   # a check writes nothing, not even the status file
 CR="$PY -m services.corpus_rerun"
 cd "$REPO" || fail "cd repo"

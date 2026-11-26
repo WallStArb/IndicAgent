@@ -60,7 +60,7 @@ Resume the same run (same pin, timers already held): `setsid -f bash scripts/ops
 An active member whose ticker ends (a merger, a rename, a delisting) needs a `listing_end` row before its 6th missing session: the 1d verdict judges it to the last completed session until then, and `proven_start_1d` turns false once session coverage over the proven span falls under the floor (BKH, 2026-11-24: passed with 5 trailing sessions missing, 0.99914; failed with 6, 0.99897), which refuses the data gate. `listing_end` is written by a migration only (append-only; pattern in migrations 609 and 616; reasons acquired, merged, taken_private, delisted). Then re-judge the name with `ops_member_verdicts_1d.py --symbols <name> --apply`. Todo 673 plans the nightly guard.
 
 ## Read after it ends
-- `corpus_run.measured`: `pilot_seconds_1d_chunk`, `extrapolated_seconds.stage_1d`, `pilot_bytes_per_row_1d`,
+- `corpus_run.measured`: `pilot_seconds_1d_unit`, `extrapolated_seconds.stage_1d`, `pilot_bytes_per_row_1d`,
   `compression_ratio_measured`, `pilot_db_load`, `pilot_hmm_written_share` (todo 661 disclosure), and
   `summary.gates` (G1-G3, G4-G5, G6-objects).
 - Peak `rss_mb` and the peak DIMM temperature from `logs/family10_dimm_temp.log` (the measurement that decides
