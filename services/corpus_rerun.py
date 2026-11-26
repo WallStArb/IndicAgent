@@ -119,6 +119,7 @@ from services.corpus_rerun_budget import (
     span_peak,
     step_increment,
 )
+from services.corpus_rerun_check import fetch_stored_units
 from services.corpus_rerun_quiesce import QuiesceError, service_of, timer_is_quiet
 from src.config.settings import Settings
 from src.core.canonical_json import canonical_json
@@ -982,6 +983,8 @@ class Deps:
     planned_units: Callable[
         ..., tuple[list[Any], set[str]]
     ]  # (settings, conn, horizon, timeframes)
+    # (target_table, run_id) -> the blocking-status provenance rows of the table under any other run
+    stored_units: Callable[[str, str], list[Any]]
     symbol_chunks: Callable[[str], list[tuple[str, ...]]]  # by timeframe: the tier for intraday
     # symbol -> the tradeable 1d bars the stage computes (from the proven start) before the horizon
     history_bars: Callable[[datetime], Mapping[str, int]]
@@ -1251,6 +1254,31 @@ class CorpusRerun:
                 {"pin_checks": checks},
             )
         return checks
+
+    def check_report(self, upcoming: str = PILOT) -> tuple[list[str], bool]:
+        """`--check`: every refusal a launch of `upcoming` would meet, read-only and all at once: the pin
+        checks (listed whole, where the gate stops at the first failures), the pinned APR keys that moved,
+        and the stored units that would block the stage's units (services/corpus_rerun_check.py)."""
+        from services import corpus_rerun_check as check
+
+        d = self.deps
+        checks = self.pin_checks(self.by_name[upcoming])
+        pinned = self.run.measured.get("apr_values")
+        diff = check.apr_diff(pinned, d.identity()["apr_values"]) if pinned is not None else []
+        specs, _ = d.planned_units(
+            d.settings, d.conn, self.run.horizon, self.run_tfs if self.scope == SCOPE_1D else None
+        )
+        planned = [
+            check.UnitSpan(s.batch_key, s.tf, s.range_start, s.range_end, tuple(s.symbols))
+            for s in specs
+        ]
+        blockers = check.find_blockers(planned, d.stored_units("feature_vectors", self.run.run_id))
+        lines, ok = check.render(checks, diff, blockers)
+        if pinned is None:
+            lines.insert(
+                -1, "note: this run recorded no pinned APR values; a moved key cannot be named"
+            )
+        return lines, ok
 
     def _step_pin_gate(self, step: Step) -> dict[str, Any]:
         return {"pin_checks": self._require_pin(self.by_name[PILOT])}
@@ -1871,6 +1899,7 @@ def current_identity(conn: Any) -> dict[str, Any]:
         "code_key": rebuild_code_key(),
         "apr_hash": apr_hash(values, build_feature_factory_config(cfg)),
         "apr_keys": keys,
+        "apr_values": values,
         "apr_unseeded": missing,
     }
 
@@ -1902,6 +1931,7 @@ def real_deps(settings: Settings, conn: Any, worktree: Path) -> Deps:
         run_data_gate=gate.run_data_gate,
         run_stage=factory.run_rebuild_stage,
         planned_units=factory.planned_units,
+        stored_units=lambda table, run_id: fetch_stored_units(conn, table, run_id),
         member_months=lambda: gate.fetch_member_months(conn),
         symbol_chunks=lambda tf: factory.symbol_chunks(settings, conn, tf),
         history_bars=lambda horizon: stage_history_bars(factory, settings, conn, horizon),
@@ -2056,6 +2086,7 @@ def new_run(conn: Any, settings: Settings, horizon: datetime, commit: str, scope
             "row_counts": counts_record(plan.counts),
             "stored_row_counts": counts_record(plan.stored),
             "apr_keys": identity["apr_keys"],
+            "apr_values": identity["apr_values"],
             "apr_unseeded": identity["apr_unseeded"],
             "plan": [p.as_record() for p in plan.peaks],
             "wal_bytes_at_launch": plan.inputs.wal_bytes,
@@ -2101,12 +2132,22 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="with --new-run (required), plan-only too: `1d` gates on the 1d term alone and "
         "never unlocks the intraday steps; `all` gates on 1d and 5m. Recorded in the run",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="with --run-id (and optionally --step, default pilot): print every refusal a launch of "
+        "that step would meet, read-only; exits 1 if any",
+    )
     which = parser.add_mutually_exclusive_group()
     which.add_argument("--step", help="with --run-id: run this one step")
     which.add_argument("--through", help="with --run-id: run every step up to and including this")
     args = parser.parse_args(argv)
-    if args.run_id and not (args.step or args.through):
-        parser.error("--run-id needs --step or --through")
+    if args.check and not args.run_id:
+        parser.error("--check needs --run-id")
+    if args.run_id and not (args.step or args.through or args.check):
+        parser.error("--run-id needs --step, --through or --check")
+    if args.check and args.through:
+        parser.error("--check takes --step (the step to check), not --through")
     if args.new_run and not args.data_gate_scope:
         parser.error("--new-run needs --data-gate-scope (1d or all)")
     if args.data_gate_scope and not args.new_run:
@@ -2181,6 +2222,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 1
             return 0
         store = RunStore(conn)
+        if args.check:  # read-only: takes no lock and writes nothing
+            run = store.load_run(args.run_id)
+            runner = CorpusRerun(
+                run,
+                store,
+                real_deps(settings, conn, run_worktree(run.run_id)),
+                load_corpus_rerun_apr(load_config_service_sync(conn)),
+            )
+            lines, ok = runner.check_report(args.step or PILOT)
+            print("\n".join(lines))
+            return 0 if ok else 1
         if not store.try_lock():
             print("another corpus rerun runner is live (one at a time)", file=sys.stderr)
             return 1

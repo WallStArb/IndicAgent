@@ -274,7 +274,12 @@ def _world(run: cr.CorpusRun | None = None, **state_overrides) -> World:
         run_command=run_command,
         git_head=lambda path: state["head"],
         toplevel=lambda: state["toplevel"],
-        identity=lambda: {"code_key": state["code_key"], "apr_hash": state["apr_hash"]},
+        identity=lambda: {
+            "code_key": state["code_key"],
+            "apr_hash": state["apr_hash"],
+            "apr_values": state.get("apr_values", {}),
+        },
+        stored_units=lambda table, run_id: state.get("stored", []),
         module_files=lambda: state["module_files"],
         fetcher_lock_free=lambda: state["lock_free"],
         systemctl=lambda verb, unit: state["enabled"] if verb == "is-enabled" else state["active"],
