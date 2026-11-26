@@ -65,3 +65,15 @@ today, which freshness_1d names).
 ## Status 2026-11-24 (todo consolidation pass)
 
 Verified 2026-11-24: item 3 fixed in fe47d2f0a; item 2 obsolete (ELE, IESC, MSM and TIGO each hold 225 Massive-served 1d bars in 2026); CTVA hold `72cc2b5e` is current and CTVA has no canonical 1d bars and no membership.
+
+## Run command and expected cost for the post-step-7 re-verify (prepared 2026-11-25, not run)
+
+Plan: `docs/plans/2026-11-15-516-post-step7-reverify-plan.md` (queries Q1 to Q6, the decision rule and the census). All statements are SELECTs (no insert, update, delete, drop or alter appears in the plan's SQL; checked 2026-11-25). Launch when the heavy slot frees after the pilot, from the repo root:
+
+```bash
+mkdir -p logs/massive_step7/post_step7_readiness_20261115
+awk '/^```sql/{f=1;next}/^```/{f=0} f' docs/plans/2026-11-15-516-post-step7-reverify-plan.md > /tmp/516_reverify.sql
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -v archive_end="'2026-11-16'" -a -f /tmp/516_reverify.sql 2>&1 | tee logs/massive_step7/post_step7_readiness_20261115/516_result.txt
+```
+
+Cost. Q1 to Q4 and Q6 are point reads on one symbol or a handful of rows, and Q5 reads four symbols: seconds in total. The census (last statement, no expected value) is the only expensive one: its plan is a window over `market_data_ohlcv` with a merge append across the compressed chunks (planner estimate 361.8M rows scanned, total cost 39.1M units, not measured), so it can take many minutes and competes with a heavy job for I/O. Run it last and alone: put it in its own file with `SET statement_timeout = '30min'`, or join it to `universe_membership` names as the plan allows, and do not start it while a pilot, stage_1d or counted run is live. Then record the result lines and the follow-up todos as the plan's Outputs section says, and strike the stale parts of this todo.
