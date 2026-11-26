@@ -45,6 +45,7 @@ def _db_reachable() -> bool:
 
 
 pytestmark = [
+    pytest.mark.requires_db,
     pytest.mark.skipif(not _db_reachable(), reason="local PostgreSQL not reachable"),
     # todo 494: the shadow DDL and its fixture rows live in pg_temp inside a transaction the
     # fixture always aborts; the live_db marker opts the module out of the conftest's

@@ -20,6 +20,7 @@ def _db_reachable() -> bool:
         return False
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.asyncio
 async def test_the_stage_lock_is_held_until_its_session_closes():

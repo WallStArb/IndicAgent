@@ -37,3 +37,26 @@ def test_a_clean_run_prints_nothing_and_a_missing_file_warns(tmp_path, capsys):
     assert ann.annotations(path) == []
     assert ann.main([str(tmp_path / "absent.xml")]) == 0
     assert "was not written" in capsys.readouterr().out
+
+
+SKIPS = """<testsuites><testsuite>
+<testcase classname="a" name="t1"><skipped message="local PostgreSQL not reachable"/></testcase>
+<testcase classname="a" name="t2"><skipped message="local PostgreSQL not reachable"/></testcase>
+<testcase classname="b" name="t3"><skipped message="shallow clone&#10;second line"/></testcase>
+<testcase classname="c" name="t4"/>
+</testsuite></testsuites>"""
+
+
+def test_skips_are_counted_by_reason(tmp_path):
+    path = tmp_path / "r.xml"
+    path.write_text(SKIPS)
+    assert ann.skip_counts(path) == {"local PostgreSQL not reachable": 2, "shallow clone": 1}
+    assert ann.skip_summary(path) == (
+        "::notice title=unit test skips::3 skipped. 2 x local PostgreSQL not reachable; 1 x shallow clone"
+    )
+
+
+def test_a_run_without_skips_still_reports_zero(tmp_path):
+    path = tmp_path / "r.xml"
+    path.write_text(XML)
+    assert ann.skip_summary(path) == "::notice title=unit test skips::0 skipped."

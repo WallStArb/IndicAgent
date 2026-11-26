@@ -74,6 +74,7 @@ def _fetch_valid_symbols() -> frozenset[str] | None:
     return None if rows is None else frozenset(row[0] for row in rows)
 
 
+@pytest.mark.requires_db
 def test_every_spread_leg_pair_resolves_to_a_valid_symbol():
     """Every instrument_tags row with tag='spread_leg' must have a non-missing
     evidence->'pair' value, and every named pair symbol must exist in instruments.symbol."""
@@ -104,6 +105,7 @@ def test_every_spread_leg_pair_resolves_to_a_valid_symbol():
     )
 
 
+@pytest.mark.requires_db
 def test_spread_leg_pairs_are_symmetric():
     """If symbol A's spread_leg evidence names B as a pair, B must have its own
     spread_leg row whose evidence names A back (reciprocal reference).

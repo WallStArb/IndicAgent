@@ -119,12 +119,14 @@ async def _lineage(conn: asyncpg.Connection, close: float, volume: int) -> list 
 pytestmark = pytest.mark.live_db
 
 
+@pytest.mark.requires_db
 async def test_a_massive_bar_rescaled_by_the_market_split_has_its_lineage(conn):
     assert await _lineage(conn, 120.5, 10000) == [_REQ]
     # A bar the rule did not produce (unscaled close) has none: the equality is exact.
     assert await _lineage(conn, 1205.0, 1000) is None
 
 
+@pytest.mark.requires_db
 async def test_an_incumbent_route_correction_never_enters_the_massive_product(conn):
     # A todo 592 operator row dated after the bar: were it applied, the expected close would be
     # 120.5 / 0.5 and the true row would read lineage_missing.
@@ -136,6 +138,7 @@ async def test_an_incumbent_route_correction_never_enters_the_massive_product(co
     assert await _lineage(conn, 120.5, 10000) == [_REQ]
 
 
+@pytest.mark.requires_db
 async def test_a_calendar_split_confirmed_by_the_calendar_is_a_market_split(conn):
     await conn.execute("DELETE FROM corporate_action_current")
     await conn.execute(

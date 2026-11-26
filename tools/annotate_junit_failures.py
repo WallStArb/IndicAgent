@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Print GitHub Actions error annotations for the failed tests of a JUnit XML file.
+"""Print GitHub Actions annotations for a JUnit XML file: an error per failed test, and one notice
+with the skip count by reason, so a silent drop in what CI runs (tests that skip without a database or
+git history) is readable from the checks API like a failure.
 
 The CI test reporter trims its summary past a size limit and CI logs need a login, so a red unit
 test job gave no readable cause. Annotations are readable from the checks API without one.
@@ -15,6 +17,7 @@ from __future__ import annotations
 import argparse
 import sys
 import xml.etree.ElementTree as ET
+from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -33,6 +36,24 @@ def failures(xml_path: Path) -> Iterator[tuple[str, str]]:
                     message[0] if message else ""
                 )
                 break
+
+
+def skip_counts(xml_path: Path) -> Counter[str]:
+    """Skipped tests by reason (the first line of the skip message)."""
+    counts: Counter[str] = Counter()
+    for case in ET.parse(xml_path).getroot().iter("testcase"):
+        node = case.find("skipped")
+        if node is not None:
+            message = (node.get("message") or node.text or "").strip().splitlines()
+            counts[message[0] if message else "no reason given"] += 1
+    return counts
+
+
+def skip_summary(xml_path: Path) -> str:
+    """One line a silent drop in coverage shows up in: the total skipped and the count per reason."""
+    counts = skip_counts(xml_path)
+    detail = "; ".join(f"{n} x {reason}" for reason, n in counts.most_common())
+    return f"::notice title=unit test skips::{_escape(f'{sum(counts.values())} skipped. {detail}'.strip())}"
 
 
 def _escape(text: str) -> str:
@@ -58,7 +79,7 @@ def main(argv: list[str]) -> int:
     if not args.xml.exists():
         print(f"::warning::{args.xml} was not written; pytest stopped before the report")
         return 0
-    print("\n".join(annotations(args.xml, args.max)))
+    print("\n".join([*annotations(args.xml, args.max), skip_summary(args.xml)]))
     return 0
 
 

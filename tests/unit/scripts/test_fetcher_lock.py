@@ -31,7 +31,10 @@ def _db_reachable() -> bool:
     return True
 
 
-_live = pytest.mark.skipif(not _db_reachable(), reason="local PostgreSQL not reachable")
+def _live(test):
+    """The local PostgreSQL is needed: marked requires_db, skipped when unreachable (CI has none)."""
+    skip = pytest.mark.skipif(not _db_reachable(), reason="local PostgreSQL not reachable")
+    return pytest.mark.requires_db(skip(test))
 
 
 def _name() -> str:

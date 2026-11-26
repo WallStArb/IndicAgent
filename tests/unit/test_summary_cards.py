@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import re
 import subprocess
 from datetime import date
@@ -274,6 +275,12 @@ def _git_checks_available() -> str | None:
 
 
 _SKIP_REASON = _git_checks_available()
+
+
+def test_ci_does_not_skip_the_git_history_checks():
+    """CI fetches full history, so the commit checks below must run there; locally they may skip."""
+    if os.environ.get("CI"):
+        assert _SKIP_REASON is None, f"CI must not skip the git-history card checks: {_SKIP_REASON}"
 
 
 def _repo_refs(front: dict) -> set[str]:

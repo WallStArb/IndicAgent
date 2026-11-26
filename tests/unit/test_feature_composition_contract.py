@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 
@@ -59,8 +60,13 @@ def test_seed_code_pointer_and_commit_are_pinned():
     shallow = subprocess.run(
         ["git", "rev-parse", "--is-shallow-repository"], capture_output=True, text=True, check=False
     )
-    if shallow.stdout.strip() != "false":  # CI's checkout has no fetch-depth: no pinned history
-        pytest.skip("shallow clone or no git history: the pinned commit cannot be resolved")
+    if shallow.stdout.strip() != "false":
+        reason = "shallow clone or no git history: the pinned commit cannot be resolved"
+        if os.environ.get(
+            "CI"
+        ):  # CI checks out full history (fetch-depth 0): a skip there is a hole
+            pytest.fail(reason)
+        pytest.skip(reason)
     commit = subprocess.run(
         ["git", "cat-file", "-t", seed.CODE_COMMIT], capture_output=True, text=True, check=False
     )

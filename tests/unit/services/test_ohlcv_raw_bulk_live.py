@@ -28,7 +28,7 @@ from services.ohlcv_raw_writer import (
     write_raw,
 )
 
-pytestmark = pytest.mark.live_db
+pytestmark = [pytest.mark.live_db, pytest.mark.requires_db]
 
 _LIVE_DB_DSN = "postgresql://postgres:postgres@localhost:5432/indicagent"
 VENDORS, KINDS = {"massive"}, {"sip_flat_agg"}

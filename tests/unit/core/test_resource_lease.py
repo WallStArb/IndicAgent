@@ -44,7 +44,10 @@ def _db_reachable() -> bool:
     return True
 
 
-pytestmark = pytest.mark.skipif(not _db_reachable(), reason="local PostgreSQL not reachable")
+pytestmark = [
+    pytest.mark.requires_db,
+    pytest.mark.skipif(not _db_reachable(), reason="local PostgreSQL not reachable"),
+]
 
 
 def _lease_name(tag: str) -> str:

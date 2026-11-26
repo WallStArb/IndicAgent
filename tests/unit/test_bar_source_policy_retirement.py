@@ -126,6 +126,7 @@ async def temp_policy():
         await conn.close()
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -150,6 +151,7 @@ async def test_apply_plan_retires_closes_and_inserts_in_one_transaction(temp_pol
         )
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -161,6 +163,7 @@ async def test_a_dry_run_plan_leaves_the_policy_untouched(temp_policy):
     assert await temp_policy.fetchval("SELECT count(*) FROM bar_source_policy_current") == before
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -378,6 +381,7 @@ def _plan_fingerprint(monkeypatch):
     monkeypatch.setattr("scripts.ops.bars.ops_source_policy.read_raw_fingerprint", same)
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -408,6 +412,7 @@ async def test_the_1d_plan_retires_both_defaults_and_writes_the_arbitrated_rows(
     assert reasons == {_ID_A: "D-191-Q: replaced", _ID_B: "D-191-Q: superseded_by_default"}
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -422,6 +427,7 @@ async def test_a_live_symbol_row_the_plan_does_not_name_refuses_the_whole_plan(t
     assert await conn.fetchval("SELECT count(*) FROM bar_source_policy_current") == before
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -437,6 +443,7 @@ async def test_a_kept_row_whose_stated_dates_are_not_the_live_ones_refuses_the_p
         await apply_plan(conn, parse_plan(stale), apply=True)
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -450,6 +457,7 @@ async def test_a_named_row_under_another_symbol_refuses_the_plan(temp_policy_1d)
         await apply_plan(conn, parse_plan(wrong), apply=True)
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -463,6 +471,7 @@ async def test_a_1d_dry_run_leaves_the_policy_untouched(temp_policy_1d):
     assert await conn.fetch("SELECT * FROM bar_source_policy_current ORDER BY policy_id") == before
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -481,6 +490,7 @@ async def test_the_1d_apply_holds_a_share_row_exclusive_lock(temp_policy_1d):
     assert "ShareRowExclusiveLock" in modes
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -498,6 +508,7 @@ async def test_a_changed_raw_fingerprint_refuses_the_plan(temp_policy_1d, monkey
     assert await conn.fetchval("SELECT count(*) FROM bar_source_policy_current") == before
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -515,6 +526,7 @@ _QUARANTINE = [
 ]
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -559,6 +571,7 @@ async def test_quarantine_sessions_go_through_the_flag_writer(temp_policy_1d, mo
     ]
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
@@ -575,6 +588,7 @@ async def test_a_quarantine_rule_outside_the_apr_list_refuses_the_plan(temp_poli
         )
 
 
+@pytest.mark.requires_db
 @pytest.mark.skipif(not _db_reachable(), reason="needs the local database")
 @pytest.mark.live_db
 @pytest.mark.asyncio
