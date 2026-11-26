@@ -95,6 +95,13 @@ verify flag: it checks each file's size against the vendor listing and records t
 sha256 in its manifest. Afterwards rerun the same command; a clean rerun that downloads nothing
 and exits 0 proves every file matches its listed size. Send the lead that exit code.
 
+## Data cleanup
+
+Nothing under `data/massive/` or `data/backups/` is deleted before the 2026-12-07 pass (owner
+question 2026-11-26; the host has no space pressure and Massive raw is permanent). After that pass
+judge the small items: `data/backups/` dated snapshots, `data/massive/pilot`,
+`data/massive_split_audit` and the old logs under `logs/`.
+
 ## Vendor behaviour found
 
 - Aggregate endpoints (`/v2/aggs/...`) answer 429 ("maximum requests per minute") after a burst of

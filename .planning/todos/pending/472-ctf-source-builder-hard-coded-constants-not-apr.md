@@ -51,3 +51,5 @@ equal today's numbers. Decide the `1e-10` floors with the other numerical guards
 ## Status 2026-11-24 (todo consolidation pass)
 
 The HMM half is obsolete: `ctf_regime_align` was deleted (f396f9e27) and todo 476 is done; the CTF window is now `feature.ctf.vwap_window`.
+
+The `1e-10` guards in `cross_tf.py` are mathematical guards, exempt from the APR rule (CLAUDE.md); they are not seeded as keys and belong to the single `EPS` cleanup in todo 680 (decided 2026-11-26, owner lead loop). Open here: the S/R default lookback 120 and strength cap 2.0 in `vp_sr.py`.
