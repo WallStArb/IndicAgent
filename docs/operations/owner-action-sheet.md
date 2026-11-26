@@ -32,7 +32,7 @@ Recommendation: install now. It is read-only against the database and the only c
 
 ## 2. Massive plan (todo 600)
 
-Decide renew or lapse by 2026-12-10; read the exact lapse date off the Massive account page and tell the lead so the doc's "about" can be replaced. The lead runs the final capture and verification about 2026-12-07 (commands: deadlines doc, item 9; the capture is a lead job, not yours). Also decide whether to keep or drop the HX370 copy of the archive (STATE).
+Decided 2026-11-26: lapse, and the HX370 copy is dropped. Still open for you: read the exact lapse date off the Massive account page; read the exact lapse date off the Massive account page and tell the lead so the doc's "about" can be replaced. The lead runs the final capture and verification about 2026-12-07 (commands: deadlines doc, item 9; the capture is a lead job, not yours). Also decide whether to keep or drop the HX370 copy of the archive (STATE).
 
 Verify: the lead records the lapse date, the final manifest key count and the two `--verify` exit codes in todo 600.
 

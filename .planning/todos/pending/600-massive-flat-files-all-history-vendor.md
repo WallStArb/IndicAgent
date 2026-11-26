@@ -56,7 +56,7 @@ bottleneck (about 4 names an hour) and, for the first time, bring in delisted na
 
 1. Backup of the files and the raw dumps, mandatory before the plan lapses (the files cannot be
    replaced afterwards). Destination (owner 2026-11-10): the owner's second machine (HX370, 64 GB,
-   2 TB), pending setup. Today (2026-11-14) the archive has two copies in one site: ubuntu1 and the nightly pull mirror on ubuntu2 (`indicagent-data-mirror.timer`); there is no off-site copy (owner 2026-11-15, todo 618 closed as accepted risk); the HX370 copy named above stands until the owner drops it. Shape when it is: copy
+   2 TB), pending setup. Today (2026-11-14) the archive has two copies in one site: ubuntu1 and the nightly pull mirror on ubuntu2 (`indicagent-data-mirror.timer`); there is no off-site copy (owner 2026-11-15, todo 618 closed as accepted risk); the owner dropped the HX370 copy on 2026-11-26. Shape when it is: copy
    `data/massive/files/` and `data/massive/manifest/` with checksums, then run the downloader's
    `--verify` against the copy (manifest sha256 is the proof), keep the copy read-only.
 2. The owner's admission call (bundled with the law 528 amendment); no verdict step.
@@ -171,3 +171,4 @@ Findings recorded in the idea docs: economy raw has no vintage or `available_at`
 
 After the catch-up (11,672 keys), `massive_download --verify` exited 0 (11,672 records, 0 superseded, 0 defects) and `--verify-etag` exited 0, run one after the other from `logs/massive_verify_20261120/run.sh` (logs `verify.log`, `verify_etag.log`, exit codes in `exit_codes.txt`). Both finished in about 2 minutes together (log timestamps 02:08Z to 02:10Z), not the 10 to 25 estimated. No file needed repair.
 
+Owner ruling 2026-11-26: lapse the Massive plan (about 2026-12-10); renew only if it is needed at go-live (the plan's purpose, 20-plus years of history for all stocks, is met). No HX370 copy. Items 9 and 10 reduce to the final capture and verified mirror; the nightly leaf stays off.
