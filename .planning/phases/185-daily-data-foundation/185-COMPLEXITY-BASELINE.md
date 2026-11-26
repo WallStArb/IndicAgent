@@ -559,9 +559,7 @@ The TEMPORARY count here is taken before the 185-44 guards existed. The single_w
 - .planning/todos/pending/272-instrument-tag-peer-group-coverage-auditor.md
 - .planning/todos/pending/275-v3-north-star-precedentengine-mechanics-predate-d4-rescope.md
 - .planning/todos/pending/284-gsd-review-agy-stdin-invocation-broken.md
-- .planning/todos/pending/309-vulture-baseline-cleanup-backlog.md
 - .planning/todos/pending/317-backfill-status-migrate-to-anti-join-checkpoint-pattern.md
-- .planning/todos/pending/321-feature-factory-config-test-fixture-consolidation.md
 - .planning/todos/pending/324-gradient-vocabulary-naming-check-unenforced.md
 - .planning/todos/pending/331-vocabulary-drift-auditor-windowed-query-blind-spot.md
 - .planning/todos/completed/360-broadcast-day-constant-empirical-classifier.md
@@ -608,7 +606,6 @@ The TEMPORARY count here is taken before the 185-44 guards existed. The single_w
 - .planning/todos/pending/462-stop-storing-synthetic-fill-bars-record-coverage-instead.md
 - .planning/todos/pending/463-live-macro-features-fabricate-zero-when-no-cross-asset-record.md
 - .planning/todos/pending/464-cross-asset-builder-does-not-track-previous-closes-before-first-record.md
-- .planning/todos/pending/465-ring0-metrics-module-holds-domain-named-instruments.md
 - .planning/todos/pending/466-regime-columns-lookahead-dependents-303-304-benchmark.md
 - .planning/todos/pending/467-regime-kernel-raises-on-a-constant-training-slice.md
 - .planning/todos/pending/470-ic-measure-unit-grain-resume-and-digest-pass-cost.md
@@ -617,7 +614,6 @@ The TEMPORARY count here is taken before the 185-44 guards existed. The single_w
 - .planning/todos/pending/473-live-ctf-path-differs-from-batch-and-runs-92-kernels-per-bar.md
 - .planning/todos/pending/474-kernels-fill-neutral-values-for-undefined-instead-of-nan.md
 - .planning/todos/pending/475-macro-kernels-branch-on-symbol-and-timeframe-names.md
-- .planning/todos/pending/477-pivot-detection-repeated-per-row-across-structure-kernels.md
 - .planning/todos/completed/479-service-timer-logs-root-owned-break-single-module-unit-tests.md
 - .planning/todos/pending/481-rates-regime-curve-label-measures-rate-direction-not-slope.md
 - .planning/todos/pending/483-record-2026-midterm-forward-window-result.md

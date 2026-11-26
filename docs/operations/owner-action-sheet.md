@@ -12,6 +12,7 @@
 | 5 | Ledger 2026-11-23b veto, todos 547 and 586 | none; blocks nothing running | rulings |
 | 6 | Open owner questions in one list (addendum 2026-11-25) | none; items 6.1 and 6.4 gate promotion and the sweep | rulings |
 | 7 | Run the two auditor timers as bg (todo 479) | before the next 06:00 UTC timer run | sudo steps |
+| 8 | Todo 383 upstream feedback and todo 509 `shadow_registry` | none | rulings |
 
 ## 1. Split feed auditor timer (todo 649)
 
@@ -91,3 +92,8 @@ sudo chown bg:bg logs/regime_coverage_auditor.log
 ```
 
 Verify: `systemctl show -p User indicagent-regime-coverage-auditor.service` prints `User=bg`; `ls -l logs/regime_coverage_auditor.log` shows bg as owner; `.venv/bin/python -c "import services.regime_coverage_auditor"` exits 0.
+
+## 8. Two small rulings (2026-11-26)
+
+- Todo 383 (GSD `state.planned-phase` no-op, gap-checker's bare CONTEXT.md, `phase.add` reusing a number): the upstream feedback is outward-facing and yours to send. Recommendation: close the todo without sending; it is tooling outside the research machine.
+- Todo 509: `shadow_registry` has 36 rows and no code reader. Recommendation: keep the table until the first book freeze (no cost, and the sealed shadow runner may want its shape), then drop it with a tombstone if still unread.

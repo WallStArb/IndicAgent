@@ -155,3 +155,11 @@ Follow-up to the classification join above; registry-schema drift fixed before t
 Doc nit found while executing: `ops_concept_registry_override`'s docstring claims free-text
 reasons are not persisted - stale; the CLI passes `--reason` into
 `concept_transition_log.notes`, which exists.
+
+## Merged 2026-11-26: vulture whitelist triage (was todo 309) and Ring 0 metrics (was todo 465)
+
+Files and facts kept from the two todos (deleted in the consolidation batch):
+
+- `tools/vulture_whitelist.py` and `[tool.vulture]` in `pyproject.toml`: CI blocks new dead code but the existing whitelist is untriaged. About 163 whitelisted functions and methods remain after the dead v2.x `src/intelligence/schemas.py` and `src/core/state_serializer.py` were deleted (456 entries). Method: by file or directory, delete the entry and the dead code, or confirm dynamic use (dataclass or Pydantic field, plugin registry, `getattr`, pytest fixture) and keep the entry with a comment. `--min-confidence 90` is the highest-signal first pass. Expected-dead archived-zone classes are not worth chasing (`ArchitectureViolation`, `PluginCallResult`, `MacroSignals`, `TemplateEvaluator`, `CorrelationAnalyzer`, `SkepticEvaluator`, `Dag`, `DataQualityMonitor`, `IntelligenceJournal` and similar). `src/persistence/repository/feature_repository.py`, `src/persistence/repository/parity_repository.py` and `src/core/schemas/parity.py` write only the archived `intelligence_features` table: check for deletion.
+- `src/observability/metrics.py` (Ring 0, 55 instruments): delete the dead `LANGGRAPH_*` instruments, move the feature and bar-auditor instruments to Ring 1 (`src/intelligence/<area>/metrics.py` on a Ring 0 factory, exporter metric names unchanged), and add a domain-word check with a legacy allow-list to the `ring0-boundary` check in `tools/check_plugin_invariants.sh` (today it greps imports only). `FEATURE_QUALITY_FAILURES` and `FEATURE_LIFECYCLE_TRANSITIONS` move first.
+

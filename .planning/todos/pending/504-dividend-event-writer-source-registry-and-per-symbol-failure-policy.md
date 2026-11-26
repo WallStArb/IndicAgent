@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-10-07
 source: owner request 2026-10-07 after indicagent-dividend-event-writer@yahoo failed on PSKY (Yahoo NaN close on 2026-09-15, a dividend day)
 ---

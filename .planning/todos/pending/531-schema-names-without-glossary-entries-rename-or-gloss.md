@@ -2,7 +2,7 @@
 
 Filed: 2026-10-10
 Owner: pending
-Priority: P2 (naming-system and glossary conformance; no behavior risk)
+Priority: P3 (naming-system and glossary conformance; no behavior risk)
 
 Survey 2026-10-10 of all 90 public relations against `docs/foundation/glossary.md`
 and live code. The strict rule ("every domain term has exactly one definition;

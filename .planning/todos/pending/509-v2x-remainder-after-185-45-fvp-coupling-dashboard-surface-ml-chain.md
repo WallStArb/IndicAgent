@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-10-07
 source: plan 185-45 (pre-registered rules 3 and 4: candidates kept because a live surface still reads them, or found but not named)
 owner: owner call on the dashboard surface and the ML batch chain; the rest is mechanical once those are decided

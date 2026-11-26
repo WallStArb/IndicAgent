@@ -1,5 +1,6 @@
 ---
-status: pending
+status: deferred
+gate: before any feed reactivation
 priority: P3
 filed: 2026-11-01
 source: owner question 2026-11-01 ("why aren't batch and real-time sharing infrastructure, a bar is a bar"); coordinator code check
