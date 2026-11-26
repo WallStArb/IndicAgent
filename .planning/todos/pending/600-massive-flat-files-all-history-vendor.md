@@ -172,3 +172,5 @@ Findings recorded in the idea docs: economy raw has no vintage or `available_at`
 After the catch-up (11,672 keys), `massive_download --verify` exited 0 (11,672 records, 0 superseded, 0 defects) and `--verify-etag` exited 0, run one after the other from `logs/massive_verify_20261120/run.sh` (logs `verify.log`, `verify_etag.log`, exit codes in `exit_codes.txt`). Both finished in about 2 minutes together (log timestamps 02:08Z to 02:10Z), not the 10 to 25 estimated. No file needed repair.
 
 Owner ruling 2026-11-26: lapse the Massive plan (about 2026-12-10); renew only if it is needed at go-live (the plan's purpose, 20-plus years of history for all stocks, is met). No HX370 copy. Items 9 and 10 reduce to the final capture and verified mirror; the nightly leaf stays off.
+
+Owner ruling 2026-11-26: keep `data/massive/tapes` (92 GB, 8 sampled 2026 sessions of trades and quotes, ubuntu1 only). Uses: calibrate slippage (spread and impact) for the promotion cost gate, and possibly optimize execution timing of time-based strategies. No consumer is built yet; the plan lapse makes the slice unrecoverable, so it stays.
