@@ -245,16 +245,18 @@ jobs:
           fail-on-error: false
 
   # ---------------------------------------------------------------------------
-  # DB tests (probe, todo 676): the tests marked for a live database skip in the unit job because CI has no
+  # DB tests (todo 676): the tests marked for a live database skip in the unit job because CI has no
   # Postgres. This job builds the production database image (production/Dockerfile.timescaledb: TimescaleDB
   # plus pgvector), loads the dated schema baseline fixture and replays the migrations committed after it.
   # Replaying all of production/migrations on an empty database does not work (the probe of 2026-11-26: 159
   # of 605 files fail, the v2.x history assumes tables that no longer exist), so the baseline is the base.
-  # Every step is continue-on-error: it measures first (build, load and replay time, failures) and never
-  # turns main red; it becomes a gate, and the unit job's skips go away, once it is green and fast enough.
+  # A gate since 2026-11-26 (three unskipped greens, about 70 s): a failed step or test fails the job. Two
+  # replay failures are tolerated by name and reason (todo 676): 575 (the baseline already holds its result)
+  # and 605 (a production-data guard); any other failed migration fails the job. The unit job still
+  # skips these tests (it has no database); this job is where they run.
   # ---------------------------------------------------------------------------
   db-tests:
-    name: DB tests (probe)
+    name: DB tests
     runs-on: ubuntu-latest
     needs: [lint, plugin-guards]
     env:
@@ -267,7 +269,6 @@ jobs:
           python-version: "3.13"
 
       - name: Build and start the production database image
-        continue-on-error: true
         run: |
           start=$(date +%s)
           docker build -q -t indicagent-timescaledb -f production/Dockerfile.timescaledb production
@@ -276,7 +277,6 @@ jobs:
           echo "::notice title=db image::build and start $(( $(date +%s) - start )) s"
 
       - name: Load the schema baseline and replay later migrations
-        continue-on-error: true
         run: |
           start=$(date +%s)
           psql_run() { psql -h localhost -U postgres -d indicagent -v ON_ERROR_STOP=1 -q -f "$1" > /tmp/sql.out 2>&1; }
@@ -288,7 +288,9 @@ jobs:
           for f in tests/integration/fixtures/seed_instruments_2026-11-05.sql tests/integration/fixtures/seed_config_2026-11-05.sql; do
             psql_run "$f" || echo "::warning title=seed failed::$(basename "$f"): $(grep -m1 -E 'ERROR|FATAL' /tmp/sql.out | cut -c1-200)"
           done
+          tolerated="575_feature_ic_scores_one_name.sql 605_universe_membership_reset_for_rebuild.sql"
           failed=0
+          unexpected=0
           count=0
           for f in $(ls production/migrations/*.sql | sort); do
             n=$(basename "$f" | cut -d_ -f1 | sed 's/^0*//')
@@ -296,21 +298,25 @@ jobs:
             count=$((count + 1))
             if ! psql_run "$f"; then
               failed=$((failed + 1))
-              [ "$failed" -le 30 ] && echo "::warning title=migration failed::$(basename "$f"): $(grep -m1 -E 'ERROR|FATAL' /tmp/sql.out | cut -c1-200)"
+              case " $tolerated " in
+                *" $(basename "$f") "*) level=warning ;;
+                *) level=error; unexpected=$((unexpected + 1)) ;;
+              esac
+              echo "::${level} title=migration failed::$(basename "$f"): $(grep -m1 -E 'ERROR|FATAL' /tmp/sql.out | cut -c1-200)"
             fi
           done
-          echo "::notice title=baseline and replay::${count} migrations replayed, ${failed} failed, $(( $(date +%s) - start )) s"
+          echo "::notice title=baseline and replay::${count} migrations replayed, ${failed} failed (${unexpected} unexpected), $(( $(date +%s) - start )) s"
+          [ "$unexpected" -eq 0 ]
 
       - name: Install dependencies
-        continue-on-error: true
         run: |
           pip install uv
           uv pip install --system -r requirements.txt
 
       - name: Run the live-DB tests
-        continue-on-error: true
         run: |
           start=$(date +%s)
+          rc=0
           pytest -rsf --tb=short \
             tests/unit/test_bar_source_policy_retirement.py \
             tests/unit/core/test_resource_lease.py \
@@ -319,6 +325,8 @@ jobs:
             tests/unit/scripts/test_fetcher_lock.py \
             tests/unit/services/test_ohlcv_raw_bulk_live.py \
             tests/unit/test_canonical_bar_lineage_massive_migration_contract.py \
-            2>&1 | tee /tmp/dbtests.out | tail -40
-          grep -E '^(FAILED|ERROR)' /tmp/dbtests.out | head -10 | while read -r line; do echo "::warning title=live-DB test::${line:0:230}"; done
+            > /tmp/dbtests.out 2>&1 || rc=$?
+          tail -40 /tmp/dbtests.out
+          grep -E '^(FAILED|ERROR)' /tmp/dbtests.out | head -10 | while read -r line; do echo "::error title=live-DB test::${line:0:230}"; done || true
           echo "::notice title=live-DB tests::$(tail -1 /tmp/dbtests.out) in $(( $(date +%s) - start )) s"
+          exit "$rc"
