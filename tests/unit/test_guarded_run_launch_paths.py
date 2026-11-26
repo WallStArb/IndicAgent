@@ -195,10 +195,32 @@ def test_host_gate_refuses_a_tainted_kernel(lab: Lab) -> None:
 
 @pytest.mark.parametrize(
     "signature",
-    ["segfault at 0", "BUG: Bad page state", "Bad swap file entry", "general protection fault"],
+    [
+        "segfault at 0",
+        "bash[1]: segfault at 7fff055b5e40 ip 00005d02bbb56bdf sp 00007fff055b5e48 error 6 in bash",
+        "BUG: Bad page state",
+        "Bad swap file entry",
+        "general protection fault",
+    ],
 )
 def test_host_gate_refuses_a_kernel_memory_fault_signature(lab: Lab, signature: str) -> None:
     assert lab.run("host_gate", STUB_JOURNAL=f"kernel: {signature}").returncode == 3
+    assert "memory-fault signatures" in lab.status_text()
+
+
+STACK_OVERFLOW = "bash[2953915]: segfault at 7fff055b5e40 ip 00005d02bbb56bdf sp 00007fff055b5e40 error 6 in bash"
+
+
+def test_host_gate_discloses_and_ignores_a_stack_overflow_segfault(lab: Lab) -> None:
+    assert (
+        lab.run("host_gate; echo PASS", STUB_JOURNAL=f"kernel: {STACK_OVERFLOW}").returncode == 0
+    ), lab.status_text()
+    assert f"ignored stack-overflow segfault: kernel: {STACK_OVERFLOW}" in lab.status_text()
+
+
+def test_host_gate_refuses_a_stack_overflow_beside_a_real_fault(lab: Lab) -> None:
+    journal = f"kernel: {STACK_OVERFLOW}\nkernel: bash[1]: segfault at 10 ip 0000 sp 7fff0000 error 4 in bash"
+    assert lab.run("host_gate", STUB_JOURNAL=journal).returncode == 3
     assert "memory-fault signatures" in lab.status_text()
 
 

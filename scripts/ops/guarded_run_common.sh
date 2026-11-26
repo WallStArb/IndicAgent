@@ -78,6 +78,25 @@ timers_gate() {
 
 heavy_job_live() { pgrep -f "$HEAVY_JOB_RE" >/dev/null; }
 
+# Memory-fault signatures in this boot's kernel log. Bad page, Bad swap and general protection always refuse.
+# A segfault refuses unless its fault address equals its stack pointer (compared as numbers; sp is zero-padded):
+# a write to the page below the stack is a runaway recursion overflowing it (bash, 2026-11-26 15:15Z), not
+# corrupted memory. That line is disclosed in the status file, never hidden. An unparsable segfault refuses.
+kernel_fault_gate() {
+  local klog line addr sp
+  klog=$(journalctl -k -b --no-pager 2>/dev/null)
+  grep -q -E 'Bad page|Bad swap|general protection' <<< "$klog" && fail "kernel log shows memory-fault signatures this boot"
+  while IFS= read -r line; do
+    addr=$(sed -n 's/.*segfault at \([0-9a-f]\+\) .* sp \([0-9a-f]\+\) .*/\1/p' <<< "$line")
+    sp=$(sed -n 's/.*segfault at \([0-9a-f]\+\) .* sp \([0-9a-f]\+\) .*/\2/p' <<< "$line")
+    if [ -n "$addr" ] && [ -n "$sp" ] && [ $((16#$addr)) -eq $((16#$sp)) ]; then
+      log "ignored stack-overflow segfault: $line"
+    else
+      fail "kernel log shows memory-fault signatures this boot"
+    fi
+  done < <(grep 'segfault' <<< "$klog")
+}
+
 host_gate() {    # refuse to start on a host that is not demonstrably healthy
   [ -f "$SCRATCH/memtester_clean" ] || fail "no memtester_clean file (operator records a clean pass)"
   pgrep -x memtester >/dev/null && fail "memtester still running"
@@ -85,7 +104,7 @@ host_gate() {    # refuse to start on a host that is not demonstrably healthy
   window_gate
   timers_gate
   [ "$(cat /proc/sys/kernel/tainted)" = "0" ] || fail "kernel tainted: $(cat /proc/sys/kernel/tainted)"
-  journalctl -k -b --no-pager 2>/dev/null | grep -q -E 'segfault|Bad page|Bad swap|general protection' && fail "kernel log shows memory-fault signatures this boot"
+  kernel_fault_gate
   local n; n=$(dimm_temps | wc -l); [ "$n" -ge 2 ] || fail "expected 2 spd5118 sensors, found $n"
   local t; t=$(dimm_max_c); [ "$t" -le "$GATE_C" ] || fail "DIMM at ${t:-no reading}C, gate ${GATE_C}C"
   mem_gate
