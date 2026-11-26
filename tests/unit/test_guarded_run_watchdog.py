@@ -182,47 +182,61 @@ def test_an_unreadable_pgid_aborts_and_returns_1(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("end_h", "hour", "refused"),
-    [
-        (5, "00", False),
-        (5, "01", True),
-        (5, "04", True),
-        (5, "05", False),
-        (5, "08", False),
-        (7, "00", False),
-        (7, "01", True),
-        (7, "05", True),
-        (7, "06", True),
-        (7, "07", False),
-        (7, "08", False),
-    ],
+    ("hour", "refused"),
+    [("00", False), ("01", True), ("04", True), ("05", False), ("06", False), ("08", False)],
 )
-def test_window_gate_refuses_from_one_utc_to_the_launchers_end(
-    tmp_path: Path, end_h: int, hour: str, refused: bool
-) -> None:
-    result = _bash(tmp_path, f"NOW_H={hour}; window_gate {end_h}; echo PASS")
+def test_window_gate_refuses_one_to_five_utc(tmp_path: Path, hour: str, refused: bool) -> None:
+    result = _bash(tmp_path, f"NOW_H={hour}; window_gate; echo PASS")
     if refused:
         assert result.returncode == 3
-        assert f"nightly window (1:00 to {end_h}:00Z)" in _status(tmp_path)
+        assert "nightly window (1:00 to 5:00Z)" in _status(tmp_path)
     else:
         assert result.returncode == 0
         assert "PASS" in result.stdout
 
 
-@pytest.mark.parametrize(
-    ("call", "message"),
-    [
-        ("window_gate", "window end hour (UTC)"),
-        ("host_gate", "window end hour (UTC), see window_gate"),
-    ],
-)
-def test_window_gate_and_host_gate_require_the_window_end(
-    tmp_path: Path, call: str, message: str
-) -> None:
-    result = _bash(tmp_path, f"NOW_H=08; {call}; echo PASS")
-    assert result.returncode != 0
-    assert "PASS" not in result.stdout
-    assert message in result.stderr
+def _stub_python(tmp_path: Path) -> Path:
+    """A `python` that records its arguments; QUIESCE_RC makes `--quiesce` fail."""
+    stub = tmp_path / "stub_python"
+    stub.write_text(
+        '#!/bin/sh\necho "$@" >> "$STUB_LOG"\n'
+        'case "$*" in *--quiesce*) exit "${QUIESCE_RC:-0}";; esac\nexit 0\n'
+    )
+    stub.chmod(0o755)
+    return stub
+
+
+def _hold(
+    tmp_path: Path, after: str, quiesce_rc: int = 0
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    stub, log = _stub_python(tmp_path), tmp_path / "stub.log"
+    log.write_text("")
+    body = f'PY="{stub}"; export STUB_LOG="{log}" QUIESCE_RC={quiesce_rc}; hold_timers; {after}'
+    return _bash(tmp_path, body), log.read_text()
+
+
+def test_hold_timers_quiesces_and_the_exit_trap_releases_on_a_clean_exit(tmp_path: Path) -> None:
+    result, calls = _hold(tmp_path, "exit 0")
+    assert result.returncode == 0
+    assert calls.splitlines() == [
+        "-m services.corpus_rerun --quiesce",
+        "-m services.corpus_rerun --release",
+    ]
+    assert "timers released (exit trap)" in _status(tmp_path)
+
+
+def test_hold_timers_releases_after_a_failed_launch(tmp_path: Path) -> None:
+    result, calls = _hold(tmp_path, 'fail "repro_frozen not bit-identical"')
+    assert result.returncode == 3
+    assert calls.splitlines()[-1] == "-m services.corpus_rerun --release"
+
+
+def test_a_failed_quiesce_releases_and_stops_the_launch(tmp_path: Path) -> None:
+    result, calls = _hold(tmp_path, "echo LAUNCHED", quiesce_rc=1)
+    assert result.returncode == 3
+    assert "LAUNCHED" not in result.stdout
+    assert "quiesce failed" in _status(tmp_path)
+    assert calls.splitlines().count("-m services.corpus_rerun --release") == 1
 
 
 def _timers_gate(

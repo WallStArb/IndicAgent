@@ -22,7 +22,7 @@ SPECS=("$@"); [ ${#SPECS[@]} -gt 0 ] || SPECS=(family10_volume_shock_h5 family10
 LAUNCH=${LAUNCH_COMMIT:-$BOUND}
 if [ -z "${PREFLIGHT_ONLY:-}" ]; then
   grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
-  host_gate 7   # does not quiesce the timers: the window runs to the end of the 06:30Z cluster
+  host_gate
 fi
 cd "$REPO" && git fetch -q origin || fail "fetch"
 git cat-file -e "$LAUNCH^{commit}" && git merge-base --is-ancestor "$LAUNCH" origin/main || fail "$LAUNCH is not a commit on origin/main (code_commit and spec_blob must resolve for the StepM read)"
@@ -59,6 +59,7 @@ done
 run_guarded "$SCRATCH/repro_frozen.out" "$PY" -m scripts.research.determinism.repro_frozen "$SCRATCH/repro" --logs "$REPO/logs"
 rc=$?; log "repro_frozen exit=$rc"
 { [ $rc -eq 0 ] && grep -q "bit-identical" "$SCRATCH/repro_frozen.out"; } || fail "repro_frozen not bit-identical"
+hold_timers   # the counted runs read bars: no timer restates them while a run is live; any exit releases
 
 for spec in "${SPECS[@]}"; do
   [ -f "$REPO/logs/${spec}_run.out" ] && mv "$REPO/logs/${spec}_run.out" "$REPO/logs/${spec}_run.prev.$(date -u +%s).out"

@@ -48,7 +48,7 @@ WT="$(dirname "$REPO")/$(basename "$REPO")-corpus-run-$RUN"
 
 # One live heavy job at a time, also under PREFLIGHT_ONLY, which skips host_gate (whose list now holds these too).
 pgrep -f 'python.*(services\.corpus_rerun|services\.ic_measure|ic_sweep_recorder|backfill_feature_factory)' >/dev/null && fail "a corpus run, ic_measure or rebuild process is live"
-window_gate 5
+window_gate
 
 scope=$("${PSQL[@]}" "select measured->>'data_gate_scope' from corpus_run where run_id='$RUN'") || fail "corpus_run query"
 recorded=$("${PSQL[@]}" "select code_commit from corpus_run where run_id='$RUN'")
@@ -63,7 +63,7 @@ log "ic_measure preflight ok: run $RUN scope $scope width $width code key ${key:
 [ -z "${PREFLIGHT_ONLY:-}" ] || exit 0
 
 grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
-host_gate 5
+host_gate
 verdict_preflight
 
 if [ -n "${RSS_CHECK:-}" ]; then
