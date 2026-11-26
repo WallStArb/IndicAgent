@@ -43,6 +43,7 @@ exec /usr/bin/python3 "$@"
 case "$*" in
   *blocking_timers*) echo '["a.timer","b.timer"]';;
   *feature_factory.workers*) echo "${WORKERS_NOW:-4}";;
+  *feature_block_columns*) echo "${WIDTH_NOW:-16}";;
   *"select code_commit"*) echo "$RECORDED_COMMIT";;
   *bar_integrity*) [ "${PSQL_VERDICT_FAIL:-0}" = 1 ] && exit 1; echo "${VERDICT_ROW-30 0 100}";;
 esac
@@ -419,3 +420,17 @@ def test_the_pilot_refuses_inside_the_nightly_window(lab: Lab) -> None:
     assert result.returncode == 3
     assert "inside the nightly window" in lab.status_text()
     assert not _calls_with(lab, "--quiesce")
+
+
+def test_the_pilot_refuses_a_wrong_ic_block_width_before_any_quiesce(lab: Lab) -> None:
+    result = _pilot(lab, "0f593f92f8b4", WIDTH_NOW="32")
+    assert result.returncode == 3
+    assert "alpha.ic.feature_block_columns is 32, expected 16" in lab.status_text()
+    assert not _calls_with(lab, "--quiesce")
+
+
+def test_a_resume_also_refuses_a_wrong_ic_block_width(lab: Lab) -> None:
+    head = _run_worktree(lab)
+    result = _pilot(lab, "--resume", RUN_ID, RECORDED_COMMIT=head, WIDTH_NOW="32")
+    assert result.returncode == 3
+    assert not _calls_with(lab, "--through pilot")

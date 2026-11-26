@@ -35,7 +35,7 @@ Scripts in `scripts/ops/`: `guarded_run_common.sh` (host gate, DIMM watchdog, RS
 2. `memtester_clean` present *; no memtester, no other heavy job *; `/proc/sys/kernel/tainted` is 0 *; no
    segfault, Bad page, Bad swap or GPF in this boot's kernel log *; both DIMM sensors at 60 C or less *; 40 GB
    available *.
-3. `infra.feature_factory.workers` = 4 *. The lead sets it, with a reason:
+3. `infra.feature_factory.workers` = 4 *, and `alpha.ic.feature_block_columns` = 16 *: the run pins the IC block width at `--new-run` and `ic_measure_launch.sh` refuses any other, so it is set before the pilot (todo 471), never after; the pilot launcher reads both back and refuses otherwise. The lead sets it, with a reason:
    `ConfigService(dsn).set("infra.feature_factory.workers", 4, changed_by="indicagent-ee",
    reason="DIMM thermal budget: 4 workers until a measured run holds both DIMMs under 85 C (2026-11-23 fault)")`
    (a one-line async script; the write is reversible by setting 12 and is recorded in `config_history`).
