@@ -316,10 +316,16 @@ def test_every_waiver_row_cites_a_ledger_entry():
 def test_committed_records_are_current_passes_for_a_registered_spec():
     """Every record under research/battery_passes/ is current for at least one registered spec of its
     family: a stale record is a failing test, not a silent skip."""
-    for record in bp.load_records():
+    records = bp.load_records()
+    assert (
+        len(records) >= 2
+    ), f"only {len(records)} battery pass records found: an empty directory would pass this vacuously"
+    spec_paths = sorted((ROOT / "research/specs").glob("*.yaml"))
+    assert len(spec_paths) >= 12, f"only {len(spec_paths)} specs found"
+    for record in records:
         family = record["binding"]["family"]
         matches = []
-        for path in sorted((ROOT / "research/specs").glob("*.yaml")):
+        for path in spec_paths:
             spec = load_spec_from_file(path, root=ROOT).model
             if getattr(spec, "family", None) == family and (
                 bp.battery_input_hash(spec) == record["binding"]["battery_input_hash"]

@@ -312,6 +312,9 @@ def _real_cards() -> list[tuple[Path, dict]]:
         if path.name == "README.md":
             continue
         cards.append((path, _parse_card(path)))
+    assert (
+        len(cards) >= 25
+    ), f"only {len(cards)} summary cards found: every card test would pass vacuously"
     return cards
 
 
