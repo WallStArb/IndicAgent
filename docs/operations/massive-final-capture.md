@@ -26,6 +26,20 @@ filled in from `final_manifest/20261126.summary.json` when a family completes.
 Total projected: about 8 to 15 GB, far under the 250 GB budget. ubuntu1 had 1.5 TB free. The
 ubuntu2 mirror had 194 GB free, which is the real ceiling: the nightly pull already carries 102 GB.
 
+Actuals (`final_manifest/20261126.summary.json`, gzip bytes, 2026-11-26; `--verify` exit 0,
+98,379 records, 0 defects). Total 7.70 GB, under the projection range:
+
+| Family (endpoint keys) | Keys | Pages | GB |
+|---|---|---|---|
+| filings 10-K sections | 323 | 4,150 | 6.301 |
+| filings 8-K text | 323 | 7,526 | 0.633 |
+| filings risk factors | 323 | 664 | 0.042 |
+| options contracts | 5,267 | 71,176 | 0.486 |
+| news | 126 | 937 | 0.238 |
+| related companies | 13,778 | 13,778 | 0.001 |
+| fx aggregates (30 pairs, partial by ruling) | 30 | 30 | 0.001 |
+| economy (4 series), fx and crypto lists | 8 | 9 | 0.000 |
+
 Not captured, with the reason:
 
 - Options daily aggregates: one request per contract per range, so the requests number in the
@@ -57,6 +71,29 @@ Measured 2026-11-26: the last 20 sessions are 327 GB (about 16 GB a day), so abo
 Start about 2026-12-05 so the newest sessions are in and the run ends before the lapse; it is
 network and disk bound, so the lead decides whether it overlaps the pilot. Resumable (a rerun skips
 recorded keys); `--cap-gb` (400) and `--min-free-gb` (400) refuse rather than fill the disk.
+
+Schedule and command (lead ruling 2026-11-26; start 2026-12-05, not later without the lead's
+ruling; the lapse is 2026-12-10). Run it detached, send the lead a line at start, at the halfway
+point and at the end:
+
+```
+cd /home/bg/dev/indicagent && setsid .venv/bin/python -m scripts.infrastructure.massive.massive_tape_slice \
+    --last-sessions 20 --apply --cap-gb 400 --min-free-gb 400 \
+    > logs/massive_tape_slice_20261205.log 2>&1 < /dev/null &
+```
+
+Disk arithmetic: `/` had 1,452 GB free at 16:08Z on 2026-11-26. After 327 GB it holds about
+1,125 GB, which is 725 GB above the 400 GB floor. Tapes are excluded from the ubuntu2 mirror, so
+the mirror disk is untouched. Re-read the free space and the session list (`--last-sessions 20`
+without `--apply`) the morning of the run; the size moves with the sessions published.
+
+Overlap rule: one heavy compute job plus this one I/O-only transfer is allowed; two compute jobs
+are not. Stop condition (kill the process, rerun the same command later; a rerun skips recorded
+keys): the tool refuses on the cap or the floor; iowait or the DIMM watchdog line in the run
+status trips; free space falls under 500 GB; or the lead says stop. The tool has no separate
+verify flag: it checks each file's size against the vendor listing and records the ETag and
+sha256 in its manifest. Afterwards rerun the same command; a clean rerun that downloads nothing
+and exits 0 proves every file matches its listed size. Send the lead that exit code.
 
 ## Vendor behaviour found
 
