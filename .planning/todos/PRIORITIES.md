@@ -37,20 +37,20 @@ the pre-removal tree is the local tag `archive/v2x-ai-stack-2026-10`). History o
 git and in each todo's own closure note, not in this file. Durable reasoning behind this file (process rules,
 active sequencing decisions): `docs/research/priorities-decision-log.md`.
 
-## Critical path (current 2026-11-25)
+## Critical path (current 2026-11-26)
 
-Next actions in order: `.planning/STATE.md` Handoff and Queue. The heavy slot runs one job at a time under the DIMM watchdog (`docs/operations/guarded-run-runbook.md`). Block 2 of the family 10 battery is done (ledger 2026-11-24g). The corpus pilot (run f9f69166) failed its column screen; triage is in todo 652 and the fixes are held on branches that land in one re-pin. Order: the four family 10 counted runs, then the single re-pin landing, then a new pilot and `stage_1d` to `feature_complete`. IC measure waits on todos 670 and 671 (ledger 2026-11-24f). The dated Massive plan call (renew or lapse before about 2026-12-10) is in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
+Next actions in order: `.planning/STATE.md` Handoff and Queue. The heavy slot runs one job at a time under the DIMM watchdog (`docs/operations/guarded-run-runbook.md`). Done: the four family 10 counted runs and the StepM read (ledger 2026-11-25b), the single re-pin landing (639c244b1, pin 0f593f92f8b4). Now: the member verdict refresh, a fresh preflight and a new pilot at the new pin, then `stage_1d` to `feature_complete`, then the 1d IC measure (todo 471). In parallel before the Massive lapse: the final capture of every entitled dataset with its ubuntu2 copy (todo 600 item 9, `docs/operations/massive-final-capture.md`). The dated Massive plan call (renew or lapse before about 2026-12-10) is in `docs/plans/2026-11-15-massive-plan-lapse-deadlines.md`.
 
 Ranked P0 and P1 order by the path to a counted test (lead pass 2026-11-24; "code key" = the todo edits code a live or resumable run imports, so it lands only when that run is quiet):
 
 | Rank | Todo | Blocker | Owner | Size | Code-key note |
 |---|---|---|---|---|---|
-| 1 | 584 | BKH data gate, then pilot, family 10 runs, `stage_1d` | lead, indicagent-fb | heavy slot, hours | is the pin |
+| 1 | 584 | verdict refresh, new pilot at pin 0f593f92f8b4 (waits on the 06:00Z audit), then `stage_1d` | lead, indicagent-fb | heavy slot, hours | is the pin |
 | 2 | 649 | timer `indicagent-split-feed-auditor.timer` installed 2026-11-26 (daily 07:45Z, first run clean); left: measure the base rate over a month, then close | ops session | small, no code edit | none |
-| 3 | 600 | owner decision: renew or lapse by 2026-12-10, filings sizing by 2026-12-01 | owner | decision | none |
+| 3 | 600 | final capture of every entitled dataset (running 2026-11-26, worker lane) plus the ubuntu2 copy; owner decision: renew or lapse by 2026-12-10 | lead, owner | decision | none |
 | 4 | 669 | after the four family 10 runs and the StepM read; one route plus new battery cells | research session | medium | edits `src/intelligence/research`: `repro_frozen` bit-identical, rebinds, never beside a live counted run; before the pin of any counted corpus test |
 | 5 | 588 | part C (real-data dry S0) needs the scope-all rerun (item (e) deleted 2026-11-25: S0 refuses rk_vwap_dev loudly; tag `archive/588e-volume-basis-2026-11`) | research session | medium | S0 code: after the pilot |
-| 5b | 670, 671 | P1 by lead ruling 2026-11-24: IC measure waits on them; behind 669 | research session | medium each | 671 adds a writer; 670 a synthetic check; no live-run edit |
+| 5b | 670, 671 | P1 by lead ruling 2026-11-24: sweep recorder and synthetic check landed in the re-pin (639c244b1); the todos close after the ledger line 2026-11-25c is confirmed by the owner | research session | medium each | 671 adds a writer; 670 a synthetic check; no live-run edit |
 | 6 | 636 | StepM across the counted looks, then the `reversal_21` pooled read; the 547 ruling shapes the final cut | lead, owner for 547 | small | none |
 | 7 | 471 | width-pin measurement runs only after the pilot and with no heavy job live | lead | one heavy run | none |
 | 8 | 547, 586 | owner rulings (S1 drift; persistence statistic, branch `wip/586-persistence-statistic`) | owner | decision then medium | `statistics/`: `repro_frozen` |
