@@ -149,7 +149,8 @@ def test_a_lost_sensor_stops_then_kills_instead_of_running_on(tmp_path: Path) ->
 def test_a_single_unreadable_poll_resumes_when_the_sensor_returns(tmp_path: Path) -> None:
     _fake_hwmon(tmp_path / "hw", (40, 40))
     body = (
-        f'( sleep 0.3; : > "{tmp_path}/hw/hwmon0/temp1_input"; sleep 0.25; '
+        f'( sleep 0.3; : > "{tmp_path}/hw/hwmon0/temp1_input"; '
+        f'until grep -q "STOP: DIMM sensors unreadable" "$STATUS"; do sleep 0.02; done; '
         f'printf "40000\\n" > "{tmp_path}/hw/hwmon0/temp1_input" ) & '
         f'run_guarded "{tmp_path}/out" bash -c "sleep 2; exit 0"; echo rc=$?'
     )

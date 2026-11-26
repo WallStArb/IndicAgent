@@ -11,6 +11,7 @@
 | 4 | Cooling and the move from 4 to 8 workers | none; gates the worker count | hardware |
 | 5 | Ledger 2026-11-23b veto, todos 547 and 586 | none; blocks nothing running | rulings |
 | 6 | Open owner questions in one list (addendum 2026-11-25) | none; items 6.1 and 6.4 gate promotion and the sweep | rulings |
+| 7 | Run the two auditor timers as bg (todo 479) | before the next 06:00 UTC timer run | sudo steps |
 
 ## 1. Split feed auditor timer (todo 649)
 
@@ -77,3 +78,16 @@ Each row is a decision or veto that stays with the owner; the recommendation is 
 | 6.3 | Ledger 2026-11-23b: R-1 (non-gating sub-period disclosure) and R-2 (single forward confirmation from 2025-12-24 after a book is frozen), the retired phrase "pooled replication", R-3 rejected. | No veto. The R-1 reads are in (ledger 2026-11-23c for `reversal_21`; `volume_shock_1_50` in ledger 2026-11-25f and 2026-11-25g: primary last sub-period mean about zero, core last sub-period negative). | ledger 2026-11-23b, 2026-11-23c, 2026-11-25f |
 | 6.4 | Draft 2026-11-25c: the IC sweep recorder leaves regime-origin columns out of the sweep (regime columns stay testable through S0 with the batch check). The lead writes the ledger entry only after you confirm it in the lead's session. | Confirm: a sweep cannot check batch provenance, so a lookahead-labelled regime column could enter undetected; no threshold, spec or counted look changes. | `docs/research/draft-ledger-2026-11-25c-sweep-regime-columns.md` |
 | 6.5 | Ledger 2026-11-25e: `session_coverage` is judged up to the last delivered 1d session, not the last completed one (todo 675; veto window open). | No veto: it removes a wall-clock dependence from the data gate (pilot run 0e020c5a stopped on it), changes no stored value or counted result, and lands after the pilot passes its data gate, with a rebuild-pin check before and after. | ledger 2026-11-25e; `.planning/todos/pending/675-*` |
+
+## 7. Auditor units as bg (todo 479)
+
+Why: `indicagent-regime-coverage-auditor.service` and `indicagent-feature-parity-auditor.service` ran as root and left a root-owned `logs/regime_coverage_auditor.log`, which breaks a user-run import of the service module and its unit test with a `PermissionError`. Commit 2b0f849de adds `User=bg` to both units in the repo; the installed copies still run as root until copied.
+
+```bash
+cd /home/bg/dev/indicagent
+sudo cp production/systemd/indicagent-regime-coverage-auditor.service production/systemd/indicagent-feature-parity-auditor.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo chown bg:bg logs/regime_coverage_auditor.log
+```
+
+Verify: `systemctl show -p User indicagent-regime-coverage-auditor.service` prints `User=bg`; `ls -l logs/regime_coverage_auditor.log` shows bg as owner; `.venv/bin/python -c "import services.regime_coverage_auditor"` exits 0.
