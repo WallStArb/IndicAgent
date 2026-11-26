@@ -1,7 +1,9 @@
 # Massive final capture (plan lapse, about 2026-12-10)
 
-Status: capture running 2026-11-26 (owner order). Raw files only; nothing loads them into the
-database. Tool: `scripts/infrastructure/massive/massive_final_capture.py` (reuses the reference
+Status: capture running 2026-11-26 (owner order; owner ruling the same day: the plan lapses, no
+renewal unless go-live needs it, no HX370 copy). This is the one operative checklist for the lapse
+(the 2026-11-15 plan doc keeps only dates and the record). Raw files only; nothing loads them into
+the database. Tool: `scripts/infrastructure/massive/massive_final_capture.py` (reuses the reference
 capture's retry, pagination, resume and verify). Entitlement source: the 2026-11-20 probe in
 `.planning/todos/pending/600-*.md` and `data/massive/reference/probe_20261120.jsonl`.
 
@@ -29,8 +31,28 @@ Not captured, with the reason:
 - Options daily aggregates: one request per contract per range, so the requests number in the
   millions (about 320,000 contracts for a single expiry day) and the aggregate endpoints answer
   only about 5 requests per minute (see below). Cannot finish before the lapse.
-- Trades and quotes tapes (4.1 TB and 15.2 TB): out of scope by the lead's ruling.
+- Full trades and quotes tapes (4.1 TB and 15.2 TB): no bulk capture; only the calibration slice below.
 - Benzinga, options snapshot chain, indices, all non-stock flat-file prefixes: 403.
+
+## Tape slice (cost calibration)
+
+`data/massive/tapes/` (ubuntu1 only, excluded from the mirror) holds trades and quotes for 8
+sessions of 2026 (92 GB), captured 2026-11-20 to calibrate slippage (spread and impact) for the
+promotion cost gate and possibly the execution timing of time-based strategies. No consumer is
+built yet. Owner ruling 2026-11-26: keep it, and add the last 20 published sessions before the
+lapse, keeping the 8 older days (they span March to October). The vendor serves nothing after the
+lapse, so the slice cannot grow later.
+
+```
+.venv/bin/python -m scripts.infrastructure.massive.massive_tape_slice --last-sessions 20          # list and size
+.venv/bin/python -m scripts.infrastructure.massive.massive_tape_slice --last-sessions 20 --apply  # download
+```
+
+Measured 2026-11-26: the last 20 sessions are 327 GB (about 16 GB a day), so about 7 hours at the
+46 GB/h of the first slice, and ubuntu1 has 1.5 TB free. Flat-file downloads have no request cap.
+Start about 2026-12-05 so the newest sessions are in and the run ends before the lapse; it is
+network and disk bound, so the lead decides whether it overlaps the pilot. Resumable (a rerun skips
+recorded keys); `--cap-gb` (400) and `--min-free-gb` (400) refuse rather than fill the disk.
 
 ## Vendor behaviour found
 
@@ -85,3 +107,31 @@ installed copy already had. After a pull:
 compares every file of the capture (path and size) with ubuntu2 over a read-only `ssh find` and
 exits 1 on a missing or differing file. `--mirror-push` runs an additive `rsync` of just those
 files (no `--delete`) and refuses when the mirror would be left under 40 GB.
+
+## Remaining order (lead)
+
+1. When `logs/massive_final_20261126/exit_codes_final.txt` is written: `--verify` on the capture,
+   `--mirror-push` then `--mirror-verify`, then fill the actual sizes into the table above.
+2. About 2026-12-05: the tape slice (above).
+3. About 2026-12-07 (read the exact lapse date off the account page first; ask the owner), one
+   heavy job at a time:
+   - `massive_download --restat` (expect an empty report), then
+     `--refresh-inventory --date-from 2026-11-14` (download only; the seam stays pinned at
+     2026-11-16, so new files cannot move it), then `--verify` and `--verify-etag` (exit 0 on
+     both; a defect names the file and the plan still serves it).
+   - Reference capture dated 20261207 (`massive_reference_capture --captured-at 20261207`, about
+     56 minutes), and the month-end ticker list for 2026-11-30 (`--pit-snapshots --pit-dates
+     2026-11-30`, dry run first, then `--apply`; raw evidence only, membership is unchanged,
+     ruling 2026-11-16).
+   - Before any split row from that capture is applied (todo 608 ruling): list the
+     `massive_reference` splits with `effective_date` after 2026-11-10 and compare the last
+     Alpaca-served close before each split with Massive's adjusted close. A mismatch means the
+     Alpaca nightly stored the pre-split span unadjusted; re-ask that span with
+     `ops_bar_nightly --start/--end` (raw is last-wins). A name outside `universe_membership` is
+     disclosed, not chased.
+   - Tar the reference tree to a new dated directory under `data/backups/`, let the nightly mirror
+     pull, run `--mirror-verify` on each new capture, and record the lapse date, the final
+     manifest key count and the verify exit codes in todo 600.
+4. Not done and not planned: the nightly leaf (`ops_massive_nightly`, timer never installed; delete
+   it after the lapse if the plan is not renewed), a probe re-run (the 2026-11-20 probe stands),
+   options daily aggregates, and EDGAR direct for filings (its own todo if ever needed).

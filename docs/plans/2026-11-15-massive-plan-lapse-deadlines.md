@@ -1,9 +1,9 @@
 # Massive plan lapse: dated checklist and renewal recommendation
 
-**Status:** Plan, 2026-11-15. Nothing here has been run. No capture starts while step 7 Part C is live (one heavy job at a time); the commands below are for after Part D, in the dates given.
+**Status:** Condensed 2026-11-26. Decided: the plan lapses (owner 2026-11-26). The commands and remaining order are in `docs/operations/massive-final-capture.md`; this doc keeps the dates, what is on disk, what cannot be recaptured, and the disposition of the lapse items.
 **Author:** Claude (indicagent-65), 2026-11-15, on the lead's brief (todo 600 open items 5, 7, 9 and 10).
 **Informed by:** `.planning/todos/pending/600-massive-flat-files-all-history-vendor.md`, `docs/plans/2026-11-10-massive-admission-db-design.md`, `docs/operations/massive-step7-runbook.md`, `docs/ideas/vendor-pre2016-intraday-history.md`, `docs/plans/2026-11-15-stage2-5m-tier-and-intraday-universe.md`, `docs/plans/2026-11-15-family10-volume-shock-prereg-draft.md`, `.planning/STATE.md`, and a read-only check of `data/massive/` on ubuntu1 and the mirror on ubuntu2 (2026-11-15).
-**Owner decision, outward-facing:** renewing or lapsing the Massive plan spends money with an outside vendor. The recommendation below is the lead's input; the owner decides.
+**Owner decision (2026-11-26):** lapse; renew only if go-live needs it (the plan's purpose, 20-plus years of history for all stocks, is met). No HX370 copy.
 
 ## Dates
 
@@ -13,7 +13,7 @@
 | 2026-11-30 | Last NYSE month-end inside the plan; its ticker list is raw evidence only, because L stays 2026-11-09 (ruling 2026-11-16) |
 | 2026-12-01 | Filings sizing decision due (item 7) |
 | About 2026-12-07 | Final reference capture, file catch-up and verification (item 9) |
-| About 2026-12-10 | The plan lapses (todo 600 item 9, STATE). The exact date is not recorded in the repo: read it off the Massive account page and replace "about" here |
+| About 2026-12-10 | The plan lapses. The exact date is not recorded in the repo: the owner reads it off the Massive account page, then replace "about" here |
 
 ## What is already on disk (verified read-only, 2026-11-15)
 
@@ -37,91 +37,9 @@ Not captured: filings (EDGAR index, 8-K, Form 4), news, and any REST family beyo
 
 Not at risk: everything in the table above (two copies, ETag-verifiable), and the stage 2 5m tier (it reads the archive already acquired, so the lapse does not limit it: tier doc, line 39).
 
-## Item 9: the capture before the lapse
+## Disposition of the lapse items (todo 600)
 
-Run in this order after D5, one heavy job at a time, detached with `setsid`, never while a Massive loader or step 7 job runs. Confirm the lapse date first.
-
-1. Drift check, light network, no download:
-
-```bash
-.venv/bin/python -m scripts.infrastructure.massive.massive_download --restat
-```
-
-Expect an empty report. A key the vendor restated is a lead decision (the downloader moves the old bytes aside, never overwrites).
-
-2. Final file catch-up, download only (no raw load; the seam stays pinned at 2026-11-16 by the runbook override, so new files cannot move it):
-
-```bash
-.venv/bin/python -m scripts.infrastructure.massive.massive_download --refresh-inventory --date-from 2026-11-14
-```
-
-Files after the pinned seam are raw only; they are a second witness for the Alpaca tail (family 10 draft, section 6 item 4: measured Massive over Alpaca volume ratio median 0.99993 over 305,718 name-days of 2026).
-
-3. Full verification, heavy I/O (re-hashes 88 GB), only when no other heavy job runs:
-
-```bash
-.venv/bin/python -m scripts.infrastructure.massive.massive_download --verify
-.venv/bin/python -m scripts.infrastructure.massive.massive_download --verify-etag
-```
-
-Exit 0 on both; any defect names the file, and the plan still serves it until the lapse, so fix before then.
-
-4. Final reference capture dated after 2026-12-01, about 56 minutes with the 2026-11-10 settings (`--concurrency` as then; the tool refuses a second run and resumes with the same `--captured-at`):
-
-```bash
-.venv/bin/python -m scripts.infrastructure.massive.massive_reference_capture --captured-at 20261207
-```
-
-   After the capture and before any split row from it is applied (todo 608 ruling, 2026-11-24): list the `massive_reference` split rows with an `effective_date` after 2026-11-10 and, for each, compare the last Alpaca-served close before the split with Massive's adjusted close. A mismatch means the Alpaca nightly stored the pre-split span unadjusted (its tail re-reads only `infra.alpaca.nightly_window_days`, default 5, and `massive_reference` rows never stale an incumbent); the remedy is a history re-ask of that span with `ops_bar_nightly --start/--end` (raw is last-wins). A name outside `universe_membership` is disclosed, not chased.
-
-5. Month-end ticker lists for 2026-11-30 (and any later NYSE month-end before the lapse), kept as raw evidence: the one-time pit install anchors at 2026-11-09 and the planner does not extend an installed map (ruling 2026-11-16), so these lists do not change membership unless a later amendment adds an extend-only planner. About 5 minutes for the earlier 6,132 files, so seconds for these:
-
-```bash
-.venv/bin/python -m scripts.infrastructure.massive.massive_reference_capture --pit-snapshots --pit-dates 2026-11-30
-.venv/bin/python -m scripts.infrastructure.massive.massive_reference_capture --pit-snapshots --pit-dates 2026-11-30 --apply
-```
-
-The first form only prints its units; read them before `--apply`. Checked read-only on 2026-11-15: the dry run for `--pit-dates 2026-11-30` lists 2 units and exits 0, because `--pit-dates` takes any date; only the default list is capped at the archive's last file day. Run it on or after 2026-11-30. Open point for the stage 2 preregistration: membership after the last captured list needs a stated source once the plan lapses; the draft is `docs/plans/2026-11-15-stage2-membership-after-archive-end-amendment-draft.md` (closed list, no entrants), pending owner adoption.
-
-6. Entitlement probe: one request per candidate REST family not in the 2026-11-10 capture, a 403 meaning not entitled. No tool exists for an arbitrary probe; write a throwaway script that reads `MASSIVE_API_KEY` from `.env` into an Authorization header (never argv, a file or a logged URL, the capture tool's own rule) and writes the status lines to `data/massive/reference/probe_20261207.jsonl`. Candidates, unverified and named from the vendor's public API families, not fetched here: news, related companies, REST aggregates, trades, quotes, technical indicators, and the filings families of item 7. Probe a family only if a hypothesis or a data-adjacency-register row names a consumer; a family with no consumer is not worth a capture.
-7. Back up and mirror: tar the reference tree again after step 4 (the 2026-11-10 tarball does not hold the pit snapshots or the new capture), to a new dated directory under `data/backups/`, and let the nightly mirror pull the new files before the lapse. Then record the lapse date, the final manifest key count and the verify exit codes in todo 600.
-
-## Item 7: filings (decide by 2026-12-01)
-
-- Requirement (Musk step 1): a filing-date source for point-in-time features that need the original filing time (restated statements, 8-K events, Form 4 trades). No hypothesis in the backlog or the shortlist consumes one today (`docs/ideas/ranked-backlog-2026-11-15.md`: SEC filing text is parked, new data class).
-- The statements Massive serves key on filing date only (`.planning/IDEAS.md`, 2026-11-07), which leaks restatements; EDGAR direct is free, carries acceptance timestamps and does not lapse.
-- Recommendation: capture no filings from Massive. Do the one entitlement request of step 6 so the answer is recorded, then decide the source question on EDGAR direct as its own todo, not under this deadline. Record "no filings capture" in todo 600 by 2026-12-01.
-
-## Item 5: measured decisions
-
-- Nightly consolidation onto Massive: moot under a lapse (the Alpaca nightly stays the incumbent and is already running again after D5). Under a renewal it needs the publish-lag measurement of runbook A12 first.
-- Post-2016 consolidation onto one vendor: decided by step 7 (Massive to the archive end, Alpaca after, no fallback). Close under the step 7 record.
-- Stage 2 universe: todo 609, separate; its Massive dependencies are the captures above and the pit lists.
-- Not date-critical and not a lapse item: the Parquet landing zone (`.planning/IDEAS.md`), and trade count and average trade size (`ohlcv_raw` holds OHLCV only; the day and minute files already on disk carry `transactions`, so a later load needs no vendor).
-
-## Item 10: the nightly leaf
-
-- `scripts/ops/bars/ops_massive_nightly.py` and `production/systemd/indicagent-massive-nightly.{service,timer}` are on `main`; the timer is not installed (`systemctl is-enabled` reports not-found). STATE says the leaf is an unpushed worker worktree; that text is stale and should be corrected at the next STATE edit.
-- Under a lapse: never install the timer. Use the leaf once, by hand, for the final catch-up if the loader should also see the new months (`ops_massive_nightly --apply`, after D5; its quiet check refuses while a step 7 job runs). Otherwise item 9 step 2 is enough.
-- Under a renewal: install per `docs/operations/operations-database.md` (item 2b); scope is ruled (new days only, repost reported not reloaded).
-
-## Recommendation: lapse, owner decision
-
-Lead recommendation: do not renew, after the item 9 capture is done and verified.
-
-For the lapse:
-- Everything the research path reads is on disk twice and ETag-verifiable; the archive, reference tree and pit lists are the keep-everything artifact (capture law 528).
-- Canonical stops using Massive at the pinned seam (2026-11-16); the forward tail is Alpaca, which is free and was measured against Massive over 2026 at a median volume ratio of 0.99993 (5th to 95th percentile 0.9985 to 1.0005). Renewal buys a second witness for that tail and a self-updating archive, not a data need.
-- The stage 2 5m tier reads the archive already held, so the lapse does not limit it.
-- The cost of renewal is recurring spend for those two conveniences. The price is not recorded anywhere in the repo, so the owner supplies it; the decision rule is: renew only if one more month is trivially cheap and a named consumer needs data after 2026-12-10.
-
-Against the lapse (accepted if the checklist is done):
-- No re-download insurance: after the lapse the two same-site copies are the only copies, and there is no off-site copy (owner accepted the risk 2026-11-15). Verify both copies match (item 9 step 7) before the date.
-- No later point-in-time captures: ticker lists, short interest, float and statements stop at the last capture; months after it have no Massive witness.
-- Not irreversible, on an inference to confirm on the account page: the plan was bought for one month, so a month can presumably be bought again if a need appears; what is lost for good is only what the vendor served between lapse and re-purchase that was not captured.
-
-If the owner prefers optionality, the cheaper hedge than renewing is a second dated reference capture and file catch-up at the last possible day before the lapse (the ones above, moved to the lapse date minus one day) with the month-end list of 2026-11-30 included.
-
-## Done when
-
-The owner has decided renew or lapse and todo 600 records it; items 9 steps 1 to 7 have exit codes and counts recorded in todo 600; the filings decision is recorded by 2026-12-01; the stale STATE sentence on the nightly leaf is corrected; and if the plan lapses, the lapse date and final manifest count are written in todo 600 and the todo moves to completed.
+- Item 5, measured decisions: nightly consolidation onto Massive is moot under a lapse (the Alpaca nightly stays the incumbent); post-2016 consolidation was decided by step 7 (Massive to the archive end, Alpaca after, no fallback); the stage 2 universe is todo 609. Not lapse items: the Parquet landing zone (`.planning/IDEAS.md`), and trade count and average trade size (the day and minute files on disk carry `transactions`, so a later load needs no vendor).
+- Item 7, filings: the owner's 2026-11-26 order to capture every entitled dataset supersedes the 2026-11-15 ruling of no filings capture; the final capture takes filings text (sizing in `docs/operations/massive-final-capture.md`). Statements Massive serves key on filing date only (`.planning/IDEAS.md`, 2026-11-07), which leaks restatements; EDGAR direct (free, acceptance timestamps, does not lapse) stays the clean source and its own todo if ever needed.
+- Item 9, the capture: restat, file catch-up, verification and the reference capture ran or are scheduled in the final-capture doc. The 2026-11-20 entitlement probe and tape sizing stand (`data/massive/reference/probe_20261120.jsonl`; findings in todo 600).
+- Item 10, the nightly leaf: `scripts/ops/bars/ops_massive_nightly.py` and its unit and timer are on `main`; the timer was never installed. Under a lapse it stays off, and the leaf is deleted after the lapse if the plan is not renewed. Under a renewal, install per `docs/operations/operations-database.md` (scope ruled 2026-11-14: new days only, a vendor repost is reported and never reloaded).
