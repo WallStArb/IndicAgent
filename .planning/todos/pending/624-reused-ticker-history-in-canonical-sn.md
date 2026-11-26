@@ -207,3 +207,5 @@ proven start 2015). The new HZN listing (bars from 2026-11-16) is a reused-ticke
 ticker map must own which issuer each HZN bar belongs to before HZN is onboarded. Per ledger 2026-11-24h the new ticker's
 series is a separate instrument and is not claimed as BKH's continuation (BKH has a `listing_end`, migration 616). Onboard HZN through `docs/foundation/instrument-onboarding-sop.md`
 after the pilot; it is not needed for the BKH gate fix.
+
+BIPC (Brookfield Infrastructure Corp) merges into the new BIP Inc. (one-for-one into Class A shares; BIPC delisted from NYSE and TSX; completion Q4 2026). BIPC has a `listing_end` (migration 619, last session 2026-11-20, `merged`). The BIP Inc. listing is a separate instrument, not BIPC's continuation, and `instruments` already holds inactive `BIP` rows (an older issuer): when the new ticker has bars, onboard it through `docs/foundation/instrument-onboarding-sop.md` and let the pit ticker map own which issuer each bar belongs to.
