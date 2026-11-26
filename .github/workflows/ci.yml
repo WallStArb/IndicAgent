@@ -189,8 +189,42 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system -r requirements.txt
 
+      # The golden-digest tests were recorded on an AVX-512 host, where OpenBLAS (DYNAMIC_ARCH) picks its
+      # SkylakeX kernel. Other kernels (Haswell, Zen, Sandybridge) sum in a different order and move the last
+      # bits, so on a runner without AVX-512 these digests fail whatever the code does (verified by
+      # OPENBLAS_CORETYPE locally, docs/reference/gotchas.md). GitHub's ubuntu-latest hands out either CPU.
+      # The goldens are never regenerated; on a non-SkylakeX runner they are deselected with a visible
+      # warning, and `repro_frozen` on the host is the determinism gate (todo 679).
+      - name: Detect the OpenBLAS kernel
+        id: blas
+        run: |
+          core=$(OPENBLAS_VERBOSE=2 python -c "import numpy as n; n.dot(n.ones((4, 4)), n.ones((4, 4)))" 2>&1 | sed -n 's/^Core: //p' | head -1 || true)
+          if [ -z "$core" ]; then
+            echo "::error title=BLAS kernel probe::OPENBLAS_VERBOSE=2 printed no 'Core:' line; the probe needs updating, not skipping"
+            exit 1
+          fi
+          cpu=$(lscpu | sed -n 's/^Model name: *//p')
+          echo "core=${core}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=BLAS kernel::${cpu}; OpenBLAS core ${core}"
+
       - name: Run unit tests
-        run: pytest tests/unit/ -n auto -rs --tb=short --junit-xml=test-results.xml --durations=20
+        env:
+          BLAS_CORE: ${{ steps.blas.outputs.core }}
+        run: |
+          deselect=()
+          if [ "$BLAS_CORE" != "SkylakeX" ] && [ "$BLAS_CORE" != "Cooperlake" ]; then
+            echo "::warning title=golden digests deselected::OpenBLAS core '${BLAS_CORE}' is not SkylakeX or Cooperlake, the kernels the goldens were recorded on"
+            for node in \
+              tests/unit/test_null_panels.py::test_battery_panels_are_bit_identical_at_the_pinned_seeds \
+              tests/unit/intelligence/test_production_path_golden.py::test_production_path_matches_its_golden_digests \
+              tests/unit/intelligence/test_regime_kernel.py::test_synthetic_case_reproduces_the_writer_golden \
+              tests/unit/intelligence/test_regime_kernel.py::test_kernel_output_does_not_depend_on_the_callers_blas_threads \
+              tests/unit/intelligence/test_regime_kernel.py::test_two_threads_running_the_kernel_concurrently_both_match_the_golden \
+              tests/unit/intelligence/test_regime_kernel.py::test_real_daily_cases_reproduce_the_writer_golden; do
+              deselect+=(--deselect "$node")
+            done
+          fi
+          pytest tests/unit/ -n auto -rs --tb=short --junit-xml=test-results.xml --durations=20 ${deselect[@]+"${deselect[@]}"}
 
       # The reporter below trims its summary past a size limit and logs need a login, so name the
       # failed tests as annotations (readable from the checks API) when the run is red. The same step
