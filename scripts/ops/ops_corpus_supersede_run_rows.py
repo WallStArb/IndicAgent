@@ -34,7 +34,7 @@ TARGET_TABLE = "feature_vectors"
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 _UNITS_SQL = """
-SELECT batch_key, tf, range_start, range_end, symbols, row_count
+SELECT batch_key, generation, tf, range_start, range_end, symbols, row_count
   FROM provenance_batch
  WHERE run_id = %s::uuid AND target_table = %s AND status = 'completed'
  ORDER BY tf, range_start, batch_key
@@ -47,12 +47,18 @@ _DELETE_SQL = f"""
 DELETE FROM {TARGET_TABLE}
  WHERE symbol = ANY(%s) AND tf = %s AND bar_ts >= %s AND bar_ts < %s
 """
-_FLIP_SQL = "UPDATE provenance_batch SET status = 'superseded' WHERE batch_key = %s AND status = 'completed'"
+# the provenance row by its primary key, under the named run: exactly one row flips or the unit stops
+_FLIP_SQL = (
+    "UPDATE provenance_batch SET status = 'superseded' "
+    "WHERE batch_key = %s AND generation = %s AND run_id = %s::uuid AND status = 'completed'"
+)
 
 
 @dataclasses.dataclass(frozen=True)
 class Unit:
     batch_key: str
+    generation: int
+    run_id: str
     tf: str
     range_start: datetime
     range_end: datetime
@@ -78,8 +84,8 @@ class Plan:
 def fetch_units(conn: Any, run_id: str) -> list[Unit]:
     rows = conn.execute(_UNITS_SQL, (run_id, TARGET_TABLE)).fetchall()
     return [
-        Unit(key, tf, start, end, tuple(symbols), int(count))
-        for key, tf, start, end, symbols, count in rows
+        Unit(key, int(generation), run_id, tf, start, end, tuple(symbols), int(count))
+        for key, generation, tf, start, end, symbols, count in rows
     ]
 
 
@@ -111,7 +117,14 @@ def supersede_and_delete(conn: Any, plans: Sequence[Plan]) -> list[str]:
     done = []
     for p in plans:
         with conn.transaction():
-            conn.execute(_FLIP_SQL, (p.unit.batch_key,))
+            flipped = conn.execute(
+                _FLIP_SQL, (p.unit.batch_key, p.unit.generation, p.unit.run_id)
+            ).rowcount
+            if flipped != 1:
+                raise RuntimeError(
+                    f"{p.unit.batch_key[:12]}: the provenance flip touched {flipped} rows, not 1 "
+                    "(the unit is no longer completed under this run); rolled back"
+                )
             deleted = conn.execute(_DELETE_SQL, p.unit.where).rowcount
             if deleted != p.unit.row_count:
                 raise RuntimeError(

@@ -18,7 +18,7 @@ RUN = "eca9e854-c51e-41b4-a9ec-9258f1286742"
 
 
 def _unit(key: str, count: int, *symbols: str) -> tool.Unit:
-    return tool.Unit(key, "1d", START, END, symbols or ("AAA", "BBB"), count)
+    return tool.Unit(key, 1, RUN, "1d", START, END, symbols or ("AAA", "BBB"), count)
 
 
 class FakeConn:
@@ -44,8 +44,10 @@ class FakeConn:
         if sql.lstrip().startswith("SELECT count"):
             return SimpleNamespace(fetchone=lambda: (self.stored[self._key_for(params)],))
         if sql.lstrip().startswith("UPDATE"):
-            self._pending.append(("flip", params[0]))
-            return SimpleNamespace(rowcount=1)
+            key, generation, run = params
+            hit = self.status.get(key) == "completed" and generation == 1 and run == RUN
+            self._pending.append(("flip", key))
+            return SimpleNamespace(rowcount=int(hit))
         if sql.lstrip().startswith("DELETE"):
             key = self._key_for(params)
             self._pending.append(("delete", key))
@@ -117,3 +119,16 @@ def test_main_refuses_a_run_id_that_is_not_a_uuid_and_a_live_run(monkeypatch, ca
     monkeypatch.setattr(tool, "_live_run_refusal", lambda: "a corpus run is live")
     assert tool.main([RUN]) == 1
     assert "refused: a corpus run is live" in capsys.readouterr().err
+
+
+def test_a_unit_no_longer_completed_under_the_run_is_rolled_back_before_any_delete():
+    conn, units = _world({"k1" * 8: 100, "k2" * 8: 200})
+    plans = tool.plan(conn, units)
+    conn.status["k2" * 8] = "superseded"  # flipped by someone else between the plan and the apply
+    with pytest.raises(RuntimeError, match="touched 0 rows"):
+        tool.supersede_and_delete(conn, plans)
+    assert conn.stored["k2" * 8] == 200 and conn.rolled_back == ["flip:k2k2k2"]
+
+
+def test_the_flip_is_scoped_to_the_named_run():
+    assert "run_id = %s::uuid" in tool._FLIP_SQL and "generation = %s" in tool._FLIP_SQL
