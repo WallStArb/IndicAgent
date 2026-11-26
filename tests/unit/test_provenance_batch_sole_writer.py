@@ -40,6 +40,11 @@ _ALLOW_LIST: dict[str, str] = {
         "PERMANENT: one-time operator discard of the 186-26 rows (owner 2026-11-04); the only "
         "write is the sanctioned completed -> superseded flip (migration 416), applied live"
     ),
+    "scripts/ops/ops_corpus_supersede_run_rows.py": (
+        "PERMANENT: the corpus-rerun Recovery tool; its only write is the sanctioned completed -> "
+        "superseded flip (migration 416), one transaction per unit with the unit's replace_where "
+        "delete and a row_count assertion, dry run by default (docs/operations/corpus-rerun-runbook.md)"
+    ),
 }
 
 _REMEDY = (

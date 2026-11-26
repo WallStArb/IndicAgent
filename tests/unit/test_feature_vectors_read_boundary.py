@@ -63,6 +63,11 @@ _ALLOW_LIST: dict[str, str] = {
     "scripts/ops/ops_feature_column_screen.py": (
         "MEASUREMENT: todo 564/584 dead-column and pilot gate screen over feature_vectors."
     ),
+    "scripts/ops/ops_corpus_supersede_run_rows.py": (
+        "WRITER: the corpus-rerun Recovery tool counts and deletes a superseded run's stored "
+        "feature_vectors units by the unit's replace_where (tf, symbols, range), after the "
+        "sanctioned provenance flip; dry run by default."
+    ),
     "services/ic_measure.py": (
         "MEASUREMENT: the IC measure job's feature table argument (sql.Identifier)."
     ),
