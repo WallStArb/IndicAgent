@@ -292,7 +292,7 @@ jobs:
           count=0
           for f in $(ls production/migrations/*.sql | sort); do
             n=$(basename "$f" | cut -d_ -f1 | sed 's/^0*//')
-            [ "$n" -ge 578 ] || continue
+            [ "$n" -ge 560 ] || continue
             count=$((count + 1))
             if ! psql_run "$f"; then
               failed=$((failed + 1))
@@ -311,7 +311,7 @@ jobs:
         continue-on-error: true
         run: |
           start=$(date +%s)
-          pytest -rs --tb=short \
+          pytest -rsf --tb=short \
             tests/unit/test_bar_source_policy_retirement.py \
             tests/unit/core/test_resource_lease.py \
             tests/unit/services/test_bar_derivation_stage_lock.py \
