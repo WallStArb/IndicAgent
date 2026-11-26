@@ -62,6 +62,7 @@ case "$1" in
 esac
 """,
     "journalctl": """#!/bin/sh
+[ -n "$STUB_NO_JOURNAL" ] && exit 0
 echo "${STUB_JOURNAL:-kernel: all quiet}"
 """,
     "cat": """#!/bin/sh
@@ -222,6 +223,11 @@ def test_host_gate_refuses_a_stack_overflow_beside_a_real_fault(lab: Lab) -> Non
     journal = f"kernel: {STACK_OVERFLOW}\nkernel: bash[1]: segfault at 10 ip 0000 sp 7fff0000 error 4 in bash"
     assert lab.run("host_gate", STUB_JOURNAL=journal).returncode == 3
     assert "memory-fault signatures" in lab.status_text()
+
+
+def test_host_gate_refuses_an_unreadable_kernel_log(lab: Lab) -> None:
+    assert lab.run("host_gate", STUB_NO_JOURNAL="1").returncode == 3
+    assert "kernel log unreadable" in lab.status_text()
 
 
 def test_host_gate_refuses_with_one_dimm_sensor(lab: Lab) -> None:
