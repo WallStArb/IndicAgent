@@ -280,8 +280,13 @@ jobs:
         run: |
           start=$(date +%s)
           psql_run() { psql -h localhost -U postgres -d indicagent -v ON_ERROR_STOP=1 -q -f "$1" > /tmp/sql.out 2>&1; }
+          # Roles the baseline and the migrations grant to (the cluster owns them in production, not the dump).
+          psql -h localhost -U postgres -d indicagent -q -c "CREATE ROLE bar_derivation_writer; CREATE ROLE ohlcv_observation_writer;"
           for f in tests/integration/fixtures/schema_baseline_2026-11-05.sql tests/integration/fixtures/schema_baseline_2026-11-05_hypertables.sql; do
             psql_run "$f" || echo "::warning title=baseline failed::$(basename "$f"): $(grep -m1 -E 'ERROR|FATAL' /tmp/sql.out | cut -c1-200)"
+          done
+          for f in tests/integration/fixtures/seed_instruments_2026-11-05.sql tests/integration/fixtures/seed_config_2026-11-05.sql; do
+            psql_run "$f" || echo "::warning title=seed failed::$(basename "$f"): $(grep -m1 -E 'ERROR|FATAL' /tmp/sql.out | cut -c1-200)"
           done
           failed=0
           count=0
@@ -315,4 +320,5 @@ jobs:
             tests/unit/services/test_ohlcv_raw_bulk_live.py \
             tests/unit/test_canonical_bar_lineage_massive_migration_contract.py \
             2>&1 | tee /tmp/dbtests.out | tail -40
+          grep -E '^(FAILED|ERROR)' /tmp/dbtests.out | head -10 | while read -r line; do echo "::warning title=live-DB test::${line:0:230}"; done
           echo "::notice title=live-DB tests::$(tail -1 /tmp/dbtests.out) in $(( $(date +%s) - start )) s"
