@@ -87,6 +87,8 @@ PYTHONPATH=. .venv/bin/python services/bar_derivation.py --stage daily --symbols
 .venv/bin/mypy src/ --ignore-missing-imports | .venv/bin/mypy-baseline filter  # Gated in CI (todo 311); blocks only NEW errors, .mypy-baseline.txt grandfathers the rest
 .venv/bin/mypy src/ --ignore-missing-imports 2>&1 | .venv/bin/mypy-baseline sync --sort-baseline  # Regenerate the baseline after cleaning up pre-existing errors
 cd dashboard && npm run dev            # Frontend dev server
+tools/lint_env_check.sh               # Before a push: the CI lint steps in CI's own env (py3.13, ruff/black/vulture/mypy/mypy-baseline only); the project .venv gives different mypy results
+.venv/bin/python tools/ci_status.py --wait  # After a push: CI checks of origin/main from the GitHub API (no gh on this host); exit 0 only when all pass
 ```
 
 ## Environment Variables
