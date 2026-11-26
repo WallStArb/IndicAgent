@@ -6,7 +6,7 @@ Status: ADOPTED 2026-11-23 as ledger 2026-11-23b (lead ruling, owner veto reserv
 
 - `.planning/STATE.md` (Evidence line, Lane A item 3, Owner only): "The `reversal_21` pooled replication is pre-declared (run after the pin; owner veto reserved)."
 - Ledger 2026-11-22 (the E21 lift), "What it permits": the two daily residual runs, "then the `reversal_21` pooled replication". Ledger 2026-11-23a: "the pre-declared pooled replication, a positive net expectation and the single confirmation on the book's own unsearched forward span all still stand".
-- `docs/plans/2026-11-22-next-counted-family-after-daily-residual.md`, "Not ranked here": "pre-declared inside the daily residual sequence, not a new family".
+- `docs/plans/archive/2026-11-22-next-counted-family-after-daily-residual.md`, "Not ranked here": "pre-declared inside the daily residual sequence, not a new family".
 - The daily residual preregistration (`docs/plans/2026-10-27-daily-residual-momentum-reversal-prereg.md`) has no replication section. Its amendments A1 to A4 do not mention one.
 
 "Pooled replication" does have a defined meaning elsewhere: the E17 null battery run in two independent blocks of synthetic simulations whose rejection counts are summed (ledger 2026-11-20, 2026-11-21c; seed bases 7,000,000 and 8,000,000 for the reduced family, already passed and bound in `research/battery_passes/daily_residual_2026-11-21.json`). That is a test of the statistic, not of `reversal_21`.

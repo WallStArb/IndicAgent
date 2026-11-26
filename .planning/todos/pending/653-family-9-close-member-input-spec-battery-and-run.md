@@ -2,7 +2,7 @@
 status: pending
 priority: P2
 filed: 2026-11-22
-source: lead ruling 2026-11-22 (indicagent-bd), after the ranking in docs/plans/2026-11-22-next-counted-family-after-daily-residual.md
+source: lead ruling 2026-11-22 (indicagent-bd), after the ranking in docs/plans/archive/2026-11-22-next-counted-family-after-daily-residual.md
 blocked_on: the battery pass (scope 3, a heavy run the lead launches under seed base 9,000,000, ledger 2026-11-23d) and the lead's run registration (scope 4)
 ---
 

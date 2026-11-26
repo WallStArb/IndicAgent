@@ -2,7 +2,7 @@
 status: in_progress
 priority: P2
 filed: 2026-11-22
-source: lead brief 2026-11-22 (indicagent-21), ranking in docs/plans/2026-11-22-next-counted-family-after-daily-residual.md section 3
+source: lead brief 2026-11-22 (indicagent-21), ranking in docs/plans/archive/2026-11-22-next-counted-family-after-daily-residual.md section 3
 ---
 
 # Family 10 (volume shock): kernels on main, spec, members, battery and run

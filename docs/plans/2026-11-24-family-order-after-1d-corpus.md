@@ -1,6 +1,21 @@
-# Family order once the 1d feature corpus exists
+# Family order: outcomes of the vintage-1 families and the order once the 1d feature corpus exists
 
 Status: design note for the lead (indicagent-ee), 2026-11-24, drafted by an Opus research pass and spot-checked (cited paths and code symbols verified to exist; ledger and todo claims are the drafter's). Not a preregistration; no look is charged and no number is computed. Facts were read from the repo at origin/main on 2026-11-24, plus light read-only SELECTs.
+
+Merged 2026-11-25 with the 2026-11-22 recommendation of the next price-derived family (archived: `docs/plans/archive/2026-11-22-next-counted-family-after-daily-residual.md`). The look accounting below was written before family 10 ran; it is as of 2026-11-24 and the current figure is in the outcomes section.
+
+## Outcomes of the vintage-1 families (price-derived, h = 5, primary and core panels)
+
+Order taken, as ruled 2026-11-22: daily residual, H-C seasonality, family 9, family 10. Ledger entries hold the numbers; the StepM selection read on 16 series is ledger 2026-11-25b (24 charged rows, 16 series, `budget_m` 30).
+
+| Family | Looks | Result (as run, before StepM) | StepM on 16 series | Ledger |
+|---|---|---|---|---|
+| Daily residual (M1, M2, `reversal_21`) | 6 series | `reversal_21` t 3.09 (p 0.00102) primary, 3.50 (p 0.000233) core; the momentum members not small | `reversal_21` selected on both panels, adjusted p 0.0150 and 0.0050; momentum not selected | 2026-11-22c, 2026-11-25b |
+| H-C seasonality | 4 series | `seasonal_same_month_5` t -0.36 and -0.99; `seasonal_other_months_5` (sign -1) t -2.56 and -1.94, opposite its pinned sign | not selected | 2026-11-22f |
+| Family 9, 52-week high | 2 series | negative t on both panels (core -1.415, p 0.921); a null | not selected | 2026-11-23i |
+| Family 10, volume shock | 4 series | `volume_shock_1_50` primary t 3.00 (p 0.00137); core 0.81 (p 0.209); `volume_shock_5_50` 0.74 and -0.07 | `volume_shock_1_50` selected on primary only (adjusted p 0.0325); the other three not selected | 2026-11-25b |
+
+Read: one family carries a selected member on both panels (`reversal_21`, with an R-1 decay disclosure, ledger 2026-11-23c), one a primary-only hit (`volume_shock_1_50`, R-1 ledger 2026-11-25g: primary last sub-period about zero, core last negative), and two are null. Both selected members read S1 vintage_1 and sit under the todo 547 hold; nothing is promoted. Industry momentum (3 looks, no prereg) and H-A information discreteness (dropped by amendment A4, parked) were not run.
 
 ## Look accounting, verified
 
@@ -39,7 +54,7 @@ Out of the table: the todo 281 statistics (no stored column) and AL's s-score (r
 
 ## Recommended order and stopping rule
 
-1. Re-read StepM on 16 series after family 10. Then put the `reversal_21` book decision (todo 547, owner) before any corpus series. The corpus families should not dilute the one detection while the book is still unfrozen. Adding attempts after the freeze is allowed, and E18's forward confirmation covers the adaptive gap.
+1. Done 2026-11-25 (ledger 2026-11-25b): StepM re-read on 16 series after family 10. Then put the `reversal_21` book decision (todo 547, owner) before any corpus series. The corpus families should not dilute the one detection while the book is still unfrozen. Adding attempts after the freeze is allowed, and E18's forward confirmation covers the adaptive gap.
 2. Do the shared build and its battery block. Its cost falls on every corpus family, so build it once.
 3. H-B, 6 series, already registered: the cheapest corpus test.
 4. `corpus_family`, 2 series. It answers "do features add" for the fewest series.
