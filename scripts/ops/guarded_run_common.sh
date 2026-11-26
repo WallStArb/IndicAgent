@@ -88,8 +88,7 @@ kernel_fault_gate() {
   [ -n "$klog" ] || fail "kernel log unreadable (journalctl -k -b returned nothing)"
   grep -q -E 'Bad page|Bad swap|general protection' <<< "$klog" && fail "kernel log shows memory-fault signatures this boot"
   while IFS= read -r line; do
-    addr=$(sed -n 's/.*segfault at \([0-9a-f]\{1,16\}\) ip [0-9a-f]\+ sp \([0-9a-f]\{1,16\}\) error .*/\1/p' <<< "$line")
-    sp=$(sed -n 's/.*segfault at \([0-9a-f]\{1,16\}\) ip [0-9a-f]\+ sp \([0-9a-f]\{1,16\}\) error .*/\2/p' <<< "$line")
+    read -r addr sp < <(sed -n 's/.*segfault at \([0-9a-f]\{1,16\}\) ip [0-9a-f]\+ sp \([0-9a-f]\{1,16\}\) error .*/\1 \2/p' <<< "$line")
     if [ -n "$addr" ] && [ -n "$sp" ] && [ $((16#$addr)) -eq $((16#$sp)) ]; then
       log "ignored stack-overflow segfault: $line"
     else
