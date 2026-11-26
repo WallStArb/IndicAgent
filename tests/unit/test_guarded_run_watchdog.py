@@ -54,7 +54,13 @@ def _set_temp_later(tmp_path: Path, delay_s: float, millidegrees: str) -> str:
 
 
 def _alive(needle: str) -> bool:
-    return subprocess.run(["pgrep", "-f", needle], capture_output=True, check=False).returncode == 0
+    """A process whose command line contains `needle` is running. The last character is bracketed so the
+    pattern cannot match a shell whose own command line merely quotes it (a tool echoing the test source).
+    """
+    pattern = needle[:-1] + "[" + needle[-1] + "]"
+    return (
+        subprocess.run(["pgrep", "-f", pattern], capture_output=True, check=False).returncode == 0
+    )
 
 
 def test_common_file_parses() -> None:
