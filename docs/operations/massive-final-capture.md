@@ -31,6 +31,10 @@ Not captured, with the reason:
 - Options daily aggregates: one request per contract per range, so the requests number in the
   millions (about 320,000 contracts for a single expiry day) and the aggregate endpoints answer
   only about 5 requests per minute (see below). Cannot finish before the lapse.
+- fx and crypto daily aggregates, stopped partway (owner ruling 2026-11-26: no use for them, the
+  plan serves only two years, crypto is out of scope): 30 fx pairs and the two ticker lists are
+  captured and stay (raw is permanent); the remaining pairs are not fetched and the family is not
+  resumed. The summary's `fx_aggs` and `crypto` counts are therefore partial by design.
 - Full trades and quotes tapes (4.1 TB and 15.2 TB): no bulk capture; only the calibration slice below.
 - Benzinga, options snapshot chain, indices, all non-stock flat-file prefixes: 403.
 
