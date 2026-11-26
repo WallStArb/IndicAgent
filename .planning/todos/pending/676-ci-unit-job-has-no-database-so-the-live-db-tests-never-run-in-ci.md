@@ -24,3 +24,13 @@ About 600 migrations replayed on an empty database: the time is not measured (es
 The replay succeeds in CI, the `requires_db` tests run there with zero skips for "PostgreSQL not reachable" (the annotation shows it), and the job time is recorded here.
 
 Related: [679](679-ci-skips-eleven-tests-that-read-untracked-data.md) (the other CI skips, untracked data).
+
+## Probe state 2026-11-26 (indicagent-26)
+
+The `db-tests` job (`.github/workflows/ci.yml`, non-gating) builds `production/Dockerfile.timescaledb`, loads `tests/integration/fixtures/schema_baseline_2026-11-05.sql` and its hypertables file, creates the two grant roles, loads the instrument and config seeds and replays migrations 560 and up: 91 live-DB tests pass, about 70 s for the job. Replaying all 605 migrations on an empty database does not work (159 files fail, 24 s: the v2.x history assumes tables that no longer exist), so the baseline is the base.
+
+Two replayed migrations fail, and the gate will tolerate exactly these two:
+- `575_feature_ic_scores_one_name.sql`: the baseline already holds the renamed table `feature_ic_scores` (migration 575's result), so `ALTER TABLE feature_ic_scores_v2 RENAME` fails on `feature_ic_scores_v2 does not exist`. The replay starts at 560 only because the baseline lacks the `split_factor_product` function that 568 creates and 588 uses; the baseline and the migration numbers overlap, so the overlap re-runs 575 on a database that already has its result.
+- `605_universe_membership_reset_for_rebuild.sql`: a production-data guard (it refuses unless `universe_membership` holds 858,454 rows over 278 month-ends), expected to fail on an empty database.
+
+Exit condition: dump a new dated schema baseline at the current migration head (`pg_dump --schema-only`, with the hypertables file), replay only migrations numbered after it, and the 575 entry disappears; 605 stays tolerated until its guard is skipped by a documented marker. At that point the tolerated list is 605 alone, or empty.
