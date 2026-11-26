@@ -197,7 +197,9 @@ jobs:
       # prints one notice with the skip count by reason, so tests that stop running show up.
       - name: Annotate failed tests
         if: always()
-        run: python tools/annotate_junit_failures.py test-results.xml
+        run: |
+          python tools/annotate_junit_failures.py test-results.xml
+          echo "::notice title=frozen artifacts::frozen artifacts not checked in CI (the frozen-verdict tests need logs/ that CI does not have; repro_frozen on the host is the gate, todo 679)"
 
       - name: Publish test results
         uses: dorny/test-reporter@v1

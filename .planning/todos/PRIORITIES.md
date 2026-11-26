@@ -189,6 +189,7 @@ Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22
 | [644](pending/644-closed-list-disclosure-at-book-freeze-and-confirmation.md) | Required at the first book freeze: member counts per month-end after the stage 2 list, plus excluded newcomers once 643 lands. Put the code in the report, not in `universe_membership.py` (inside the rebuild closure). Owner-adopted. |
 | [672](pending/672-ohlcv-revision-load-fk-cascade-to-restrict.md) | New 2026-11-24, P3. `ohlcv_revision.load_id` still cascades on delete of a load row; switch to RESTRICT in a quiet window. Extracted from the closed todo 535. |
 | [676](pending/676-ci-unit-job-has-no-database-so-the-live-db-tests-never-run-in-ci.md) | New 2026-11-26, P2. CI has no Postgres, so about 55 `requires_db` unit tests (append-only trigger, advisory locks, bulk load, stage lock) run only on the host. Design: a timescaledb service container plus a migration replay; cost unmeasured; first step is a local scratch replay to list the migrations that fail on an empty database. |
+| [679](pending/679-ci-skips-eleven-tests-that-read-untracked-data.md) | New 2026-11-26, P2. Eleven CI skips on untracked data: nine Massive reader tests (commit tiny fixtures) and three frozen-artifact tests (stay on `repro_frozen` on the host; CI prints "frozen artifacts not checked in CI"). Related to 676. |
 
 ## P3: Hygiene, docs, process, performance (opportunistic)
 

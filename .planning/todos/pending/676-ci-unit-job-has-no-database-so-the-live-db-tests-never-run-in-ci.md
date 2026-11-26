@@ -22,3 +22,5 @@ About 600 migrations replayed on an empty database: the time is not measured (es
 ## Done when
 
 The replay succeeds in CI, the `requires_db` tests run there with zero skips for "PostgreSQL not reachable" (the annotation shows it), and the job time is recorded here.
+
+Related: [679](679-ci-skips-eleven-tests-that-read-untracked-data.md) (the other CI skips, untracked data).
