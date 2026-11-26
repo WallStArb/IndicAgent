@@ -46,9 +46,9 @@ cd "$REPO" || fail "cd repo"
 WT="$(dirname "$REPO")/$(basename "$REPO")-corpus-run-$RUN"
 [ -d "$WT" ] || fail "no worktree $WT for run $RUN"
 
-# One live heavy job at a time: host_gate's list does not name the corpus runner, the rebuild or the sweep recorder.
+# One live heavy job at a time, also under PREFLIGHT_ONLY, which skips host_gate (whose list now holds these too).
 pgrep -f 'python.*(services\.corpus_rerun|services\.ic_measure|ic_sweep_recorder|backfill_feature_factory)' >/dev/null && fail "a corpus run, ic_measure or rebuild process is live"
-window_gate
+window_gate 5
 
 scope=$("${PSQL[@]}" "select measured->>'data_gate_scope' from corpus_run where run_id='$RUN'") || fail "corpus_run query"
 recorded=$("${PSQL[@]}" "select code_commit from corpus_run where run_id='$RUN'")
@@ -63,7 +63,7 @@ log "ic_measure preflight ok: run $RUN scope $scope width $width code key ${key:
 [ -z "${PREFLIGHT_ONLY:-}" ] || exit 0
 
 grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
-host_gate
+host_gate 5
 verdict_preflight
 
 if [ -n "${RSS_CHECK:-}" ]; then

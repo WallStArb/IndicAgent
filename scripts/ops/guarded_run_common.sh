@@ -14,7 +14,7 @@ POLL_S=${POLL_S:-20}                              # watchdog poll interval (seco
 MAX_SENSOR_MISSES=3           # consecutive polls without two readable DIMM sensors before the run is killed
 KILL_GRACE_S=30               # seconds between TERM and KILL when the group will not exit
 MEM_FLOOR_KB=$((40 * 1024 * 1024))   # 40 GiB of MemAvailable, compared in kB (exact GiB in the message)
-WINDOW_START_H=1; WINDOW_END_H=5     # UTC hours [start, end): the 04:40Z Alpaca nightly and its lead-in
+WINDOW_START_H=1                     # the refused window opens at 01:00Z; its end is the caller's (window_gate, host_gate)
 HEAVY_JOB_RE='python.*(run_spec|e17_null_battery|ic_measure|ops_corpus|ops_bar_nightly|ops_member_verdicts_1d|repro_frozen|services\.corpus_rerun|backfill_feature_factory|ic_sweep_recorder)'
 
 log()  { echo "$(date -u +%FT%TZ) $*" >> "$STATUS"; }
@@ -42,10 +42,12 @@ mem_gate() {     # MemAvailable in kB against the floor in kB; the message gives
   [ "${kb:-0}" -ge "$MEM_FLOOR_KB" ] || fail "only $(awk -v k="${kb:-0}" 'BEGIN{printf "%.2f", k/1048576}') GiB available, need $((MEM_FLOOR_KB / 1048576)) GiB"
 }
 
-# window_gate: refuse a start inside the nightly window (UTC hours [WINDOW_START_H, WINDOW_END_H)); NOW_H injects the hour.
+# window_gate <end_h>: refuse a start inside the nightly window, UTC hours [WINDOW_START_H, end_h); NOW_H injects the hour.
+# A launcher that quiesces the blocking timers (pilot, ic_measure) passes 5, the 04:40Z nightly's lead-in, so it can start
+# after it; one that does not (counted runs, batteries) passes 7, because the timer cluster runs to about 06:30Z.
 window_gate() {
-  local h=${NOW_H:-$(date -u +%H)}; h=$((10#$h))
-  { [ "$h" -lt "$WINDOW_START_H" ] || [ "$h" -ge "$WINDOW_END_H" ]; } || fail "inside the 04:40Z nightly window (${WINDOW_START_H}:00 to ${WINDOW_END_H}:00Z)"
+  local end_h=${1:?window end hour (UTC)} h=${NOW_H:-$(date -u +%H)}; h=$((10#$h))
+  { [ "$h" -lt "$WINDOW_START_H" ] || [ "$h" -ge "$end_h" ]; } || fail "inside the nightly window (${WINDOW_START_H}:00 to ${end_h}:00Z)"
 }
 
 blocking_timer_units() {   # the timers a corpus run quiesces (APR infra.corpus_rerun.blocking_timers), one per line
@@ -69,11 +71,12 @@ timers_gate() {
 
 heavy_job_live() { pgrep -f "$HEAVY_JOB_RE" >/dev/null; }
 
-host_gate() {    # refuse to start on a host that is not demonstrably healthy
+host_gate() {    # host_gate <window_end_h>: refuse to start on a host that is not demonstrably healthy
+  local window_end_h=${1:?window end hour (UTC), see window_gate}
   [ -f "$SCRATCH/memtester_clean" ] || fail "no memtester_clean file (operator records a clean pass)"
   pgrep -x memtester >/dev/null && fail "memtester still running"
   heavy_job_live && fail "another heavy job is live"
-  window_gate
+  window_gate "$window_end_h"
   timers_gate
   [ "$(cat /proc/sys/kernel/tainted)" = "0" ] || fail "kernel tainted: $(cat /proc/sys/kernel/tainted)"
   journalctl -k -b --no-pager 2>/dev/null | grep -q -E 'segfault|Bad page|Bad swap|general protection' && fail "kernel log shows memory-fault signatures this boot"

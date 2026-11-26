@@ -22,7 +22,7 @@ SPECS=("$@"); [ ${#SPECS[@]} -gt 0 ] || SPECS=(family10_volume_shock_h5 family10
 LAUNCH=${LAUNCH_COMMIT:-$BOUND}
 if [ -z "${PREFLIGHT_ONLY:-}" ]; then
   grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
-  host_gate
+  host_gate 7   # does not quiesce the timers: the window runs to the end of the 06:30Z cluster
 fi
 cd "$REPO" && git fetch -q origin || fail "fetch"
 git cat-file -e "$LAUNCH^{commit}" && git merge-base --is-ancestor "$LAUNCH" origin/main || fail "$LAUNCH is not a commit on origin/main (code_commit and spec_blob must resolve for the StepM read)"

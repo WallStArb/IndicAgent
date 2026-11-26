@@ -10,7 +10,7 @@ COMMIT=48a65742d44e5357b181a042d495c4d38a6d946f
 WT=$SCRATCH/wt-f10block2
 OUT=$SCRATCH/block2_rerun.json
 RECORDED=$REPO/logs/e17_family10_s12m/block2.json
-host_gate
+host_gate 7   # does not quiesce the timers: the window runs to the end of the 06:30Z cluster
 cd "$REPO" && git worktree prune && rm -rf "$WT"
 git worktree add --detach "$WT" "$COMMIT" >/dev/null || fail "worktree"
 cd "$WT" || fail "cd"; ln -s "$REPO/.venv" .venv

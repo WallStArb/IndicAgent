@@ -180,16 +180,38 @@ def test_an_unreadable_pgid_aborts_and_returns_1(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("hour", "refused"), [("00", False), ("01", True), ("04", True), ("05", False), ("08", False)]
+    ("end_h", "hour", "refused"),
+    [
+        (5, "00", False),
+        (5, "01", True),
+        (5, "04", True),
+        (5, "05", False),
+        (5, "08", False),
+        (7, "00", False),
+        (7, "01", True),
+        (7, "05", True),
+        (7, "06", True),
+        (7, "07", False),
+        (7, "08", False),
+    ],
 )
-def test_window_gate_refuses_one_to_five_utc(tmp_path: Path, hour: str, refused: bool) -> None:
-    result = _bash(tmp_path, f"NOW_H={hour}; window_gate; echo PASS")
+def test_window_gate_refuses_from_one_utc_to_the_launchers_end(
+    tmp_path: Path, end_h: int, hour: str, refused: bool
+) -> None:
+    result = _bash(tmp_path, f"NOW_H={hour}; window_gate {end_h}; echo PASS")
     if refused:
         assert result.returncode == 3
-        assert "nightly window" in _status(tmp_path)
+        assert f"nightly window (1:00 to {end_h}:00Z)" in _status(tmp_path)
     else:
         assert result.returncode == 0
         assert "PASS" in result.stdout
+
+
+def test_window_gate_and_host_gate_require_the_window_end(tmp_path: Path) -> None:
+    for call in ("window_gate", "host_gate"):
+        result = _bash(tmp_path, f"NOW_H=08; {call}; echo PASS")
+        assert result.returncode != 0
+        assert "PASS" not in result.stdout
 
 
 def _timers_gate(
