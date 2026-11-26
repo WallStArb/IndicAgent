@@ -70,11 +70,15 @@ run_guarded() {
 
 # verdict_preflight: refuse when member 1d verdicts are older than the d2_landed freshness window
 # (APR threshold.bar_integrity.report_max_age_hours, read by verdict_gate.load_report_max_age_hours).
-# Read-only. The producer of dead members' verdicts is ops_member_verdicts_1d.py (no timer; the
+# Read-only; refuses first while the last completed session's bars are not captured (ops_capture_delivered.py).
+# The producer of dead members' verdicts is ops_member_verdicts_1d.py (no timer; the
 # 06:00Z bar-reconciliation audit judges active names only), so a pause of more than the window
 # between its last run and a pin gate refuses the run (pilot 7c5612f0, 2026-11-24: 11,350 of 12,857).
 verdict_preflight() {
-  local out limit stale total
+  local out limit stale total delivered
+  # A verdict taken before the nightly capture delivers the last completed session judges it
+  # missing for every name (todo 675; pilot run 0e020c5a), so check that first.
+  delivered=$($PY "$REPO/scripts/ops/ops_capture_delivered.py") || fail "${delivered:-ops_capture_delivered.py failed, see its stderr}"
   out=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAF' ' -c "
     WITH m AS (SELECT DISTINCT symbol || '|1d' AS subject FROM universe_membership),
          v AS (SELECT subject, max(evaluated_at) AS at FROM integrity_monitor
