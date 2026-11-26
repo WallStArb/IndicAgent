@@ -47,37 +47,48 @@ FIXTURES = {"dense": 0.0, "sparse": SPARSE_ZERO_RETURN_SHARE}
 # The regime columns run the HMM walk-forward under their own gates (todo 583, E20).
 _REGIME = frozenset({"regime", "regime_volatility"})
 
-# Columns with no finite value on a 1d series of plain bars; listed so a column that stops
-# producing values cannot leave the check unnoticed (the equality test below). Intraday calendar
-# and session columns, the daily-record families (their reach is pinned in
-# test_feature_memory_reach.py), and three columns that are all NaN on the 1d synthetic series.
-UNMEASURED_ON_THE_1D_FIXTURE = frozenset(
-    {
-        "dividend_yield",
-        "downside_deviation",
-        "hma_slope_z",
-        "hour_of_day_cos",
-        "hour_of_day_sin",
-        "idiosyncratic_volatility",
-        "in_ny_session",
-        "in_overlap",
-        "market_residual_lag1_acf",
-        "market_residual_return",
-        "market_residual_z",
-        "max_daily_return",
-        "max_drawdown",
-        "minute_of_hour_cos",
-        "minute_of_hour_sin",
-        "opening_range",
-        "poc_rolling_dist_atr",
-        "poc_session_rolling_divergence_atr",
-        "power_hour",
-        "residual_beta_stability",
-        "ret_div_1h_1d",
-        "ret_div_5m_1h",
-        "session_time_pos",
-    }
+_INTRADAY_ONLY = "intraday-only: the registry declares it not applicable on 1d"
+_DAILY_RECORD = (
+    "daily-record family: external builder, reach pinned in test_feature_memory_reach.py"
 )
+_LONG_WARMUP = (
+    "warmup of 7,560 rows (252 refreshes of 30 bars), longer than the fixture (584 item 6)"
+)
+
+# Columns with no finite value on the 1d fixture, each with its reason. Listed so a column that
+# stops producing values cannot leave the check unnoticed (the equality test below).
+UNMEASURED_ON_THE_1D_FIXTURE = {
+    "hour_of_day_cos": _INTRADAY_ONLY,
+    "hour_of_day_sin": _INTRADAY_ONLY,
+    "minute_of_hour_cos": _INTRADAY_ONLY,
+    "minute_of_hour_sin": _INTRADAY_ONLY,
+    "in_ny_session": _INTRADAY_ONLY,
+    "in_overlap": _INTRADAY_ONLY,
+    "power_hour": _INTRADAY_ONLY,
+    "session_time_pos": _INTRADAY_ONLY,
+    "opening_range": _INTRADAY_ONLY,
+    "poc_rolling_dist_atr": _INTRADAY_ONLY,
+    "poc_session_rolling_divergence_atr": _INTRADAY_ONLY,
+    "ret_div_1h_1d": _INTRADAY_ONLY,
+    "ret_div_5m_1h": _INTRADAY_ONLY,
+    "dividend_yield": _DAILY_RECORD,
+    "downside_deviation": _DAILY_RECORD,
+    "idiosyncratic_volatility": _DAILY_RECORD,
+    "market_residual_lag1_acf": _DAILY_RECORD,
+    "market_residual_return": _DAILY_RECORD,
+    "market_residual_z": _DAILY_RECORD,
+    "max_daily_return": _DAILY_RECORD,
+    "max_drawdown": _DAILY_RECORD,
+    "residual_beta_stability": _DAILY_RECORD,
+    "hma_slope_z": _LONG_WARMUP,
+}
+
+
+def exempt_by_declaration(object_dependent: set[str], outputs: set[str]) -> set[str]:
+    """The columns whose NaN is a declared state: object-dependent AND carrying a none mask.
+    Without its mask a column cannot tell 'no object here' from 'not yet warmed up', so it is
+    judged like any other column."""
+    return {c for c in object_dependent if none_mask_name(c) in outputs}
 
 
 def _is_regime_column(column: str) -> bool:
@@ -158,13 +169,17 @@ def _declared_first_row(column: str) -> int:
     return max(declared, config.momentum_zscore_window)
 
 
-def _checked_columns() -> list[str]:
+def _exempt() -> set[str]:
     registry = default_registry()
-    objects = set(registry.object_dependent_outputs())
+    outputs = {o for kernel in registry.kernels for o in kernel.outputs}
+    return exempt_by_declaration(set(registry.object_dependent_outputs()), outputs)
+
+
+def _checked_columns() -> list[str]:
     return sorted(
         c
         for c in feature_vectors_numeric_columns()
-        if not _is_regime_column(c) and c not in objects and c not in UNMEASURED_ON_THE_1D_FIXTURE
+        if not _is_regime_column(c) and c not in _exempt() and c not in UNMEASURED_ON_THE_1D_FIXTURE
     )
 
 
@@ -192,7 +207,24 @@ def test_a_column_reaches_its_first_value_within_its_declared_memory(
 def test_every_column_that_never_has_a_value_here_is_listed() -> None:
     """A column that produces nothing on the dense 1d fixture is exempt only by name or by the
     object-dependent declaration; any other silent column fails here."""
+    silent = {c for c, row in _first_finite_rows("dense").items() if row is None} - _exempt()
+    assert silent == set(UNMEASURED_ON_THE_1D_FIXTURE)
+
+
+def test_every_object_dependent_column_carries_a_none_mask() -> None:
+    """The exemption rests on the mask: an object-dependent column without one is not exempt."""
+    objects = set(default_registry().object_dependent_outputs())
+    assert _exempt() == objects, sorted(objects - _exempt())
+
+
+def test_a_column_without_its_none_mask_is_not_exempt() -> None:
+    """Negative case: removing an exempt column's mask from the outputs puts it back under the
+    check, where its late first value on the sparse fixture fails it."""
     registry = default_registry()
     objects = set(registry.object_dependent_outputs())
-    silent = {c for c, row in _first_finite_rows("dense").items() if row is None} - objects
-    assert silent == UNMEASURED_ON_THE_1D_FIXTURE
+    outputs = {o for kernel in registry.kernels for o in kernel.outputs}
+    column = "roll_spread"
+    assert column in exempt_by_declaration(objects, outputs)
+    assert column not in exempt_by_declaration(objects, outputs - {none_mask_name(column)})
+    measured = _first_finite_rows("sparse")[column]
+    assert measured is not None and measured > _declared_first_row(column) + WARMUP_GAP_BARS
