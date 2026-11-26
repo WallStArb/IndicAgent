@@ -108,3 +108,7 @@ The item is therefore: fix the statistic, then certify one route (feature, 1d so
 ### Open risk
 
 If the fixed statistic still fails the 1d source cells at horizon 5, the route stays refused and H-B waits; the failure is recorded (ledger entry) and the next step is the owner's call on whether persistent members are in scope at all. Do not weaken the cell bound.
+
+## Status 2026-11-25 (lead, after a worker read)
+
+The 674 R2 sequencing blocker is cleared: R1, R2, 652 and 670/671 landed together at 639c244b1 (rebuild pin 0f593f92f8b4). Two blockers remain before any build. (1) The owner ruling on todo 586: the persistence statistic exists on the held branch `wip/586-persistence-statistic` (design note `docs/plans/2026-11-17-persistence-robust-e17-statistic-design.md`), and 669's statistic work starts from it, not from scratch. (2) The 1d source, 1d book, unsmoothed route fails the full battery under that statistic on `f1d_tau200` (20 against a bound of 18 at 0.01); the design note says the only fair second look is a rerun on other seeds. Next step after the corpus pilot, in the heavy slot: that rerun with seed bases declared in the ledger beforehand. If it holds, build 669 on the 586 branch; if it fails again, the route stays refused and whether persistent members are in scope is the owner's call.
