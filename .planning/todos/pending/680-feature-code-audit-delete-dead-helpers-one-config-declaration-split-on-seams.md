@@ -49,6 +49,33 @@ Splits (seams named by the modules' own sections; a split moves each kernel's `m
 - `_hmm.py` (1,380): delete item 2 and move `HmmConfig` (`:118-223`) out; the 196-line `_walk_forward_hmm_full` waits for todo 108.
 - `contract/registry.py` (858): the volume guard (`:657-770`) and the anchor helpers (`:74-113`) to their own contract modules.
 
+## Triage by class
+
+Import set: `src/core/code_identity.py:import_closure` run (AST only) on the entries the pins hash: `rebuild_code_key()` (`services/backfill_feature_factory.py:1492-1495`) is the per-kernel closure of every non-underscore module in `kernels/` (`:500-503`, `contract/registry.py:585-603`) plus the writer closure of `services.backfill_feature_factory` less `WRITER_UNHASHED_IMPORTS` (`:515-547`, 61 modules), and the ic_measure job keys (`services/ic_measure.py:1140-1187`, 76 modules); together they hold every `kernels/` module, `contract/registry.py`, `feature_factory_config.py`, `feature_vector.py`, `feature_vector_persistence.py`, `research/feature_inputs.py`, `research/clock.py`, `src/core/bar_normalizer.py`, `src/core/bar_accumulator.py` and `bars/sources.py`, but not `bars/gap_plan.py`, `scripts/` or `tests/`.
+Triaged 2026-11-26 at 268f17ee0 (lines re-verified on this checkout; the live run eca9e854 executes from its own worktree, so the hold is about its pin and resume, not its files). Classes: (a) changes feature output, next re-pin with parity goldens or a ledger entry; (b) no output change in a hashed module, hold until no fingerprinted run is live or resumable; (c) safe now.
+
+| # | file:line | finding | class | size | reason |
+|---|---|---|---|---|---|
+| 1 | `.planning/todos/pending/472-*` | item 9: drop 472's request to seed the `cross_tf.py` `1e-10` guards as APR keys | c | small (planning text) | planning edit only; `1e-10` is a mathematical guard, APR exempt |
+| 2 | `scripts/debug/analysis/debug_bic_k_selection.py` | item 2, first half: retire the last non-test caller of `_build_obs_matrix*` | c | small (one file) | `scripts/` is in no closure and nothing imports the script; must land before row 7 |
+| 3 | `kernels/macro.py:190,426`, `_hmm.py:1` | item 11: ring, timestamp and glossary checks are clean | c | none | record only, no edit |
+| 4 | `concept_registry` vs `feature_vectors` | item 14: every stored column has a concept row | c | none | record only, no edit |
+| 5 | `tests/unit/intelligence/test_feature_kernels.py:54-70,184-191,227` | item 15: one probe per kernel; path-dependent kernels rest on `test_declared_warmup.py` | c | none | record only; the 21 pass-through columns are 674's |
+| 6 | `kernels/price.py:250-271`; `tests/unit/intelligence/test_feature_factory_p7.py:26,173-193` | item 1: delete `_rsi` and `_rsi_wilder` (only test callers; stored RSI is `_primitives.py:58-73`) | b | small (~45) | dead code, but `price.py` is a kernel module, so the deletion moves its code key |
+| 7 | `kernels/_hmm.py:38-47,327-368,398-438,472,505`; 5 test files | item 2, second half: delete `_build_obs_matrix*` and both `_DEFAULT_*` constants (ridge becomes a required argument; `:988-1002` already passes it) | b | medium (~100 src, 5 test files) | no output change; `_hmm` is in the writer and ic_measure closures |
+| 8 | `kernels/price.py:1700-1705` | item 4: unreachable `else np.ones(len(c))` in `vol_ratio` (`_primitives.py:76-84` makes the branch always true) | b | small (3) | dead branch in a hashed module |
+| 9 | `kernels/calendar.py:165,300,345`; `feature_vector.py:208`; `feature_vector_persistence.py:73-83`; parity manifest | item 3: delete `days_to_month_end` compute, field and dropped-set entry | b | small (~20 plus tests and manifest) | the column is never stored, so no stored value moves; all three files are hashed; `scripts/ops/alpha/ops_broadcast_feature_audit.py:131` lists the name and needs its owner's edit |
+| 10 | `kernels/*.py` (69 `1e-10` literals; `price.py` 13 log-return copies) | item 9: one `EPS`, one `_log_returns` helper | b | medium (~85 sites, 9 files) | same float, bit-identical output, but the AST changes in every kernel module |
+| 11 | `feature_factory_config.py:16,21-192,223-234,536-792`; `_hmm.py:118-223` | items 6 and 7: one declaration per field, `HmmConfig` to its own config module | b | large (~600) | no value moves if defaults and keys are carried verbatim; both modules are hashed |
+| 12 | `kernels/price.py:1781-1783`; `_cache_state.py:816,847,869` | item 12, second half: write the bar statistic minimums once | b | small (~10) | same constants, one home; both files hashed |
+| 13 | `kernels/_cache_state.py:839` | item 12, first half: APR key for `n_bins=10` | b | small (migration plus ~5) | seeded at 10, so no value moves, but the new `config_state` row moves the APR snapshot pin as well as the code key |
+| 14 | `research/feature_inputs.py:320-381` | item 10: one `FeatureFactoryConfig` constructor | b | medium (~60) | in the ic_measure closure and the research lane; needs `repro_frozen` bit-identical, after 669 |
+| 15 | `feature_vector.py` (749); `contract/registry.py:616-630`; `feature_vector_persistence.py` | item 5: retire `FeatureVector` and `KERNEL_ONLY_COLUMNS` | b | large (~800) | schema-order source only; blocked on 665 moving ic_measure first |
+| 16 | `price.py`, `vp_sr.py`, `smc.py:115,723,769`, `_hmm.py`, `contract/registry.py:74-113,657-770` | the splits, including the smc touch count as an int | b | large (~5,000 moved) | moves each kernel's `module` (`contract/registry.py:119-121`), so every split re-keys at once; parity goldens must hold, especially for the smc label change |
+| 17 | `contract/registry.py:80`; `src/core/bar_normalizer.py:38`; `src/core/bar_accumulator.py:35`; `bars/sources.py:27`; `bars/gap_plan.py:91`; `research/clock.py:28` | item 8: one timeframe-minute map in `src/core/` | b | medium (6 files) | five of the six files are hashed (only `gap_plan.py` is not) and the maps differ in coverage (`1m`, `30m`, `4h`, `1d`), so the merge must keep each reader's domain |
+| 18 | `kernels/price.py:1678` | item 13: `vol_ratio` writes 1.0 on a zero-variance window where CCI (`:1650`) writes NaN | a | small (1 plus goldens) | stored values move from 1.0 to NaN; goes with 474 in the re-pin batch |
+| 19 | `kernels/price.py:1580-1600` | item 16: vectorize the six `ret_lag_*` columns | a | small (~25 plus parity test) | SIMD and scalar `log` can differ in the last bit, so treat it as an output change unless parity proves bit-identity |
+
 ## Ranked order
 
 1. Delete items 1, 2 and 4 with their tests. Stored values and goldens are unchanged.
