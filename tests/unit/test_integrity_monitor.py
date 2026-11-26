@@ -288,6 +288,7 @@ async def test_emit_async_guards_insert_failure_log_and_continue():
     await emit_integrity_fact_async(
         conn, "vocabulary_drift", "regime_hmm", "unregistered_code_count", 2.0, 0.0, False, None
     )
+    conn.execute.assert_awaited_once()  # the insert was attempted, and its failure swallowed
 
 
 # ---------------------------------------------------------------------------
