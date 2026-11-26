@@ -1517,7 +1517,7 @@ class CorpusRerun:
         ends with a fixed cost no unit caused: `compression_bound` replans the whole corpus, about 600 s
         a call on 2026-11-26 (last unit loaded to rebuild_complete: 602 s and 600 s), spread here over
         the units that call loaded. Both biases are upward, so the per-unit time and the stage_1d
-        projection are a pessimistic bound (9.4 h against about 6 h for that run). A pilot that loaded
+        projection are a pessimistic bound (9.4 h against about 6.8 h for that run once the two tails are taken out). A pilot that loaded
         no unit in any invocation has no time to give: it refuses."""
         prior = self.run.measured
         loaded = int(summary["units_loaded"])
