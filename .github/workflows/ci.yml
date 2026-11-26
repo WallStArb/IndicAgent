@@ -246,29 +246,17 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # DB tests (probe, todo 676): the tests marked for a live database skip in the unit job because CI has no
-  # Postgres. This job gives them one (TimescaleDB, the image digest production builds from) and replays
-  # production/migrations in order on the empty database. continue-on-error: it measures first (replay time,
-  # which migrations need production data or pgvector) and never turns main red; it becomes a gate, and the
-  # unit job's skips go away, once the replay succeeds and the time is acceptable.
+  # Postgres. This job builds the production database image (production/Dockerfile.timescaledb: TimescaleDB
+  # plus pgvector), loads the dated schema baseline fixture and replays the migrations committed after it.
+  # Replaying all of production/migrations on an empty database does not work (the probe of 2026-11-26: 159
+  # of 605 files fail, the v2.x history assumes tables that no longer exist), so the baseline is the base.
+  # Every step is continue-on-error: it measures first (build, load and replay time, failures) and never
+  # turns main red; it becomes a gate, and the unit job's skips go away, once it is green and fast enough.
   # ---------------------------------------------------------------------------
   db-tests:
     name: DB tests (probe)
     runs-on: ubuntu-latest
     needs: [lint, plugin-guards]
-    continue-on-error: true
-    services:
-      postgres:
-        image: timescale/timescaledb:latest-pg18@sha256:83952d54cfc74d9aebe4aba6ecf2af829c2bcf1f30058dded4c18ab3720a247a
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: indicagent
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
     env:
       PGPASSWORD: postgres
     steps:
@@ -278,28 +266,46 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install uv
-        run: pip install uv
-
-      - name: Install dependencies
-        run: uv pip install --system -r requirements.txt
-
-      - name: Replay migrations
+      - name: Build and start the production database image
+        continue-on-error: true
         run: |
           start=$(date +%s)
+          docker build -q -t indicagent-timescaledb -f production/Dockerfile.timescaledb production
+          docker run -d --name db -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=indicagent -p 5432:5432 indicagent-timescaledb
+          for _ in $(seq 1 60); do pg_isready -h localhost -U postgres -d indicagent && break; sleep 2; done
+          echo "::notice title=db image::build and start $(( $(date +%s) - start )) s"
+
+      - name: Load the schema baseline and replay later migrations
+        continue-on-error: true
+        run: |
+          start=$(date +%s)
+          psql_run() { psql -h localhost -U postgres -d indicagent -v ON_ERROR_STOP=1 -q -f "$1" > /tmp/sql.out 2>&1; }
+          for f in tests/integration/fixtures/schema_baseline_2026-11-05.sql tests/integration/fixtures/schema_baseline_2026-11-05_hypertables.sql; do
+            psql_run "$f" || echo "::warning title=baseline failed::$(basename "$f"): $(grep -m1 -E 'ERROR|FATAL' /tmp/sql.out | cut -c1-200)"
+          done
           failed=0
+          count=0
           for f in $(ls production/migrations/*.sql | sort); do
-            if ! psql -h localhost -U postgres -d indicagent -v ON_ERROR_STOP=1 -q -f "$f" > /tmp/migration.out 2>&1; then
+            n=$(basename "$f" | cut -d_ -f1 | sed 's/^0*//')
+            [ "$n" -ge 578 ] || continue
+            count=$((count + 1))
+            if ! psql_run "$f"; then
               failed=$((failed + 1))
-              if [ "$failed" -le 40 ]; then
-                echo "::warning title=migration failed::$(basename "$f"): $(grep -m1 -E 'ERROR|FATAL' /tmp/migration.out | cut -c1-200)"
-              fi
+              [ "$failed" -le 30 ] && echo "::warning title=migration failed::$(basename "$f"): $(grep -m1 -E 'ERROR|FATAL' /tmp/sql.out | cut -c1-200)"
             fi
           done
-          echo "::notice title=migration replay::$(ls production/migrations/*.sql | wc -l) files, ${failed} failed, $(( $(date +%s) - start )) s"
+          echo "::notice title=baseline and replay::${count} migrations replayed, ${failed} failed, $(( $(date +%s) - start )) s"
+
+      - name: Install dependencies
+        continue-on-error: true
+        run: |
+          pip install uv
+          uv pip install --system -r requirements.txt
 
       - name: Run the live-DB tests
+        continue-on-error: true
         run: |
+          start=$(date +%s)
           pytest -rs --tb=short \
             tests/unit/test_bar_source_policy_retirement.py \
             tests/unit/core/test_resource_lease.py \
@@ -307,4 +313,6 @@ jobs:
             tests/unit/services/test_bar_derivation_policy_change_sql.py \
             tests/unit/scripts/test_fetcher_lock.py \
             tests/unit/services/test_ohlcv_raw_bulk_live.py \
-            tests/unit/test_canonical_bar_lineage_massive_migration_contract.py
+            tests/unit/test_canonical_bar_lineage_massive_migration_contract.py \
+            2>&1 | tee /tmp/dbtests.out | tail -40
+          echo "::notice title=live-DB tests::$(tail -1 /tmp/dbtests.out) in $(( $(date +%s) - start )) s"
