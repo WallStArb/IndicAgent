@@ -92,3 +92,26 @@ An active member whose ticker ends (a merger, a rename, a delisting) needs a `li
 - A poll that cannot read both DIMM sensors as numbers stops the group (`watchdog STOP: DIMM sensors unreadable`); three such polls in a row kill it (`ABORT ... DIMM sensors unreadable for 3 polls`, rc 143). A valid reading of 80 C or less resumes a stopped group; a pause over 20 minutes kills it.
 - A kill is TERM, then KILL after 30 s if the group still has a live member, then a check that the group is empty (`watchdog escalated to KILL`, `ABORT ... still has live members after KILL`).
 - `host_gate` also refuses while a corpus run, the feature rebuild, the sweep recorder or the member verdict refresh is live.
+
+## One-time live smoke of `hold_timers` (first quiet window after the pilot)
+`hold_timers` and the service lookup behind `timers_gate` were tested against fakes only. Run this once, between 12:00 and 22:00Z, with no pilot, IC measure, rebuild or counted run live (about 10 seconds; the six timers are off for that long, none of them is due in this window).
+
+Before: every blocking timer enabled and active, the dividend timer mapping to its template instance, and no record file.
+```bash
+cd /home/bg/dev/indicagent
+for u in $(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select json_array_elements_text(config_value::json) from config_state where config_key='infra.corpus_rerun.blocking_timers'"); do echo "$u $(systemctl is-enabled $u) $(systemctl is-active $u) -> $(systemctl show -p Triggers --value $u)"; done
+ls logs/corpus_rerun_quiesce.json
+```
+Expected: six lines `<timer> enabled active -> <service>`, and `ls` reports no such file.
+
+The smoke (status lines go to the terminal):
+```bash
+NOW_H=12 bash -c 'source scripts/ops/guarded_run_common.sh; STATUS=/dev/stdout; window_gate; timers_gate; hold_timers; echo "-- while held:"; for u in $(blocking_timer_units); do echo "$u $(systemctl is-enabled $u) $(systemctl is-active $u)"; done; ls logs/corpus_rerun_quiesce.json; exit 0'
+```
+Expected, in order: `quiesce`; `quiesced 6 timers; the prior set is in <repo>/logs/corpus_rerun_quiesce.json`; `-- while held:`; six lines `<timer> disabled inactive`; the record file path; then the exit trap prints `timers released (exit trap)` and `released: [...]` naming all six timers. Drop `NOW_H=12` if the real hour is already inside 05:00 to 24:00Z.
+
+After: repeat the Before loop. Expected: six `enabled active` lines, and `ls logs/corpus_rerun_quiesce.json` reports no such file.
+
+Failure branch (optional): repeat the smoke with `fail smoke-failure` in place of `exit 0`. Expected: the same release lines, `ABORT smoke-failure` in the output and exit code 3.
+
+If a timer is left disabled: `.venv/bin/python -m services.corpus_rerun --release`; as a last resort `sudo systemctl enable --now <timer>` for each of the six. The smoke appends its status lines to the terminal only; nothing else is touched. Record the result in this section's commit message or the status file.
