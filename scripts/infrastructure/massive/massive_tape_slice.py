@@ -38,14 +38,15 @@ MAX_ATTEMPTS = 8
 RETRY_CODES = ("429", "503", "502", "500", "000")
 _LISTING = re.compile(
     r"<Key>([^<]+)</Key>.*?<LastModified>([^<]+)</LastModified>"
-    r"<ETag>&quot;([^&]+)&quot;</ETag><Size>(\d+)</Size>",
+    r"<ETag>(?:&quot;|\")([^&\"<]+)(?:&quot;|\")</ETag><Size>(\d+)</Size>",
     flags=re.S,
 )
 _lock = threading.Lock()
+_stop = threading.Event()  # set when a worker hits the disk floor, so the others stop too
 
 
 def log(message: str) -> None:
-    print(time.strftime("%H:%M:%S"), message, flush=True)
+    print(datetime.now(UTC).strftime("%H:%M:%SZ"), message, flush=True)
 
 
 def tape_key(family: str, day: date) -> str:
@@ -62,10 +63,12 @@ def pick_last_listed(sessions: list[date], listed: set[date], count: int) -> lis
 
 
 def _s3(
-    cfg: md.S3Config, suffix: str, extra: tuple[str, ...] = ()
+    cfg: md.S3Config, suffix: str, extra: tuple[str, ...] = (), *, fail: bool
 ) -> subprocess.CompletedProcess[bytes]:
+    """One curl call. A transfer keeps ``--fail`` so an error page is never written into a resumed
+    part file; a listing drops it so the XML error body can be read and reported."""
     args = (
-        [a for a in md.curl_base_args(cfg) if a != "--fail"]
+        [a for a in md.curl_base_args(cfg) if fail or a != "--fail"]
         + list(extra)
         + [f"{cfg.base_url}{suffix}"]
     )
@@ -86,7 +89,13 @@ class TapeFile:
 
 def list_file(cfg: md.S3Config, family: str, day: date) -> TapeFile | None:
     key = tape_key(family, day)
-    body = _s3(cfg, f"?list-type=2&prefix={quote(key, safe='')}&max-keys=1").stdout.decode()
+    body = _s3(
+        cfg, f"?list-type=2&prefix={quote(key, safe='')}&max-keys=1", fail=False
+    ).stdout.decode()
+    if "<ListBucketResult" not in body:
+        raise RuntimeError(
+            f"listing {key} failed (credentials, throttle or network): {body[:200]!r}"
+        )
     match = _LISTING.search(body)
     if not match or match.group(1) != key:
         return None
@@ -111,9 +120,18 @@ def download(cfg: md.S3Config, item: TapeFile, min_free_bytes: int) -> str | Non
         return "present"
     part = out.with_suffix(out.suffix + ".part")
     for attempt in range(MAX_ATTEMPTS):
+        if _stop.is_set():
+            return None
         if shutil.disk_usage(TAPES).free < min_free_bytes + item.size:
-            raise SystemExit(f"disk low before {item.key}")
-        proc = _s3(cfg, "/" + quote(item.key), ("-C", "-", "-o", str(part), "-w", "%{http_code}"))
+            _stop.set()
+            log(f"disk low before {item.key}, stopping all workers")
+            return None
+        proc = _s3(
+            cfg,
+            "/" + quote(item.key),
+            ("-C", "-", "-o", str(part), "-w", "%{http_code}"),
+            fail=True,
+        )
         code = proc.stdout.decode().strip()[-3:]
         have = part.stat().st_size if part.exists() else 0
         if code in ("200", "206", "416") and have == item.size:
@@ -179,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.days:
         wanted = [date.fromisoformat(text) for text in args.days.split(",")]
     else:
-        today = date.today()
+        today = datetime.now(UTC).date()
         wanted = sorted(nyse_sessions(today - timedelta(days=LOOKBACK_DAYS), today))
     listed = list_days(cfg, wanted)
     if args.days and len(listed) < len(wanted):
