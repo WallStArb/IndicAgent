@@ -39,8 +39,8 @@ Before committing, `git fetch` and read `git status -sb`; if main is ahead and b
    - substantive code: /simplify -> /review -> pytest tests/unit/ -n auto, then commit
      (+ scripts/research/determinism/repro_frozen.py bit-identical for
      src/intelligence/research/ or statistics/ edits)
-2. Commit on main (CI mirrors all 9 pre-commit checks; the local hook `tools/pre-commit.hook` is opt-in per clone and NOT installed in this checkout, so run ruff, black and `tools/check_glossary.py` yourself)
-3. git push origin main; CI is the backstop
+2. Commit on main (CI mirrors all 9 pre-commit checks; the local hook `tools/pre-commit.hook` is opt-in per clone and NOT installed in this checkout, so run ruff, black and `tools/check_glossary.py` yourself, and `tools/lint_env_check.sh` before a push: CI's mypy baseline is built in a lint-only Python 3.13 env, not in `.venv`)
+3. git push origin main; CI is the backstop; read it with `tools/ci_status.py --wait` (no `gh` on this host)
 ```
 
 Judge any test run by its exit code or summary line (`exit=${PIPESTATUS[0]}`), never a `tail` of the output. `/gsd-execute-phase` runs its own simplify gate. `.venv/bin/python tools/gate.py` runs the mechanical part of step 1 for you (classifies the diff, stops on a migration-number clash, runs the suite, `repro_frozen` when research or statistics changed, and `--compare-all` when asked, the last two under one cross-session lock); `/simplify` and `/review` stay yours. **Commands:** `.venv/bin/pytest tests/unit/ -n auto` (about 70 s; `-n 0` for pdb) · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · dashboard: `cd dashboard && npx tsc --noEmit && npm run lint && npm test` (after a package change, `npm ci` in the shared checkout before restarting `indicagent-dashboard`, whose start runs only `npm run build`) · `docs/reference/cheatsheet.md`.
