@@ -1187,10 +1187,9 @@ class CorpusRerun:
             scope=self.scope,
         )
         record = result.as_record()
-        if not result.ok:
-            raise StepFailed("the data gate refused the run", record)
-        if not result.caveat or "code" not in result.caveat:
-            raise StepFailed("a passing data gate returned no survivorship caveat", record)
+        refusal = data_gate_refusal(result)
+        if refusal:
+            raise StepFailed(refusal, record)
         summary = {k: v for k, v in record.items() if k != "failing_name_years"}
         summary["seconds"] = 0.0
         self.store.complete_data_gate(self.run.run_id, step.name, record, result.caveat, summary)
@@ -1504,33 +1503,44 @@ class CorpusRerun:
 
     # -- pilot -----------------------------------------------------------------
 
-    def _accumulate_pilot_stage(self, daily: Mapping[str, Any], seconds: float) -> dict[str, float]:
-        """Fold this invocation's 1d stage into the run's pilot measurement and return the running
-        figures: wall seconds over every invocation, units computed (loaded or failed: a failed unit
-        was computed too, and a resumed run computes it again), the largest bytes per row and stored
-        per spool seen. The per-unit time is cumulative seconds over cumulative computed units, the
-        same figure an uninterrupted pilot gives; a pilot that computed nothing has none to give."""
+    def _accumulate_pilot_stage(
+        self, prefix: str, summary: Mapping[str, Any], seconds: float
+    ) -> dict[str, float]:
+        """Fold this invocation's stage into the run's pilot measurement under `prefix` and return the
+        running figures: wall seconds, units and rows loaded over every invocation, the largest bytes
+        per row and stored per spool seen. The per-unit time is cumulative seconds over cumulative
+        LOADED units, the figure an uninterrupted pilot gives. An invocation that loaded nothing adds
+        no seconds (it adopted or refused; there was no work to time). The remaining bias is upward,
+        the safe side for a schedule: a unit that failed after computing cost time but loaded
+        nothing, so its seconds stay in the numerator while the unit is counted once, when a resume
+        loads it. A pilot that loaded no unit in any invocation has no time to give: it refuses."""
         prior = self.run.measured
+        loaded = int(summary["units_loaded"])
         record = {
-            "pilot_stage_seconds": float(prior.get("pilot_stage_seconds", 0.0)) + seconds,
-            "pilot_units_computed": int(prior.get("pilot_units_computed", 0))
-            + int(daily["units_loaded"])
-            + int(daily["units_failed"]),
-            "pilot_bytes_per_row_1d_max": max(
-                float(prior.get("pilot_bytes_per_row_1d_max", 0.0)), daily["bytes_per_row_max"]
+            f"{prefix}_seconds": float(prior.get(f"{prefix}_seconds", 0.0))
+            + (seconds if loaded else 0.0),
+            f"{prefix}_units_loaded": int(prior.get(f"{prefix}_units_loaded", 0)) + loaded,
+            f"{prefix}_rows_loaded": int(prior.get(f"{prefix}_rows_loaded", 0))
+            + int(summary["rows_loaded"]),
+            f"{prefix}_bytes_per_row_max": max(
+                float(prior.get(f"{prefix}_bytes_per_row_max", 0.0)), summary["bytes_per_row_max"]
             ),
-            "pilot_stored_per_spool_1d_max": max(
-                float(prior.get("pilot_stored_per_spool_1d_max", 0.0)),
-                daily["stored_per_spool_max"],
+            f"{prefix}_stored_per_spool_max": max(
+                float(prior.get(f"{prefix}_stored_per_spool_max", 0.0)),
+                summary["stored_per_spool_max"],
             ),
         }
         self._merge_measured(record)
-        if not record["pilot_units_computed"]:
-            raise StepFailed("pilot: no unit was computed in any invocation, nothing to time", {})
+        units, rows = record[f"{prefix}_units_loaded"], record[f"{prefix}_rows_loaded"]
+        if not units:
+            raise StepFailed(
+                f"pilot: no {prefix} unit was loaded in any invocation, nothing to time", {}
+            )
         return {
-            "seconds_per_unit": record["pilot_stage_seconds"] / record["pilot_units_computed"],
-            "bytes_per_row_1d": record["pilot_bytes_per_row_1d_max"],
-            "stored_per_spool_1d": record["pilot_stored_per_spool_1d_max"],
+            "seconds_per_unit": record[f"{prefix}_seconds"] / units,
+            "seconds_per_row": record[f"{prefix}_seconds"] / max(rows, 1),
+            "bytes_per_row": record[f"{prefix}_bytes_per_row_max"],
+            "stored_per_spool": record[f"{prefix}_stored_per_spool_max"],
         }
 
     def _step_pilot(self, step: Step) -> dict[str, Any]:
@@ -1551,9 +1561,14 @@ class CorpusRerun:
         t1 = d.monotonic()
         # Recorded before any later refusal, so a resumed pilot measures the whole pilot, not its
         # last invocation (the 2026-11-26 resume divided 9 computed units' time by all 63 chunks).
-        stage = self._accumulate_pilot_stage(daily, t1 - t0)
+        daily_stage = self._accumulate_pilot_stage("pilot_1d", daily, t1 - t0)
         hourly = self._pilot_hourly_unit() if self.scope == SCOPE_ALL else None
         t2 = d.monotonic()
+        hourly_stage = (
+            self._accumulate_pilot_stage("pilot_1h", hourly, t2 - t1)
+            if hourly is not None and hourly["units_total"]
+            else None
+        )
         load_after = d.db_load()
         summary: dict[str, Any] = {
             "pin_checks": pins,
@@ -1615,23 +1630,27 @@ class CorpusRerun:
         stages = [daily] if hourly is None else [daily, hourly]
         measured: dict[str, Any] = {
             "pilot_hmm_written_share": hmm_written_share(gates["G1-G3"][1]),
-            "pilot_bytes_per_row_1d": stage["bytes_per_row_1d"],
+            "pilot_bytes_per_row_1d": daily_stage["bytes_per_row"],
             "pilot_stored_per_spool": max(
-                [stage["stored_per_spool_1d"], *(s["stored_per_spool_max"] for s in stages[1:])]
+                daily_stage["stored_per_spool"],
+                hourly_stage["stored_per_spool"] if hourly_stage else 0.0,
             ),
-            "pilot_seconds_1d_chunk": round(stage["seconds_per_unit"], 1),
+            "pilot_seconds_1d_unit": round(daily_stage["seconds_per_unit"], 1),
         }
         counts = self._counts()
         every = (datetime(1970, 1, 1, tzinfo=UTC), datetime(9999, 1, 1, tzinfo=UTC))
-        n_chunks = len(counts.chunks()) or 1
-        per_chunk = stage["seconds_per_unit"]
-        measured["extrapolated_seconds"] = {"stage_1d": round(per_chunk * n_chunks, 0)}
-        if hourly is not None:
-            hourly_rows = max(hourly["rows_loaded"], 1)
-            measured["pilot_bytes_per_row_intraday"] = hourly["bytes_per_row_max"]
-            measured["pilot_seconds_1h_unit"] = round(t2 - t1, 1)
+        # stage_1d's every planned 1d unit (this invocation's scope plus the units out of it), at the
+        # measured time per loaded unit: the unit count, not the chunk count, so a chunk of several
+        # units (a span split) projects right.
+        units_1d = daily["units_total"] + daily["units_out_of_scope"]
+        measured["extrapolated_seconds"] = {
+            "stage_1d": round(daily_stage["seconds_per_unit"] * units_1d, 0)
+        }
+        if hourly_stage is not None:
+            measured["pilot_bytes_per_row_intraday"] = hourly_stage["bytes_per_row"]
+            measured["pilot_seconds_1h_unit"] = round(hourly_stage["seconds_per_unit"], 1)
             measured["extrapolated_seconds"] |= {
-                tf: round((t2 - t1) / hourly_rows * counts.rows(*every, (tf,)), 0)
+                tf: round(hourly_stage["seconds_per_row"] * counts.rows(*every, (tf,)), 0)
                 for tf in INTRADAY_ORDER
             }
         # The real compressed-to-uncompressed ratio of the pilot's rows (the 6.0 seed is the
@@ -2075,6 +2094,16 @@ def _print_plan(plan: Plan) -> None:
     print(format_peaks(plan.peaks, plan.inputs.limit_bytes))
 
 
+def data_gate_refusal(result: Any) -> str | None:
+    """Why a data gate result does not admit a run, or None. The one predicate the data_gate step and
+    `--check` share, so a check cannot pass what the step would refuse."""
+    if not result.ok:
+        return "the data gate refused the run"
+    if not result.caveat or "code" not in result.caveat:
+        return "a passing data gate returned no survivorship caveat"
+    return None
+
+
 def new_run_check(
     conn: Any, settings: Settings, horizon: datetime, scope: str
 ) -> tuple[list[str], bool]:
@@ -2103,12 +2132,14 @@ def new_run_check(
         for s in specs
     ]
     blockers = check.find_blockers(planned, check.fetch_stored_units(conn, "feature_vectors", None))
+    refusal = data_gate_refusal(gate)
     checks = [
         {
             "name": "data_gate",
-            "ok": gate.ok,
-            "detail": f"scope {gate.scope}; failing name-years {len(gate.failing_name_years)}; "
-            f"without a proven start {len(gate.names_without_proven_start)}",
+            "ok": refusal is None,
+            "detail": f"{refusal or 'passes'}; scope {gate.scope}; failing name-years "
+            f"{len(gate.failing_name_years)}; without a proven start "
+            f"{len(gate.names_without_proven_start)}",
         },
         {"name": d2.name, "ok": d2.ok, "detail": d2.detail},
     ]

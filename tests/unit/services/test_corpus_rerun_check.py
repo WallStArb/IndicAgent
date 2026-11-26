@@ -166,3 +166,65 @@ def test_fetch_stored_units_reads_blocking_statuses_and_all_rows_without_a_run()
     assert chk.fetch_stored_units(conn, "feature_vectors", None) == [expected]
     assert conn.params == ("feature_vectors", ["completed", "started"], None, None)
     assert conn.sql.count("%s") == len(conn.params)
+
+
+# ---------------------------------------------------------------------------------------------
+# the data gate predicate `--new-run --check` shares with the data_gate step
+# ---------------------------------------------------------------------------------------------
+
+
+def _gate(ok=True, caveat=None):
+    return SimpleNamespace(
+        ok=ok,
+        caveat=caveat,
+        scope="1d",
+        failing_name_years=[],
+        names_without_proven_start=[],
+    )
+
+
+@pytest.mark.parametrize(
+    ("gate", "refused"),
+    [
+        (_gate(ok=False, caveat={"code": "c"}), "the data gate refused the run"),
+        (_gate(ok=True, caveat=None), "no survivorship caveat"),
+        (_gate(ok=True, caveat={"text": "no code"}), "no survivorship caveat"),
+        (_gate(ok=True, caveat={"code": "c"}), None),
+    ],
+)
+def test_data_gate_refusal_is_the_one_predicate(gate, refused):
+    got = cr.data_gate_refusal(gate)
+    assert (got is None) if refused is None else (refused in got)
+
+
+def _patched_new_run_check(monkeypatch, gate):
+    import services.backfill_feature_factory as factory
+    import services.corpus_rerun_data_gate as data_gate
+    import services.rebuild_preconditions as rp
+
+    monkeypatch.setattr(cr, "load_config_service_sync", lambda conn: None)
+    monkeypatch.setattr(cr, "load_corpus_rerun_apr", lambda cfg: None)
+    monkeypatch.setattr(cr, "_rebuild_symbols", lambda conn: ["AAA"])
+    monkeypatch.setattr(data_gate, "run_data_gate", lambda *a, **k: gate)
+    monkeypatch.setattr(rp, "fetch_d2_inputs", lambda *a, **k: None)
+    monkeypatch.setattr(rp, "fetch_held_verdicts", lambda conn: ())
+    monkeypatch.setattr(
+        rp,
+        "check_d2_landed",
+        lambda scan: SimpleNamespace(name="d2_landed", ok=True, detail="every 1d verdict passes"),
+    )
+    monkeypatch.setattr(factory, "planned_units", lambda *a, **k: ([], set()))
+    monkeypatch.setattr(chk, "fetch_stored_units", lambda conn, table, run_id: [])
+    return cr.new_run_check(object(), SimpleNamespace(), datetime(2026, 11, 1, tzinfo=UTC), "1d")
+
+
+def test_new_run_check_refuses_a_passing_gate_that_returns_no_caveat(monkeypatch):
+    lines, ok = _patched_new_run_check(monkeypatch, _gate(ok=True, caveat=None))
+    assert not ok and any(
+        "FAIL data_gate: a passing data gate returned no survivorship" in x for x in lines
+    )
+
+
+def test_new_run_check_passes_a_clean_gate(monkeypatch):
+    lines, ok = _patched_new_run_check(monkeypatch, _gate(ok=True, caveat={"code": "c"}))
+    assert ok, lines
