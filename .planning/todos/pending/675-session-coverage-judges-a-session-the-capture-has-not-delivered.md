@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P3
+priority: P2
 filed: 2026-11-25
 source: indicagent-04, pilot run 0e020c5a refused at the data gate (lead ruling 2026-11-25)
 ---
@@ -17,6 +17,6 @@ The member verdict refresh of 2026-11-25 (finished 23:54Z, after the 21:00Z clos
 
 ## Proposal
 
-Measure session coverage up to the last session the capture has delivered (the latest canonical 1d session of the universe), not the last completed session. By the materiality rule (owner 2026-11-20) one trailing undelivered session is not a defect that can move a counted test, and `freshness_1d` already reports a name that is behind. A change to a verdict rule needs a methodology-change ledger entry before code, so this todo states the proposal and the evidence only; nothing changes until the lead rules.
+Measure session coverage up to the last session the capture has delivered (the latest canonical 1d session of the universe), not the last completed session. By the materiality rule (owner 2026-11-20) one trailing undelivered session is not a defect that can move a counted test, and `freshness_1d` already reports a name that is behind. A change to a verdict rule needs a methodology-change ledger entry before code, so this todo states the proposal and the evidence only; ruled 2026-11-25 (ledger 2026-11-25e): approved; code lands after the corpus pilot passes its data gate.
 
 Until then the launcher preflight (`verdict_preflight`) counts fresh names whose `proven_start_1d` fails and refuses with "wait for the nightly capture" when the last completed session's bar is missing (landed with the pilot work, lead ruling 2026-11-25).
