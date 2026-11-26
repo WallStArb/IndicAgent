@@ -158,8 +158,8 @@ files (no `--delete`) and refuses when the mirror would be left under 40 GB.
 
 ## Remaining order (lead)
 
-1. When `logs/massive_final_20261126/exit_codes_final.txt` is written: `--verify` on the capture,
-   `--mirror-push` then `--mirror-verify`, then fill the actual sizes into the table above.
+1. Done 2026-11-26: `--verify` exit 0; `--mirror-push` exit 0 (7.57 GB sent); `--mirror-verify` exit 0
+   (98,381 files, 7,810,833,420 bytes on both sides, 0 missing, 0 differing).
 2. About 2026-12-05: the tape slice (above).
 3. About 2026-12-07 (read the exact lapse date off the account page first; ask the owner), one
    heavy job at a time:
