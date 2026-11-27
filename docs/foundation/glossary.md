@@ -2594,6 +2594,79 @@ the `listing end` record, which marks a name's last session and keeps it in the 
 
 ---
 
+## Harness and process terms (owner 2026-11-27)
+
+The vocabulary of the agent harness: how work is set, claimed, spawned, reviewed and improved. Method: `docs/foundation/harness-improvement-sop.md`; rules: `.planning/PLANNING-SYSTEM.md`.
+
+### `objective`
+
+An owner-set outcome with a measurable done-criterion, constraints and a priority, recorded in `.planning/OBJECTIVES.md` with an id (`O1`, `O2`, ...). Every todo filed after todo 687 names the objective it serves in an `objective:` frontmatter field. **Not:** a todo (a task that serves an objective), a phase goal, or a research `hypothesis`.
+**Banned:** (none)
+**Avoid:** "OKR" or "epic" for an objective
+**Status:** active (9c6813fa0); the seeded list is a draft for owner confirmation
+**Code surface:** `.planning/OBJECTIVES.md`, `tools/todo_claims.py` (`objective_errors`)
+
+### `claimable`
+
+A todo the lead has marked, by `claimable: true` in its line-1 frontmatter, as safe for an idle session to take without asking: light, outside every pin closure, no heavy job, no owner ruling. **Not:** pending (every open todo is pending; only some are claimable).
+**Banned:** (none)
+**Status:** active (dfcd39414, 1850fb596)
+**Code surface:** todo frontmatter, `tools/todo_claims.py`
+
+### `claim`
+
+A session's ownership of a claimable todo, recorded as `claimed_by: indicagent-<id>` and a UTC `claimed_at` in the todo's frontmatter and pushed to main. A claimed todo is unavailable; a claim older than three days without renewal is `stale` and reported by `tools/todo_claims.py`, not failed in the suite. **Not:** an assignment (the lead's brief to a named worker) or a git lock.
+**Banned:** (none)
+**Avoid:** "lock" or "reservation" for a todo claim
+**Status:** active (1850fb596)
+**Code surface:** `tools/todo_claims.py`, `tests/unit/test_todo_priorities_link_integrity.py`
+
+### `spawned worker`
+
+A headless `claude -p` session the lead starts for one lane with `scripts/ops/spawn_worker.sh`, in its own detached worktree off `origin/main`, under the capacity gate (`infra.spawn_worker.*`). **Not:** a subagent (an in-process helper inside one session's task) or an interactive session the owner opened.
+**Banned:** (none)
+**Avoid:** "bot" for a spawned worker
+**Status:** active (9c6813fa0, migration 625 applied); the permission mode is an owner decision
+**Code surface:** `scripts/ops/spawn_worker.sh`, `logs/agents/workers.jsonl`
+
+### `harness`
+
+Everything that steers the agent sessions: CLAUDE.md, `.planning/PLANNING-SYSTEM.md`, the lead loop, the gates, process tests, `tools/`, skills and memory. It improves on evidence under the harness improvement SOP. **Not:** the research runner, or the test harness (`tests/` fixtures).
+**Banned:** (none)
+**Status:** active (owner 2026-11-27, core SOP)
+**Code surface:** `docs/foundation/harness-improvement-sop.md`
+
+### `escaped defect`
+
+A defect a landing introduced that its gates did not catch, found later and fixed by a commit whose body says `fixes <sha>` and why the gates missed it. Counted per gate in the monthly retro. **Not:** a pre-existing bug found by a review (that is `pre_existing`, not escaped from the landing under review).
+**Banned:** (none)
+**Status:** active (owner 2026-11-27); first use a7ac4cc28
+**Code surface:** commit bodies; the code health report (todo 686, not built yet)
+
+### `ratchet`
+
+A codebase baseline that may shrink in any commit and grows only with a written reason: the complexity census, the mypy baseline, the vulture whitelist, the glossary baseline, the duplicate-test allow-list. **Not:** a pre-registered gate constant (fixed by a dated design table, never tuned).
+**Banned:** (none)
+**Status:** active (owner 2026-11-27)
+**Code surface:** `.mypy-baseline.txt`, `tools/vulture_whitelist.py`, `tools/glossary_baseline.json`, `tools/duplicate_test_allowlist.txt`, `scripts/ops/ops_complexity_census.py`
+
+### `hotspot`
+
+A file ranked high by churn, review findings and escaped defects together; the top hotspots feed the refactor queue as todos with a prediction. **Not:** a performance hot path.
+**Banned:** (none)
+**Status:** active (owner 2026-11-27); measured by todo 686
+**Code surface:** the code health report (todo 686, not built yet)
+
+### `retro`
+
+The lead's scheduled review of the harness signals (daily and after any owner intervention): a failure shape seen twice becomes a candidate change with a predicted signal and a check date; monthly, the retro judges its own hit rate. **Not:** a phase `RETROSPECTIVE.md` entry (a milestone narrative).
+**Banned:** (none)
+**Avoid:** "postmortem" for the scheduled retro (an escaped-defect note is its own term)
+**Status:** active (owner 2026-11-27); signals from todo 685
+**Code surface:** `docs/foundation/harness-improvement-sop.md`
+
+---
+
 ## See Also
 
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names

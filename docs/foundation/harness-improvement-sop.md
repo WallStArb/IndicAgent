@@ -1,6 +1,6 @@
 # Harness improvement SOP
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** current (owner ruling 2026-11-27: a core SOP)
 **Last Updated:** 2026-11-27
 
@@ -42,6 +42,14 @@ The same loop applies to the code itself: how we write it, review it and refine 
    - the share of review findings that were real;
    - what `/simplify` deleted against what it broke.
    A gate that catches nothing gets cheaper or goes. A defect class that keeps escaping gets a stronger gate, a higher review level or a new check.
+
+## Vocabulary and APR
+
+A harness or code change follows the same registries as the system it steers:
+
+- **Vocabulary.** A new process or harness term gets a glossary entry (`docs/foundation/glossary.md`, "Harness and process terms": definition, Not, Banned, Status, Code surface) in the same commit that introduces it, and an existing term is reused before a new one is coined. Names follow `docs/foundation/naming-system.md`.
+- **APR.** A tunable number a harness tool reads (a cap, a margin, a staleness window, a cadence) lives in APR under `infra.<tool>.<param>` with `config_schema` bounds and a provenance note, seeded by migration, never hard-coded; `infra.spawn_worker.*` (migration 625) is the pattern. A pre-registered gate constant stays exempt, as in CLAUDE.md. A retro that changes such a value writes it through `ConfigService` with the retro as the reason, so `config_history` is the record of what the loop tuned.
+- **Taxonomy.** A new class of signal or finding (a review-finding class, a defect class, a session state) is added to the one list that defines it (the SOP signal list, `tools/todo_claims.py`, the glossary), never to a second list.
 
 ## Guards
 

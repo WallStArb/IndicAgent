@@ -180,6 +180,8 @@ The lead starts its own headless worker sessions with `scripts/ops/spawn_worker.
 - Capacity gate: it refuses when the brief lacks one of the seven parts, the todo is not pending on `origin/main`, is claimed or already has a live worker, the name is taken, the live workers reach `infra.spawn_worker.max_workers`, or MemAvailable is under `infra.spawn_worker.mem_margin_gib` plus, while a heavy job is live, the largest `infra.run_guarded.mem_floor_gib.*` floor. A missing APR key refuses (migration 625).
 - Permission mode: there is no default. A headless worker cannot answer a prompt, so what it may run is set by the mode and the settings the owner chooses; no session picks a wider mode for itself or a peer (harness SOP guards).
 - A spawned worker's landing is reviewed independently like any other (Done-Coding SOP, suite exit code), and the lead reaps it after the landing.
+- Usage budget (lead review of 9c6813fa0): the binding limit on 2026-11-27 was the claude.ai usage cap (every session stalled at 11:50Z), not memory, and a spawned worker spends the same budget. Spawn only for a lane no idle interactive session can take; an idle session takes a claimable todo before any spawn; the lead counts live sessions plus spawned workers against the cap.
+- Review before push: a worker's landing is reviewed independently before it is pushed, not after (9c6813fa0 landed first; not to be repeated).
 
 ---
 
