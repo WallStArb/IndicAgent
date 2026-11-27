@@ -38,6 +38,7 @@ peak_rss_mb_since() {
 
 RUN=${1:?run id}; EXPECT=${2:?expected rebuild_code_key prefix}
 echo "$RUN" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || { echo "run id $RUN is not a uuid"; exit 3; }
+GUARDED_RUN_ID=$RUN   # a uuid, checked above
 [ -z "${PREFLIGHT_ONLY:-}" ] || STATUS=/dev/stdout   # preflight talks to the terminal, never the run's status file
 : >> "$STATUS"; exec 2>> "$STATUS"
 [ -n "${PREFLIGHT_ONLY:-}" ] || run_resource_scope bash "$0" "$@"   # the whole launcher in one user scope (todo 681)

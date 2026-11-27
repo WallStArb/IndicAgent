@@ -675,3 +675,13 @@ def test_a_launcher_refuses_with_exit_3_when_no_user_scope_can_start(
     )
     assert result.returncode == 3
     assert "systemd-run --user failed" in lab.status_text()
+
+
+def test_a_run_id_with_unsafe_characters_never_reaches_the_labels(lab: Lab) -> None:
+    body = (
+        'STATUS="$STATUS"; RUN=\'a b"c\'; GUARDED_STAGE=s; RUN_RESOURCE_SCOPED=1; '
+        f'run_guarded "{lab.root}/o" true; echo rc=$?'
+    )
+    result = lab.run(body)
+    assert "rc=0" in result.stdout
+    assert "WARN" not in lab.status_text()

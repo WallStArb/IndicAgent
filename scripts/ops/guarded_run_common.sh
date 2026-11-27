@@ -127,16 +127,16 @@ host_gate() {    # refuse to start on a host that is not demonstrably healthy
 
 # guarded_emit <rc> <start_epoch> <templog_lines_before>: write the run_resource gauges for the job that just ended and
 # log one status line: the cgroup peak, swap peak, oom_kill and leftovers plus the hottest DIMM the watchdog read
-# during the job. Labels: workload = the launcher (GUARDED_WORKLOAD), stage = GUARDED_STAGE, run_id = RUN or the
-# launcher's start stamp. The scope spans the launcher, so memory_peak_bytes is the running maximum of the launcher:
+# during the job. Labels: workload = the launcher (GUARDED_WORKLOAD), stage = GUARDED_STAGE, run_id = GUARDED_RUN_ID (the
+# launcher's start stamp unless it sets the run id). The scope spans the launcher, so memory_peak_bytes is the running maximum of the launcher:
 # exact for a one-job launcher, an upper bound for a later stage of a multi-job one. One file per stage keeps them all.
 # A failed emit is logged and never changes the job's exit code.
-GUARDED_RUN_ID=${GUARDED_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}
+GUARDED_RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)   # a launcher with a run id overwrites it; never the ambient RUN, whose characters are not checked
 guarded_emit() {
   local rc=$1 start=$2 skip=$3 line max_c
   [ -n "${RUN_RESOURCE_SCOPED:-}" ] || return 0   # a cgroup the launcher did not make (a test, a sourced shell) is not the run's
   max_c=$(tail -n "+$((skip + 1))" "$TEMPLOG" 2>/dev/null | sed -n 's/.* max_c=\([0-9]\+\) .*/\1/p' | sort -n | tail -1)
-  if line=$(RUN_RESOURCE_START=$start run_resource_emit "${GUARDED_WORKLOAD:-$(basename "${0%.sh}")}" "${GUARDED_STAGE:-run}" "${RUN:-$GUARDED_RUN_ID}" "$rc"); then
+  if line=$(RUN_RESOURCE_START=$start run_resource_emit "${GUARDED_WORKLOAD:-$(basename "${0%.sh}")}" "${GUARDED_STAGE:-run}" "$GUARDED_RUN_ID" "$rc"); then
     log "$line max_c=${max_c:-none}"
   else
     log "WARN run_resource_emit failed for stage ${GUARDED_STAGE:-run} (exit $?); the job's own exit code stands"

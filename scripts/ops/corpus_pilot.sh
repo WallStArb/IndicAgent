@@ -42,7 +42,7 @@ if [ -n "$CHECK" ]; then   # the run-side checks: the same gates the launch meet
   exit $?
 fi
 if [ -n "$RESUME" ]; then
-  RUN=$RESUME
+  RUN=$RESUME; GUARDED_RUN_ID=$RUN   # the run id is validated as a uuid just below
   WT="$(dirname "$REPO")/$(basename "$REPO")-corpus-run-$RUN"
   [ -d "$WT" ] || fail "no worktree $WT for run $RUN"
   echo "$RUN" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || fail "run id $RUN is not a uuid"
@@ -73,6 +73,7 @@ out=$($CR --new-run --data-gate-scope 1d --commit "$SHA" 2>&1) || { echo "$out" 
 echo "$out" >> "$STATUS"
 RUN=$(echo "$out" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
 [ -n "$RUN" ] || { $CR --release >> "$STATUS" 2>&1; fail "no run id in the new-run output"; }
+GUARDED_RUN_ID=$RUN   # matched the uuid pattern above
 WT="$(dirname "$REPO")/$(basename "$REPO")-corpus-run-$RUN"
 log "run $RUN worktree $WT"
 
