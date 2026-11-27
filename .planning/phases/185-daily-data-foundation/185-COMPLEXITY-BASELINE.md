@@ -569,7 +569,7 @@ The TEMPORARY count here is taken before the 185-44 guards existed. The single_w
 - .planning/todos/pending/383-gsd-sdk-state-and-gap-checker-hardcoded-field-path-assumptions.md
 - .planning/todos/completed/387-nightly-backfill-detect-gaps-cost-scaling-and-staleness-observability.md
 - .planning/todos/pending/390-illiq-series-unguarded-division-by-zero-dollar-volume.md
-- .planning/todos/pending/394-todo-number-uniqueness-not-ci-enforced-duplicate-389.md
+- .planning/todos/completed/394-todo-number-uniqueness-not-ci-enforced-duplicate-389.md
 - .planning/todos/pending/395-nightly-backfill-fails-3-nights-weekly-ibkr-weekly-2fa-unattended.md
 - .planning/todos/pending/397-universe-dimension-views-and-instruments-boundary-test.md
 - .planning/todos/completed/398-ic-engine-scratch-dir-shares-db-filesystem.md

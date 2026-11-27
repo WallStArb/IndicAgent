@@ -19,6 +19,10 @@ Detection-only, same discipline as test_migration_number_uniqueness.py: this
 test does not add missing rows or fix dead links, it only fails fast so drift
 never again accumulates silently between manual audits.
 
+It also holds todo numbers unique across pending/, completed/ and deferred/ and every
+PRIORITIES.md link label equal to its file's number (todo 394), and the claim rules of
+PLANNING-SYSTEM.md.
+
 CI-clean: no DB, no network -- pure filesystem + regex scan (the stale-claim check reads git log;
 it skips in CI, without git and on shallow history).
 """
@@ -104,6 +108,40 @@ def test_dead_link_allow_list_has_no_stale_entries():
         "The file exists again (or the link was already fixed) -- remove its "
         "entry here."
     )
+
+
+_TODO_NUMBER = re.compile(r"^(\d+)-")
+_TODO_LINK = re.compile(r"\[([^\]]*)\]\(\.?/?(?:pending|completed|deferred)/([^)#]*)[^)]*\)")
+
+
+def test_todo_numbers_are_unique_across_pending_completed_and_deferred():
+    """No two current todo files share a number (todo 394: two sessions filed 389), and every
+    todo file starts with its number, so none escapes the check. A number freed by deleting a
+    completed todo is not tracked."""
+    by_number: dict[int, list[str]] = {}
+    unnumbered = []
+    for path in _TODOS_DIR.glob("*/*.md"):
+        name = f"{path.parent.name}/{path.name}"
+        if match := _TODO_NUMBER.match(path.name):
+            by_number.setdefault(int(match[1]), []).append(name)
+        else:
+            unnumbered.append(name)
+    assert not unnumbered, f"todo files not named <number>-<slug>.md: {sorted(unnumbered)}"
+    shared = {n: sorted(files) for n, files in sorted(by_number.items()) if len(files) > 1}
+    assert not shared, f"todo numbers used by more than one file (renumber the newer one): {shared}"
+
+
+def test_a_priorities_link_label_matches_its_file_number():
+    """`[N](pending/M-...)` with N != M reads as the wrong todo (todo 394: [391] linked 389)."""
+    text = _PRIORITIES_FILE.read_text()
+    wrong = sorted(
+        m[0]
+        for m in _TODO_LINK.finditer(text)
+        if not (
+            (number := _TODO_NUMBER.match(m[2])) and m[1].isdigit() and int(m[1]) == int(number[1])
+        )
+    )
+    assert not wrong, f"PRIORITIES.md links whose label is not the file's number: {wrong}"
 
 
 # ---------------------------------------------------------------------------------------------

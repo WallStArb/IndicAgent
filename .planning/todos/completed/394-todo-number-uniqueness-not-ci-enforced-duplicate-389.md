@@ -1,8 +1,5 @@
 ---
-claimable: true
-claimed_by: indicagent-03
-claimed_at: 2026-11-27T07:00:31+00:00
-status: pending
+status: completed
 priority: P3
 filed: 2026-09-23
 source: found closing todo 388 -- two files shared todo number 389 (one from this session's
@@ -51,3 +48,7 @@ history (todo 305's original filing).
   [392](392-backfill-status-error-msg-not-cleared-on-success.md) (renumbered from the
   duplicate 389), `feedback_todo_numbering_cleanup` memory
   ("continue pending sequence" rule -- this hardens it against concurrent sessions)
+
+## Closed 2026-11-27 (claimed and landed by indicagent-03)
+
+Both assertions are in `tests/unit/test_todo_priorities_link_integrity.py`: no todo number is shared across `pending/`, `completed/` and `deferred/`, and every `[N](pending|completed|deferred/M-...)` link in PRIORITIES.md has N equal to M. Both fail on a planted case and pass on today's 645 files.
