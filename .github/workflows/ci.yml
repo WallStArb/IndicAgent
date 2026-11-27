@@ -337,6 +337,7 @@ jobs:
             tests/unit/scripts/test_fetcher_lock.py \
             tests/unit/services/test_ohlcv_raw_bulk_live.py \
             tests/unit/test_canonical_bar_lineage_massive_migration_contract.py \
+            tests/unit/test_database_timezone_utc.py \
             > /tmp/dbtests.out 2>&1 || rc=$?
           tail -40 /tmp/dbtests.out
           grep -E '^(FAILED|ERROR)' /tmp/dbtests.out | head -10 | while read -r line; do echo "::error title=live-DB test::${line:0:230}"; done || true

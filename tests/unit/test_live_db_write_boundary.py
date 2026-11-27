@@ -75,6 +75,10 @@ _LIVE_DSN_FILES: Mapping[str, str] = {
     "scripts/test_fetcher_lock.py": (
         "read-only: takes FetcherLock advisory locks and reads pg_stat_activity"
     ),
+    "test_database_timezone_utc.py": (
+        "read-only: reads the database's own pg_db_role_setting row (migration 621); skips when the "
+        "database is unreachable"
+    ),
     "config/test_settings_active_contracts_dimension.py": (
         "mock-only: the literal is a Settings stub's database_url, never connected"
     ),
