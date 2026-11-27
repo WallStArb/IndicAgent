@@ -245,6 +245,12 @@ def test_check_refuses_when_the_report_directory_is_not_writable(stage: Stage) -
     )
 
 
+def test_check_refuses_when_no_user_scope_can_start(stage: Stage) -> None:
+    result = stage.stage("--check", RUN_ID, PREFIX, SYSTEMD_RUN_RC="1")
+    assert result.returncode == 1
+    assert "REFUSED: no user scope with memory accounting" in result.stdout
+
+
 def test_check_goes_on_after_a_missing_block2_comparison(stage: Stage) -> None:
     stage.status.write_text("")
     result = stage.stage("--check", RUN_ID, PREFIX, WORKERS_NOW="8")
