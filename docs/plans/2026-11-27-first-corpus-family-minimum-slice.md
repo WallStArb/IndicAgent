@@ -23,13 +23,16 @@ Cell count and cost. The 1d route has 6 gating cells today (`f1d_tau1, 5, 20, 60
 
 `repro_frozen`. The statistic work edits `RUNNER_STATISTIC_FUNCTIONS` or `src/intelligence/statistics`: `repro_frozen` must report bit-identical (the 586 statistic is opt-in, so the frozen horizon-1 and daily-residual paths do not move), and the three bound pass records (`daily_residual_2026-11-21`, `seasonality_2026-11-21`, `family10_volume_shock_2026-11-24`) are rebound in the same commit with `bind_battery_pass.py`, each shown current by `runner.static_gate`. The route widening and the new cells alone stale nothing if `battery_pass` does not hash `null_battery_persistent.py`; check that first.
 
+Correction 2026-11-27 (review of the build in `docs/plans/2026-11-27-hb-low-risk-prereg-draft.md`): the persistence-widened standard error reaches the member's evidence record, but selection does not use it. `statistics/stepm.py` recomputes `hac_mean_test` on the stored attempt series for the observed t and every bootstrap draw, with the plain Newey-West lag and no overlap or persistence term. A battery pass for `e17_persistent` therefore certifies the record statistic, not the StepM selection the detection rule rests on. The same gap already holds for horizon-5 overlap in the counted families (todo 547). The slice below gains one item before the family can be called detected: either StepM takes the member's persistence and overlap lags (an opt-in edit of the certified `stepm.py` with `repro_frozen` bit-identical), or a StepM-level H0 cell is added to the battery (null persistent h5 series through StepM, size at the declared levels). The lead and the owner rule which; until then H-B's detection rule is stated in terms of StepM on the stored series and the persistent record is a disclosure.
+
 ## 3. The least that must exist (one counted feature-family test)
 
 1. A recorded decision on the second look: rerun `f1d_tau200` and its neighbours on other seed bases, declared in the ledger beforehand. If it fails again the route stays refused and the owner decides whether persistent members are in scope at all (stop here; nothing below is built).
 2. The opt-in statistic landed under a methodology-change entry, with the rebind and `repro_frozen` bit-identical.
-3. One certificate (feature, 1d to 1d, h = 5, equal weight, unsmoothed, memory bound 252) and its 7 cells; the pooled block pair; `bind_battery_pass.py`.
+3. One certificate (feature, 1d to 1d, h = 5, equal weight, unsmoothed, `e17_persistent`, memory bound 312 from the member check) and its 7 cells; the pooled block pair; `bind_battery_pass.py`.
 4. The runner admission for that one route.
-5. The H-B family, spec and preregistration (6 series), the E21 clean-data ruling for feature-vector families, then the counted run.
+5. The selection-statistic item of the correction above (StepM lags or a StepM-level H0 cell).
+6. The H-B family, spec and preregistration (6 series), the E21 clean-data ruling for feature-vector families, then the counted run.
 
 Deleted from the slice: horizons 1, 2 and 10, smoothing, other source timeframes, the 1h book, the multi-input book certificate, the regime slot cells, any `corpus_family` composition. Each is a separate item priced after the first read. The note's alternative of recomputing the stored columns as research kernels is not available: design D5 forbids a family from dodging the corpus that way.
 
