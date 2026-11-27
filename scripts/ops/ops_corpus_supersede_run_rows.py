@@ -13,7 +13,8 @@ Dry run is the default and writes nothing. Each unit is one transaction on one s
 provenance row, delete its rows, assert the deleted count equals the row_count its load recorded; a mismatch
 (another unit's rows in the same replace_where, a partial load) rolls that unit back and stops the run of
 the tool, so nothing the provenance cannot account for is ever deleted. Refused while a corpus run,
-ic_measure or rebuild process is live. Exit 0 clean, 1 a mismatch, a live run or an unknown run.
+ic_measure or rebuild process is live, and for a run whose pilot or a later step completed (only a
+failed run's units are cleared). Exit 0 clean, 1 a mismatch, a live run or an unknown run.
 """
 
 from __future__ import annotations
@@ -38,6 +39,13 @@ SELECT batch_key, generation, tf, range_start, range_end, symbols, row_count
   FROM provenance_batch
  WHERE run_id = %s::uuid AND target_table = %s AND status = 'completed'
  ORDER BY tf, range_start, batch_key
+"""
+# A run whose pilot or a later step completed still stands on its units (and may have adopted units
+# of earlier runs, which carry their run id): clearing it would hollow a completed step. Refused.
+_COMPLETED_COMPUTE_STEPS_SQL = """
+SELECT step FROM corpus_run_step
+ WHERE run_id = %s::uuid AND status = 'completed' AND step <> ALL(%s)
+ ORDER BY step
 """
 _COUNT_SQL = f"""
 SELECT count(*) FROM {TARGET_TABLE}
@@ -165,6 +173,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             "SELECT 1 FROM corpus_run WHERE run_id = %s::uuid", (args.run_id,)
         ).fetchone():
             print(f"refused: no corpus_run row for {args.run_id}", file=sys.stderr)
+            return 1
+        from services.corpus_rerun import DATA_GATE, PIN_GATE
+
+        steps = conn.execute(
+            _COMPLETED_COMPUTE_STEPS_SQL, (args.run_id, [DATA_GATE, PIN_GATE])
+        ).fetchall()
+        if steps:
+            names = ", ".join(row[0] for row in steps)
+            print(
+                f"refused: run {args.run_id} completed {names}; its units back a completed step",
+                file=sys.stderr,
+            )
             return 1
         plans = plan(conn, fetch_units(conn, args.run_id))
         lines, clean = render(plans, args.apply)

@@ -269,8 +269,8 @@ refused.
   unit's `replace_where` (for feature_vectors: the unit's tf, symbols and range), then retry the
   stage step under the same run id. The runner never does this itself; `scripts/ops/ops_corpus_supersede_run_rows.py <run_id>`
   does it per unit (a dry run listing each unit's recorded and stored row counts by default; `--apply` flips and deletes in one
-  transaction per unit, asserts the deleted count equals the recorded row_count and stops on a mismatch; refused while a run is
-  live). A new pin gives every unit a new batch key, so the previous run's units block the new run: run the tool on the old run
+  transaction per unit, asserts the provenance flip touched exactly one row and the deleted count equals the recorded row_count, and stops on a
+  mismatch; refused while a run is live and for a run whose pilot or a later step completed). A new pin gives every unit a new batch key, so the previous run's units block the new run: run the tool on the old run
   before `--new-run`. `corpus_pilot.sh --check` lists the blockers beforehand (guarded-run-runbook).
 - A disk refusal (`disk_refused` in the stage summary, reason `disk_guard`): the refused unit has
   no provenance row and stays pending; the stage stopped dispatching and still ran its

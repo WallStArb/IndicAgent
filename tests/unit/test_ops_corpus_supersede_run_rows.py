@@ -132,3 +132,45 @@ def test_a_unit_no_longer_completed_under_the_run_is_rolled_back_before_any_dele
 
 def test_the_flip_is_scoped_to_the_named_run():
     assert "run_id = %s::uuid" in tool._FLIP_SQL and "generation = %s" in tool._FLIP_SQL
+
+
+class _MainConn:
+    """main()'s connection: the run exists, its completed steps are `steps`; no unit is listed."""
+
+    def __init__(self, steps: list[str]):
+        self.steps = steps
+        self.sql: list[str] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=()):
+        self.sql.append(sql.strip().split()[0])
+        if "FROM corpus_run_step" in sql:
+            return SimpleNamespace(fetchall=lambda: [(s,) for s in self.steps])
+        if "FROM corpus_run " in sql:
+            return SimpleNamespace(fetchone=lambda: (1,))
+        return SimpleNamespace(fetchall=lambda: [])
+
+
+def _main_with(monkeypatch, steps: list[str]) -> tuple[int, _MainConn]:
+    import psycopg
+
+    conn = _MainConn(steps)
+    monkeypatch.setattr(tool, "_live_run_refusal", lambda: None)
+    monkeypatch.setattr(psycopg, "connect", lambda *a, **k: conn)
+    return tool.main([RUN, "--apply"]), conn
+
+
+def test_main_refuses_a_run_whose_pilot_or_a_later_step_completed(monkeypatch, capsys):
+    rc, conn = _main_with(monkeypatch, ["pilot"])
+    assert rc == 1 and "completed pilot" in capsys.readouterr().err
+    assert "UPDATE" not in conn.sql and "DELETE" not in conn.sql
+
+
+def test_main_clears_a_run_that_completed_only_its_gates(monkeypatch, capsys):
+    rc, _ = _main_with(monkeypatch, [])
+    assert rc == 0 and "0 units, 0 stored rows" in capsys.readouterr().out
