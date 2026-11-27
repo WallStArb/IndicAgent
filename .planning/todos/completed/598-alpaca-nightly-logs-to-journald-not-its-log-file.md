@@ -1,8 +1,6 @@
 ---
 claimable: true
-claimed_by: indicagent-03
-claimed_at: 2026-11-27T07:12:38+00:00
-status: pending
+status: completed
 priority: P2
 filed: 2026-11-06
 source: lead (indicagent-4d), from the 596 re-ask run
@@ -30,3 +28,7 @@ The nightly writes to its own log file at info level, journald holds only the un
 and summary, and a re-ask session's log stays under about 50 MB.
 
 Claim note (lead 2026-11-27): timer-run code (the Alpaca nightly, 04:40Z); edit it only in a detached worktree off `origin/main` and land only CI-green. The six blocking timers are quiesced until the 1d IC measure completes, so land it before their release, never during a nightly run.
+
+## Closed 2026-11-27 (claimed and landed by indicagent-03)
+
+`main()` calls `setup_service_logging("logs/ops_bar_nightly.log")` before any work, so structlog writes at info to a 10 MB rotating file (three backups, under 50 MB) and the per-session `bar_selection.session_choice` debug line is filtered. A failed window is a `ops_bar_nightly.window_failed` warning in that file instead of a stdout line; journald keeps only the unit's start and stop and the one summary line. The per-session line was already at debug, so no demotion was needed. Tests: `tests/unit/scripts/test_ops_bar_nightly_logging.py` (fail against the old script).

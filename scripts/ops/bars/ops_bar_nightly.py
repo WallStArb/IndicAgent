@@ -48,6 +48,7 @@ from datetime import UTC, date, datetime, time, timedelta
 
 import pandas as pd
 import psycopg
+import structlog
 
 from services.bar_load import LoadPolicy, LoadResult, load_frame, load_series, load_status
 from services.complete_bar_gate import keep_complete, read_settle
@@ -55,6 +56,7 @@ from services.ohlcv_coverage_writer import fetch_status_for_outcome, record_fetc
 from services.ohlcv_ingress_contract import read_raw_params
 from services.ohlcv_request_writer import RequestSink, new_fetch_run_id
 from src.config.settings import get_active_contracts, get_settings
+from src.core.service_utils import setup_service_logging
 from src.intelligence.bars.capture_freshness import coverage_ratio, sessions_behind
 from src.intelligence.bars.gap_plan import ANSWERED_OUTCOMES
 from src.intelligence.bars.vendor_kind import ALPACA_RAW_ADJUSTMENT, alpaca_kind_for_feed
@@ -73,6 +75,10 @@ CALLER_5M = "{vendor}-nightly-5m"
 CALLER_1D = "{vendor}-nightly-1d-raw"
 # Matches the systemd unit suffix (indicagent-alpaca-nightly), the job label every oneshot emits.
 _JOB = "alpaca-nightly"
+# structlog goes to this file at info (CLAUDE.md logging rule; todo 598); journald keeps only the unit's
+# start, stop and the one summary line printed at the end.
+_LOG_FILE = "logs/ops_bar_nightly.log"
+_logger = structlog.get_logger(__name__)
 _SESSIONS_BEHIND = point_gauge(
     "data_capture_sessions_behind",
     "Completed NYSE sessions after the newest raw bar of a vendor and timeframe (0 is current)",
@@ -222,6 +228,7 @@ def main() -> int:
     if args.start is not None and args.start >= args.end:
         parser.error(f"--start {args.start} must precede --end {args.end}")
 
+    setup_service_logging(_LOG_FILE)
     settings = get_settings()
     try:
         init_otel_providers(f"indicagent-{_JOB}")
@@ -664,10 +671,12 @@ async def _run(
                         )
                     except Exception as error:  # noqa: BLE001 - one window fails, the run continues
                         summary["errors"] += 1
-                        print(
-                            f"{symbol} {timeframe} {start:%Y-%m-%d}: ERROR "
-                            f"{type(error).__name__}: {error}",
-                            flush=True,
+                        _logger.warning(
+                            "ops_bar_nightly.window_failed",
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            start=f"{start:%Y-%m-%d}",
+                            error=f"{type(error).__name__}: {error}",
                         )
                         continue
                     if page.next_window_start is not None:
