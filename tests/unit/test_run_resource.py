@@ -52,7 +52,7 @@ class Lab:
             "CGROUP_ROOT": str(self.root / "cg"),
             "RUN_RESOURCE_CGROUP": "/scope",
             "TEXTFILE_DIR": str(self.out),
-            "RUN_RESOURCE_IN_SCOPE": "1",
+            "RUN_RESOURCE_REEXEC": "1",
             **extra,
         }
 
@@ -73,9 +73,9 @@ class Lab:
         )
 
     def samples(self, workload: str = "wl") -> dict[str, str]:
-        text = (self.out / f"run_resource_{workload}.prom").read_text()
+        text = (self.out / f"run_resource_{workload}_st.prom").read_text()
         found = re.findall(
-            rf'^(run_resource_\w+)\{{workload="{workload}",stage="st",run_id="r1"\}} (\S+)$',
+            rf'^(run_resource_\w+)\{{workload="{workload}",stage="st"(?:,run_id="r1")?\}} (\S+)$',
             text,
             re.M,
         )
@@ -106,8 +106,8 @@ def test_emit_writes_every_series_atomically(lab: Lab) -> None:
     assert values["run_resource_exit_code"] == "7"
     assert values["run_resource_start_timestamp_seconds"] == "1700000000"
     assert int(values["run_resource_end_timestamp_seconds"]) >= 1700000000
-    assert [p.name for p in lab.out.iterdir()] == ["run_resource_wl.prom"]  # no temp file left
-    assert (lab.out / "run_resource_wl.prom").stat().st_mode & 0o777 == 0o644
+    assert [p.name for p in lab.out.iterdir()] == ["run_resource_wl_st.prom"]  # no temp file left
+    assert (lab.out / "run_resource_wl_st.prom").stat().st_mode & 0o777 == 0o644
     assert "memory_peak_gib=0.30" in result.stdout and "exit=7" in result.stdout
 
 
@@ -116,7 +116,7 @@ def test_a_second_run_overwrites_the_workload_file(lab: Lab) -> None:
     lab.set(peak=2 * 1024 * MIB)
     lab.emit(rc=0)
     assert lab.samples()["run_resource_memory_peak_bytes"] == str(2 * 1024 * MIB)
-    assert [p.name for p in lab.out.iterdir()] == ["run_resource_wl.prom"]
+    assert [p.name for p in lab.out.iterdir()] == ["run_resource_wl_st.prom"]
 
 
 def test_oom_kill_is_read_from_memory_events(lab: Lab) -> None:
@@ -136,6 +136,87 @@ def test_leftover_processes_exclude_the_wrapper_itself(lab: Lab) -> None:
     assert "emit=0" in result.stdout, result.stderr
     assert lab.samples()["run_resource_leftover_processes"] == "2"
     assert "leftover_processes=2" in result.stdout
+
+
+def test_a_descendant_is_not_a_leftover_an_orphan_is_and_an_exited_pid_is_not(lab: Lab) -> None:
+    # a child of the emitting shell, a live process outside it (setsid, reparented), a pid that is gone
+    body = (
+        "sleep 3 & child=$!; orphan=$(sh -c 'sleep 3 >/dev/null 2>&1 & echo $!'); (exit 0) & dead=$!; wait \"$dead\"; "
+        'printf "%s\\n%s\\n%s\\n%s\\n" "$$" "$child" "$orphan" "$dead" '
+        f'> "{lab.scope}/cgroup.procs"'
+    )
+    result = lab.emit(body=body)
+    assert "emit=0" in result.stderr + result.stdout, result.stderr
+    assert lab.samples()["run_resource_leftover_processes"] == "1"
+
+
+@pytest.mark.parametrize("name", ["memory.events", "cgroup.procs"])
+def test_an_unreadable_counter_refuses_instead_of_exporting_zero(lab: Lab, name: str) -> None:
+    (lab.scope / name).unlink()
+    result = lab.emit()
+    assert "emit=3" in result.stdout and name in result.stderr
+    assert list(lab.out.iterdir()) == []
+
+
+def test_the_run_id_is_one_info_series_not_a_label_on_every_gauge(lab: Lab) -> None:
+    lab.emit()
+    text = (lab.out / "run_resource_wl_st.prom").read_text()
+    assert text.count("run_id=") == 1
+    assert 'run_resource_info{workload="wl",stage="st",run_id="r1"} 1' in text
+
+
+def _stub_systemd_run(tmp_path: Path) -> str:
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    (stub / "systemd-run").write_text("#!/bin/sh\nexit 1\n")
+    (stub / "systemd-run").chmod(0o755)
+    return f"{stub}:{os.environ['PATH']}"
+
+
+def test_a_job_never_inherits_the_scope_token_so_a_nested_call_makes_its_own_scope(
+    lab: Lab, tmp_path: Path
+) -> None:
+    inner = f'"{SCRIPT}" wl2 st r2 -- true; echo inner=$?'
+    job = f"echo token=[$RUN_RESOURCE_REEXEC] start=[$RUN_RESOURCE_START]; {inner}"
+    result = lab.run(
+        "wl",
+        "st",
+        "r1",
+        "--",
+        "bash",
+        "-c",
+        job,
+        RUN_RESOURCE_START="5",
+        PATH=_stub_systemd_run(tmp_path),
+    )
+    assert "token=[] start=[]" in result.stdout
+    assert "inner=3" in result.stdout  # the nested call tried to enter a scope (the stub refuses)
+
+
+def test_the_scope_is_probed_before_the_job_starts(lab: Lab) -> None:
+    marker = lab.root / "ran"
+    (lab.scope / "memory.peak").unlink()
+    result = lab.run("wl", "st", "r1", "--", "touch", str(marker))
+    assert result.returncode == 3 and "memory.peak" in result.stderr
+    assert not marker.exists()
+
+
+def test_an_unwritable_textfile_directory_refuses_before_the_job(lab: Lab) -> None:
+    marker = lab.root / "ran"
+    result = lab.run(
+        "wl", "st", "r1", "--", "touch", str(marker), TEXTFILE_DIR=str(lab.root / "no")
+    )
+    assert result.returncode == 3 and "not a writable directory" in result.stderr
+    assert not marker.exists()
+
+
+def test_a_failed_report_keeps_the_jobs_exit_code(lab: Lab) -> None:
+    drop = f'rm "{lab.scope}/memory.events"'
+    failed = lab.run("wl", "st", "r1", "--", "bash", "-c", f"{drop}; exit 7")
+    assert failed.returncode == 7 and "job exited 7" in failed.stderr
+    lab.set()
+    clean = lab.run("wl", "st", "r1", "--", "bash", "-c", f"{drop}; exit 0")
+    assert clean.returncode == 3 and "job exited 0" in clean.stderr
 
 
 def test_an_unreadable_peak_refuses_and_writes_nothing(lab: Lab) -> None:
@@ -177,7 +258,12 @@ def test_a_sigkilled_child_still_gets_its_peak_and_exit_137(lab: Lab) -> None:
     assert values["run_resource_memory_peak_bytes"] == str(300 * MIB)
 
 
-def test_a_term_to_the_wrapper_reaches_the_job_and_is_still_emitted(lab: Lab) -> None:
+@pytest.mark.parametrize(
+    ("sig", "code"), [(signal.SIGTERM, 143), (signal.SIGINT, 130), (signal.SIGHUP, 129)]
+)
+def test_a_signal_to_the_wrapper_reaches_the_job_and_is_still_emitted(
+    lab: Lab, sig: signal.Signals, code: int
+) -> None:
     marker = f"31.{uuid.uuid4().int % 900 + 100}"
     process = subprocess.Popen(
         [str(SCRIPT), "wl", "st", "r1", "--", "sleep", marker],
@@ -191,10 +277,11 @@ def test_a_term_to_the_wrapper_reaches_the_job_and_is_still_emitted(lab: Lab) ->
             break
         time.sleep(0.05)
     assert _alive(f"sleep {marker}")
-    process.send_signal(signal.SIGTERM)
+    time.sleep(0.3)
+    process.send_signal(sig)
     process.communicate(timeout=30)
-    assert process.returncode == 143
-    assert lab.samples()["run_resource_exit_code"] == "143"
+    assert process.returncode == code
+    assert lab.samples()["run_resource_exit_code"] == str(code)
     assert not _alive(f"sleep {marker}")
 
 
@@ -209,7 +296,7 @@ def test_no_user_manager_refuses_with_exit_3(lab: Lab, tmp_path: Path) -> None:
     (stub / "systemd-run").write_text("#!/bin/sh\nexit 1\n")
     (stub / "systemd-run").chmod(0o755)
     env = lab.env(PATH=f"{stub}:{os.environ['PATH']}")
-    del env["RUN_RESOURCE_IN_SCOPE"]
+    del env["RUN_RESOURCE_REEXEC"]
     result = subprocess.run(
         [str(SCRIPT), "wl", "st", "r1", "--", "true"], env=env, capture_output=True, text=True
     )
@@ -232,8 +319,9 @@ def _user_manager_answers() -> bool:
         return False
 
 
-@pytest.mark.skipif(not _user_manager_answers(), reason="no systemd user manager (CI)")
 def test_live_a_sigkilled_300_mib_child_leaves_its_peak(tmp_path: Path) -> None:
+    if not _user_manager_answers():
+        pytest.skip("no systemd user manager (CI)")
     out = tmp_path / "out"
     out.mkdir()
     child = (
@@ -250,7 +338,7 @@ def test_live_a_sigkilled_300_mib_child_leaves_its_peak(tmp_path: Path) -> None:
         timeout=60,
     )
     assert result.returncode == 137, result.stderr
-    text = (out / "run_resource_probe.prom").read_text()
+    text = (out / "run_resource_probe_st.prom").read_text()
     peak = int(re.search(r"memory_peak_bytes\{[^}]*\} (\d+)", text).group(1))
     assert 300 * MIB <= peak <= 400 * MIB
     assert re.search(r"oom_kill\{[^}]*\} 0\b", text)
