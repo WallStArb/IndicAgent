@@ -1,4 +1,5 @@
 ---
+objective: O1
 status: pending
 priority: P3
 filed: 2026-11-27
