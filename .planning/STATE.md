@@ -81,7 +81,7 @@ Commands, checks, deadlines and recommendations for the owner-only items below: 
 - Todo 600 ruled by the owner 2026-11-26: the Massive plan lapses about 2026-12-10, no renewal unless it is needed when the system goes live (its purpose was the 20-plus years of history for all stocks, now acquired); the HX370 copy is dropped (copies stay ubuntu1 and the ubuntu2 mirror); the fx and crypto aggregate capture is dropped (owner 2026-11-26, partial by design; `docs/operations/massive-final-capture.md`). Left for the lead: the final pass about 2026-12-07, then the plan lapse date read off the account page.
 - Todo 547: certify the reversal members and book now, hold `reversal_5_skip1` and the two momentum members (S1 drift), or hold the family. E17 landed; the StepM attestation passed; `select_books.py` is unblocked.
 - Todo 558: the pre-rebuild feature-additions pass; the lane owners' candidate list is the owner's to change.
-- Daily residual family (todo 636): the battery pass is bound (A4); the run waits on the E21 lift; a failed battery postpones and is never a verdict. Adopted 2026-11-18 and no longer waiting: A1, A2, A3, E23, E24, E26 and the stage 2 amendments (ledger and the stage 2 preregistration).
+- Daily residual family: todo 636 closed 2026-11-27 (battery pass bound under A4, both counted runs completed, the StepM read of ledger 2026-11-25b selected `reversal_21` primary and core); its use waits on the owner's 547 ruling. Adopted 2026-11-18 and no longer waiting: A1, A2, A3, E23, E24, E26 and the stage 2 amendments (ledger and the stage 2 preregistration).
 - Concept-layer reset (todo 571) runs after the 186-26 rebuild and 584's batch.
 
 ## Open items that are not verdicts
