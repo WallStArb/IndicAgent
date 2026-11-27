@@ -90,7 +90,7 @@ step_status() { "${PSQL[@]}" "select status from corpus_run_step where run_id='$
 
 stage_preflight
 if [ -n "$CHECK" ]; then
-  err=$(run_resource_scope_check 2>&1) || fail "no user scope with memory accounting and a writable textfile directory (todo 681; user manager, linger, ${TEXTFILE_DIR:-/var/lib/node-exporter-textfile}): $err"
+  scope_gate
   if [ -d "$WT" ]; then (cd "$WT" && $CR --run-id "$RUN" --check --step stage_1d) || fail "services.corpus_rerun --check refused (above)"; fi
   refusals_report
   exit $?

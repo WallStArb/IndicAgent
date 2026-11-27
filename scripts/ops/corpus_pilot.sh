@@ -25,7 +25,7 @@ host_gate
 # host_gate also refuses inside the 01:00 to 05:00Z nightly window and while a blocking timer's service runs
 verdict_preflight
 if [ -n "$CHECK" ]; then   # the run-side checks: the same gates the launch meets (services/corpus_rerun_check.py)
-  err=$(run_resource_scope_check 2>&1) || fail "no user scope with memory accounting and a writable textfile directory (todo 681; user manager, linger, ${TEXTFILE_DIR:-/var/lib/node-exporter-textfile}): $err"
+  scope_gate
   if [ -n "$RESUME" ]; then
     WT="$(dirname "$REPO")/$(basename "$REPO")-corpus-run-$RESUME"
     if [ -d "$WT" ]; then (cd "$WT" && $PY -m services.corpus_rerun --run-id "$RESUME" --check) || fail "services.corpus_rerun --check refused (above)"

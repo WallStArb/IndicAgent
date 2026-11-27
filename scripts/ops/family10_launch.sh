@@ -56,7 +56,7 @@ PY
   [ -z "$recorded" ] || [ "$recorded" = "${HASH[$spec]}" ] || fail "$spec: spec hash ${HASH[$spec]} differs from the recorded rows ($recorded): the earlier killed rows would become gaps in the StepM read"
   log "preflight $spec hash=${HASH[$spec]:0:10} battery ok"
 done
-[ -z "${PREFLIGHT_ONLY:-}" ] || { log "preflight OK at $LAUNCH"; exit 0; }
+[ -z "${PREFLIGHT_ONLY:-}" ] || { scope_gate; log "preflight OK at $LAUNCH"; exit 0; }
 
 GUARDED_STAGE=repro_frozen run_guarded "$SCRATCH/repro_frozen.out" "$PY" -m scripts.research.determinism.repro_frozen "$SCRATCH/repro" --logs "$REPO/logs"
 rc=$?; log "repro_frozen exit=$rc"

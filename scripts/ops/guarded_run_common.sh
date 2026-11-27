@@ -27,6 +27,13 @@ HEAVY_JOB_RE='python.*(run_spec|e17_null_battery|ic_measure|ops_corpus|ops_bar_n
 REFUSALS=()
 log()  { if [ -n "${COLLECT_REFUSALS:-}" ]; then echo "$*"; else echo "$(date -u +%FT%TZ) $*" >> "$STATUS"; fi; }
 fail() { if [ -n "${COLLECT_REFUSALS:-}" ]; then REFUSALS+=("$*"); return 1; fi; log "ABORT $*"; exit 3; }
+# scope_gate: refuse (or, in collect mode, report) when the run could not get its user scope: no user manager, no readable
+# memory counters, or an unwritable textfile directory (tools/run_resource.sh, todo 681). Read-only, writes nothing. The one
+# probe every launcher's --check or PREFLIGHT_ONLY form calls, so the message and its cause cannot drift apart.
+scope_gate() {
+  local err; err=$(run_resource_scope_check 2>&1) \
+    || fail "no user scope with memory accounting and a writable textfile directory (todo 681; user manager, linger, ${TEXTFILE_DIR:-/var/lib/node-exporter-textfile}): $err"
+}
 refusals_report() { local r; for r in "${REFUSALS[@]}"; do echo "REFUSED: $r"; done; [ "${#REFUSALS[@]}" -eq 0 ]; }
 apr_value_gate() {   # key, expected value, why (the reason the launch needs it); refuses on any other value
   local now; now=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select config_value from config_state where config_key='$1'")

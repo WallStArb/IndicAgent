@@ -147,3 +147,25 @@ def test_the_hold_line_gives_runnable_absolute_commands(ic: IcLab) -> None:
     text = ic.status_text()
     assert f"bash {ic.repo}/scripts/ops/ic_measure_launch.sh {RUN_ID} {PREFIX}" in text
     assert f"cd {ic.repo} && " in text and "--release (only after the run is abandoned)" in text
+
+
+def test_the_read_only_preflight_probes_the_user_scope(ic: IcLab) -> None:
+    refused = ic.launch(PREFLIGHT_ONLY="1", SYSTEMD_RUN_RC="1")
+    assert refused.returncode == 3
+    assert (
+        "no user scope with memory accounting and a writable textfile directory" in refused.stdout
+    )
+
+
+def test_every_check_form_uses_the_one_scope_gate() -> None:
+    for name in (
+        "corpus_pilot.sh",
+        "corpus_stage_launch.sh",
+        "ic_measure_launch.sh",
+        "family10_launch.sh",
+    ):
+        text = (SCRIPTS / name).read_text()
+        assert "scope_gate" in text, name
+        assert (
+            "run_resource_scope_check" not in text
+        ), name  # the probe is called only through the helper

@@ -68,7 +68,7 @@ reason=$(ic_preflight_judge "$scope" "$width" "$(step pilot)" "$(step feature_co
 log "ic_measure preflight ok: run $RUN scope $scope width $width code key ${key:0:12}"
 FLOOR_KEY=infra.run_guarded.mem_floor_gib.ic_measure   # read before the preflight exit: an unseeded or unusable key shows there
 if floor_kb=$(apr_floor_kb "$FLOOR_KEY"); then MEM_FLOOR_KB=$floor_kb; else fail "$FLOOR_KEY is not an integer from 8 to 512 in APR"; fi
-[ -z "${PREFLIGHT_ONLY:-}" ] || exit 0
+[ -z "${PREFLIGHT_ONLY:-}" ] || { scope_gate; exit 0; }   # the read-only form probes the user scope too
 
 grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
 host_gate
