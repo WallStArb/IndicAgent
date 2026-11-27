@@ -27,6 +27,8 @@ GIT_ENV = {
 _STUBS = {
     # the user scope: run the command after `--` in place, with the --setenv pairs exported; no command is a probe
     "systemd-run": """#!/bin/sh
+[ "${SYSTEMD_RUN_RC:-0}" = 0 ] || exit "$SYSTEMD_RUN_RC"
+[ -z "${STUB_SCOPE_RECORD:-}" ] || { echo "systemd-run $*" >> "$STUB_LOG"; exit 0; }
 while [ $# -gt 0 ] && [ "$1" != "--" ]; do
   case "$1" in --setenv=*) export "${1#--setenv=}";; esac
   shift
@@ -111,7 +113,13 @@ class Lab:
         self.repo = tmp_path / "repo"
         ops = self.repo / "scripts" / "ops"
         ops.mkdir(parents=True)
-        for name in ("guarded_run_common.sh", "corpus_pilot.sh"):
+        for name in (
+            "guarded_run_common.sh",
+            "corpus_pilot.sh",
+            "ic_measure_launch.sh",
+            "family10_launch.sh",
+            "family10_block2_rerun.sh",
+        ):
             shutil.copy(SCRIPTS / name, ops / name)
         (self.repo / "tools").mkdir()
         shutil.copy(SCRIPTS.parents[1] / "tools" / "run_resource.sh", self.repo / "tools")
@@ -590,3 +598,80 @@ def test_an_inherited_collect_mode_does_not_turn_a_launch_refusal_into_a_no_op(l
     assert result.returncode == 3
     assert "infra.feature_factory.workers is 8" in lab.status_text()
     assert not _calls_with(lab, "--new-run")
+
+
+# ---------------------------------------------------------------------------------------------
+# run_resource (todo 681 part B): every launcher re-executes itself in a user scope
+# ---------------------------------------------------------------------------------------------
+
+
+def _scope_calls(lab: Lab) -> list[str]:
+    return [c for c in lab.calls() if c.startswith("systemd-run") and "RUN_RESOURCE_REEXEC=1" in c]
+
+
+@pytest.mark.parametrize(
+    ("script", "args"),
+    [
+        ("corpus_pilot.sh", ["abc"]),
+        ("ic_measure_launch.sh", [RUN_ID, "abc"]),
+        ("family10_launch.sh", []),
+        ("family10_block2_rerun.sh", []),
+    ],
+)
+def test_every_launcher_re_executes_itself_in_a_user_scope(
+    lab: Lab, script: str, args: list[str]
+) -> None:
+    result = subprocess.run(
+        ["bash", str(lab.repo / "scripts" / "ops" / script), *args],
+        env={**lab.env, "STUB_SCOPE_RECORD": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    calls = _scope_calls(lab)
+    assert calls, result.stderr
+    assert len(calls) == 1
+    assert f"-- bash {lab.repo}/scripts/ops/{script}" in calls[0]
+    assert calls[0].endswith(" ".join(args))
+
+
+def test_ic_measure_preflight_only_makes_no_scope(lab: Lab) -> None:
+    subprocess.run(
+        ["bash", str(lab.repo / "scripts" / "ops" / "ic_measure_launch.sh"), RUN_ID, "abc"],
+        env={**lab.env, "STUB_SCOPE_RECORD": "1", "PREFLIGHT_ONLY": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert not _scope_calls(lab)
+
+
+def test_family10_preflight_only_makes_no_scope(lab: Lab) -> None:
+    lab.run(script="family10_launch.sh", STUB_SCOPE_RECORD="1", PREFLIGHT_ONLY="1")
+    assert not _scope_calls(lab)
+
+
+@pytest.mark.parametrize(
+    ("script", "args"),
+    [
+        ("corpus_pilot.sh", ["abc"]),
+        ("ic_measure_launch.sh", [RUN_ID, "abc"]),
+        ("family10_launch.sh", []),
+        ("family10_block2_rerun.sh", []),
+    ],
+)
+def test_a_launcher_refuses_with_exit_3_when_no_user_scope_can_start(
+    lab: Lab, script: str, args: list[str]
+) -> None:
+    result = subprocess.run(
+        ["bash", str(lab.repo / "scripts" / "ops" / script), *args],
+        env={**lab.env, "SYSTEMD_RUN_RC": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 3
+    assert "systemd-run --user failed" in lab.status_text()

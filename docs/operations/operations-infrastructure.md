@@ -323,6 +323,25 @@ Rollback, live and persistent: `sudo systemctl disable --now indicagent-host-the
 
 Worker count: counted and battery runs use 4 workers until a run at that setting holds both DIMM sensors under 85 C for its whole duration (samples in `logs/family10_dimm_temp.log` while the watchdog runs); only then raise to 8. Never 16.
 
+## Host memory budget
+
+ubuntu1 has 59.4 GiB of RAM (24 threads). Each heavy run reports its own peak: guarded launchers and `tools/run_resource.sh` run the job in a transient user scope and, at exit, read the scope's `memory.peak`, `memory.swap.peak`, `oom_kill` and leftover processes from the cgroup (todo 681). The peak includes page cache, so it is an upper bound on resident need. Read it in the status line (`run_resource workload=... memory_peak_gib=...` in `logs/family10_run_status.txt`), in `/var/lib/node-exporter-textfile/run_resource_<workload>_<stage>.prom`, or on the operations dashboard. A launcher with several jobs reports the running maximum of its scope, so the first stage's peak is exact and later stages are upper bounds.
+
+Measured 2026-11-27, host at rest (`docker stats`, `pg_settings`, `free -g`):
+
+| Component | Measured | Note |
+|---|---|---|
+| Postgres container (`timescaledb`) | 15.8 GiB resident | `shared_buffers` is 14.0 GiB (1835008 pages of 8 kB), `work_mem` 256 MB per sort or hash node, `max_connections` 200, `maintenance_work_mem` 2 GiB |
+| Other containers (eleven) | 1.2 GiB together | redpanda 182 MiB of its 6 GiB `mem_limit`; one of the eleven is the sibling project's `ssfi-timescaledb` (259 MiB), which is not in `production/docker-compose.yml` |
+| Kernel, OS, page cache | not budgeted | `free` showed 47 GiB buff/cache and 39 GiB available at the same time, so cache yields to jobs |
+| One heavy compute job (4 workers) | pending the first runs | the repilot's pilot and the `ic_measure` run give the first real peaks; the per-worker slope needs one 8-worker run, which the owner allows only after a run holds both DIMM sensors under 85 C |
+| One I/O-only transfer | pending the first run | |
+| Headroom | pending | |
+
+Instrument checks so far, not budget rows: a 300 MiB allocation that SIGKILLed itself left a 0.31 GiB peak and exit 137 through the wrapper; a real wrapped `pytest` of `tests/unit/test_run_resource.py` peaked at 0.07 GiB.
+
+What the numbers allow today: the always-on components measured above sum to 17.0 GiB, so at most 42.4 GiB of the 59.4 GiB remains for the kernel and one job. That figure overstates the room: Postgres' resident size already contains its 14 GiB of `shared_buffers`, which `free` also counts in buff/cache and shared, and MemAvailable at rest read 38.8 to 40.7 GiB, at or just under the 40 GiB floor, with 1.4 of 8 GiB of swap in use. The launch floor therefore sits at the host's resting MemAvailable: every heavy launch has near-zero margin until the floor is revisited from the measured peaks. The launch gate `MEM_FLOOR_KB` (40 GiB of MemAvailable, `guarded_run_common.sh`) stays as it is until the measured peaks exist. When the pilot, `stage_1d`, the IC measure, a battery block and the unit suite each have one recorded peak, this section gets the derived launch floor, a ruled `MemoryMax` for the APR key, and the floor change if the measurements call for one (a part B style edit with its own gates).
+
 ## Docker Infrastructure
 
 ### Containers
