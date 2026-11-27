@@ -73,6 +73,18 @@ jobs:
       - name: Duplicate test names
         run: python tools/check_duplicate_tests.py
 
+  # Alert rules: promtool check and the rule tests, in the Prometheus image docker-compose.yml pins.
+  # A parallel job outside `needs`, so it never delays the test jobs (the image pull and the tests take
+  # about 30 s); it still fails the push.
+  alert-rules:
+    name: Alert rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: promtool check rules and rule tests
+        run: tools/check_alert_rules.sh
+
   # ---------------------------------------------------------------------------
   # Plugin Invariants — Renaissance-grade structural guards.
   # Mirrors all 9 bash checks in tools/pre-commit.hook (the local git hook is
