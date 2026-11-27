@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-11-18
 source: B-S review (todo 609): amendment A2 requires the B2 size gate to rerun with the sixth member, and nothing enforces it
@@ -119,3 +119,6 @@ What the family 10 runs must record, restated against the launcher: the four row
 
 The preflight is on main as f74ab5d76 and 1490be5d5 (`scripts/ops/family10_launch.sh` only), after indicagent-fb's review. The review found one hazard, fixed before landing: in `PREFLIGHT_ONLY` the script used the live run's worktree path, pruned worktrees and skipped the host gate. It now uses a throwaway `wt-f10pre-<pid>` removed on exit, never prunes, refuses while a `run_spec` process is live, and prints to the terminal instead of the status file; its header says what it writes (a `git fetch` and the throwaway worktree). Use it as the go or no-go before the heavy slot: `PREFLIGHT_ONLY=1 [LAUNCH_COMMIT=<commit>] bash scripts/ops/family10_launch.sh`. Checked 2026-11-24: "preflight OK at c0832b091" with both spec hashes (597a275c45, 7d4dbf497e), exit 0 in 8 seconds. Gaps 1 to 6 above are closed except the choice of a new `LAUNCH_COMMIT` after a closure change, which needs the battery key at that commit to equal the bound record (the preflight checks it) and a fresh `repro_frozen` (the launcher runs it).
 
+## Closed 2026-11-27 (lead ruling)
+
+Done. The reduced family's battery pass is bound (`research/battery_passes/daily_residual_2026-11-21.json`), both counted runs completed (ledger 2026-11-22c), and the StepM read across the counted looks ran on 16 series (ledger 2026-11-25b: `reversal_21` primary and core and `volume_shock_1_50` primary selected). The `reversal_21` "pooled read" is retired (ledger 2026-11-23b: R-1 is a non-gating disclosure, R-2 the forward confirmation). What is left is the owner's todo 547 ruling, which governs use of the result (certify `reversal_21` and its book, or hold the family), not the read; it is tracked on PRIORITIES rank 8.

@@ -1,4 +1,5 @@
 ---
+claimable: true
 status: pending
 priority: P3
 filed: 2026-11-26

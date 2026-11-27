@@ -1,4 +1,5 @@
 ---
+claimable: true
 status: pending
 priority: P2
 filed: 2026-11-06
@@ -25,3 +26,5 @@ nightly-area change, in its own worktree (timer-run code).
 
 The nightly writes to its own log file at info level, journald holds only the unit's start, stop
 and summary, and a re-ask session's log stays under about 50 MB.
+
+Claim note (lead 2026-11-27): timer-run code (the Alpaca nightly, 04:40Z); edit it only in a detached worktree off `origin/main` and land only CI-green. The six blocking timers are quiesced until the 1d IC measure completes, so land it before their release, never during a nightly run.

@@ -148,6 +148,18 @@ may just be exploration or vision without a clear "do this" action.
 
 ---
 
+### Claiming a todo (idle workers)
+
+An idle worker session claims light work itself instead of waiting for the lead.
+
+- Who marks work claimable: only the lead, by adding `claimable: true` to a todo's frontmatter. It fits a todo that is light, outside every pin closure (no module a live or resumable run imports), needs no heavy job and no owner ruling. Heavy, pinned or owner-ruled work stays lead-assigned.
+- How to claim: in a detached worktree off `origin/main` (never on the shared checkout's main), add `claimed_by: <your ListAgents name>` and `claimed_at: <UTC ISO time, e.g. 2026-11-27T08:00:00+00:00>` to the frontmatter block that starts on line 1, commit only that file and `git push origin HEAD:main`. If the push is rejected, fetch: if the todo on `origin/main` now has `claimed_by`, someone else won, so drop your commit and pick the next claimable todo; otherwise rebase and push again.
+- How to release: remove both claim fields in a commit (finished work closes the todo instead, and a todo in `completed/` or `deferred/` carries no claim). A claim with no commit to its todo for three days is stale and must be released.
+- Landing: every claimed landing still passes the Done-Coding SOP, gets an independent review and is reported to the lead with its sha. Timer-run code is still edited only in a detached worktree off `origin/main`.
+- Enforced by `tests/unit/test_todo_priorities_link_integrity.py`: claim fields only in the line-1 frontmatter, a claim only on a pending `claimable: true` todo, both fields with `claimed_at` in UTC, and no stale claim. The stale check runs in every local suite and skips in CI, so a calendar date never turns an unrelated push red; the lead loop reads it.
+
+---
+
 ## Layer 5 — ROADMAP.md + phases/ (Committed Execution)
 
 **Files:** `.planning/ROADMAP.md`, `.planning/phases/phase-NNN/`

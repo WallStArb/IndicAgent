@@ -1,4 +1,5 @@
 ---
+claimable: true
 status: pending
 priority: P3
 filed: 2026-11-27
@@ -22,3 +23,5 @@ Add one gauge per class (or one gauge with a `class` label) through `src/observa
 ## Not blocking
 
 The alerts for a missed fire and for the `gap_found` and `candidates` statuses (`SplitFeedAuditorMissed`, `SplitFeedAuditorFinding`) read only `job_completed_total` and do not wait for this.
+
+Claim note (lead 2026-11-27): timer-run code; edit it only in a detached worktree off `origin/main` and land only CI-green.
