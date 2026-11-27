@@ -21,12 +21,4 @@ log "block2 rerun start workers=$WORKERS"
 GUARDED_STAGE=block2 run_guarded "$SCRATCH/block2_rerun.out" "$PY" scripts/research/e17_null_battery.py "$OUT" --sims 1000 \
   --workers "$WORKERS" --battery src.intelligence.research.null_battery_volume_shock --seed-base 12000000
 rc=$?; log "block2 rerun exit=$rc"; [ $rc -eq 0 ] || exit $rc
-"$PY" - "$RECORDED" "$OUT" "$COMMIT" >> "$STATUS" <<'PY'
-import json, sys
-a, b = (json.load(open(p)) for p in sys.argv[1:3])
-drop = ("seconds",)
-for d in (a, b):
-    for k in drop: d.pop(k, None)
-print("block2 compare:", "IDENTICAL" if a == b else "DIFFERENT",
-      [k for k in a if a.get(k) != b.get(k)], "commit=" + sys.argv[3])
-PY
+"$PY" "$REPO/scripts/ops/block2_compare.py" "$RECORDED" "$OUT" "$COMMIT" >> "$STATUS"   # from $REPO: the worktree is the old battery commit

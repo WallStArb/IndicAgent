@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -757,6 +758,23 @@ def _gate(lab: Lab, *lines: str) -> subprocess.CompletedProcess[str]:
             ),
             True,  # another pin's line does not withdraw this pin's pass
         ),
+        (
+            (
+                f"2026-11-27T10:00:00Z block2 compare: ACCEPTED commit={BLOCK2_COMMIT} (ledger 2026-11-24g)",
+            ),
+            True,  # log() and a hand-appended line carry a timestamp
+        ),
+        (
+            (
+                f"block2 compare: ACCEPTED commit={BLOCK2_COMMIT} (ledger 2026-11-24g)",
+                f"block2 compare: DIFFERENT ['report'] commit={BLOCK2_COMMIT}",
+            ),
+            False,  # a new rerun that differs needs its own ruling
+        ),
+        (
+            (f"note: block2 compare: IDENTICAL [] commit={BLOCK2_COMMIT}",),
+            False,  # the line must start the line, after an optional timestamp
+        ),
     ],
 )
 def test_the_block2_gate_matches_the_pin(lab: Lab, lines: tuple[str, ...], passes: bool) -> None:
@@ -770,6 +788,31 @@ def test_the_block2_gate_matches_the_pin(lab: Lab, lines: tuple[str, ...], passe
         )
 
 
-def test_the_block2_rerun_writes_the_pin_it_gates_on() -> None:
+def test_the_rerun_writer_and_the_gate_agree_on_the_line(lab: Lab, tmp_path: Path) -> None:
+    recorded, rerun = tmp_path / "recorded.json", tmp_path / "rerun.json"
+    recorded.write_text('{"a": 1, "seconds": 5}')
+    rerun.write_text('{"a": 1, "seconds": 9}')
+    writer = SCRIPTS / "block2_compare.py"
+    out = subprocess.run(
+        [sys.executable, str(writer), str(recorded), str(rerun), BLOCK2_COMMIT],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert out == f"block2 compare: IDENTICAL [] commit={BLOCK2_COMMIT}"
+    assert "gate_rc=0" in _gate(lab, out).stdout
+    rerun.write_text('{"a": 2}')
+    differing = subprocess.run(
+        [sys.executable, str(writer), str(recorded), str(rerun), BLOCK2_COMMIT],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert differing == f"block2 compare: DIFFERENT ['a'] commit={BLOCK2_COMMIT}"
+    assert _gate(lab, differing).returncode == 3
+
+
+def test_the_block2_rerun_calls_the_writer_with_its_pin() -> None:
     text = (SCRIPTS / "family10_block2_rerun.sh").read_text()
-    assert "COMMIT=$BLOCK2_COMMIT" in text and '"commit=" + sys.argv[3]' in text
+    assert "COMMIT=$BLOCK2_COMMIT" in text
+    assert '"$REPO/scripts/ops/block2_compare.py" "$RECORDED" "$OUT" "$COMMIT"' in text

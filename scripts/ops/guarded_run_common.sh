@@ -64,10 +64,14 @@ dimm_max_c() {
 BLOCK2_COMMIT=48a65742d44e5357b181a042d495c4d38a6d946f
 block2_gate() {
   local last
-  last=$(grep -F "block2 compare:" "$STATUS" 2>/dev/null | grep -F "commit=$BLOCK2_COMMIT" | tail -1)
+  # the line itself, optionally behind a timestamp (log() prefixes one); the refusal below quotes only the verdict word,
+  # because fail() appends to this same file and must not leave a line the next read could match
+  last=$(grep -E '^([0-9TZ:-]+ )?block2 compare:' "$STATUS" 2>/dev/null | grep -F "commit=$BLOCK2_COMMIT" | tail -1)
   case "$last" in
-    *"block2 compare: IDENTICAL"*|*"block2 compare: ACCEPTED"*) ;;
-    *) fail "no IDENTICAL or ACCEPTED block 2 comparison for commit ${BLOCK2_COMMIT:0:9} in the status file (the last one: ${last:-none})";;
+    "block2 compare: IDENTICAL "*|"block2 compare: ACCEPTED "*) ;;
+    *"Z block2 compare: IDENTICAL "*|*"Z block2 compare: ACCEPTED "*) ;;
+    *) local verdict; verdict=$(sed -n 's/^\([0-9TZ:-]* \)\{0,1\}block2 compare: \([A-Z]*\).*/\2/p' <<< "$last")
+       fail "no IDENTICAL or ACCEPTED block 2 comparison for commit ${BLOCK2_COMMIT:0:9} in the status file (this pin's last verdict: ${verdict:-none}); a hand-written ACCEPTED line needs commit=$BLOCK2_COMMIT";;
   esac
 }
 

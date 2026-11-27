@@ -3,7 +3,7 @@
 Scripts in `scripts/ops/`: `guarded_run_common.sh` (host gate, DIMM watchdog, RSS log: `rss_mb` goes into `logs/family10_dimm_temp.log` every 20 s), `family10_block2_rerun.sh`, `family10_launch.sh`, `corpus_pilot.sh`. Each passes `bash -n`. Output, worktrees and the operator file `memtester_clean` live under `logs/guarded_run/` (override with `GUARDED_RUN_DIR`). Why they exist: the 2026-11-23 DIMM overheating (117 C) corrupted memory and killed the family 10 counted runs (`.planning/STATE.md`, ledger 2026-11-24b).
 
 ## Order (lead ruling 2026-11-24)
-1. Block 2 rerun to `block2 compare: IDENTICAL` in `logs/family10_run_status.txt`.
+1. Block 2 rerun to `block2 compare: IDENTICAL [] commit=<sha>` in `logs/family10_run_status.txt` (the sha is `BLOCK2_COMMIT`).
 2. This pilot (65 names, 4 workers, DIMM watchdog), done before the 04:40Z Alpaca nightly (23:40 EST).
 3. Four family 10 counted runs. 4. If the pilot passed, `stage_1d` after the counted runs, on the same pin, `--through feature_complete` and no further until todos 670 and 671 exist (ledger 2026-11-24f).
 
@@ -31,7 +31,7 @@ Scripts in `scripts/ops/`: `guarded_run_common.sh` (host gate, DIMM watchdog, RS
   ea0dcba05 left it unchanged).
 
 ## Pre-flight (the launcher enforces the items marked *)
-1. `block2 compare: IDENTICAL` in the status file *.
+1. `block2 compare: IDENTICAL` (or a hand-written `ACCEPTED`) for `commit=<BLOCK2_COMMIT>` in the status file *: the last comparison line carrying that commit decides, a line without the pin or for another commit never counts, and a later DIFFERENT withdraws an earlier pass (a new rerun that differs needs its own ruling).
 2. `memtester_clean` present *; no memtester, no other heavy job *; `/proc/sys/kernel/tainted` is 0 *; no
    segfault, Bad page, Bad swap or GPF in this boot's kernel log *; both DIMM sensors at 60 C or less *; 40 GB
    available *.
@@ -89,7 +89,7 @@ An active member whose ticker ends (a merger, a rename, a delisting) needs a `li
 - `systemctl disable --now indicagent-host-thermal-cap` is not part of this rollback.
 
 ## Block 2 rerun and the four family 10 counted runs
-- `setsid -f bash scripts/ops/family10_block2_rerun.sh`: the verification rerun of battery block 2 (seed base 12,000,000, commit 48a65742d, 1,000 simulations per cell, `--battery src.intelligence.research.null_battery_volume_shock`); seeds are by position, so the worker count does not change a result. It compares every field except `seconds` with `logs/e17_family10_s12m/block2.json` and writes `block2 compare: IDENTICAL` or `DIFFERENT [fields]` to `logs/family10_run_status.txt`. It charges nothing.
+- `setsid -f bash scripts/ops/family10_block2_rerun.sh`: the verification rerun of battery block 2 (seed base 12,000,000, commit 48a65742d, 1,000 simulations per cell, `--battery src.intelligence.research.null_battery_volume_shock`); seeds are by position, so the worker count does not change a result. It compares every field except `seconds` with `logs/e17_family10_s12m/block2.json` and writes `block2 compare: IDENTICAL` or `DIFFERENT [fields]` plus `commit=<sha>` (the pin) to `logs/family10_run_status.txt` through `scripts/ops/block2_compare.py`. A ruling to accept a difference is appended by hand in the same form, after the last DIFFERENT: `<UTC stamp> block2 compare: ACCEPTED commit=<sha> (<ledger entry>)`. The battery code a counted run uses is held to the bound record by the runner's own `static_gate` (the battery key), not by this line. It charges nothing.
 - `setsid -f bash scripts/ops/family10_launch.sh [spec ...]`: needs the IDENTICAL line, then the host gate, the commit-equality check against `c0832b091`, `repro_frozen`, then the primary spec and the core spec one at a time under the watchdog. A rerun with a spec argument resumes at core. The four dead attempts of 2026-11-24 are charged `failed` rows with no result, so they do not use up the spec hash (`ledger.py` RESULTLESS_FAILURE_SQL).
 - Neither family 10 spec can be replayed after the fact (both declare `total_return`), so the host must be cool and clean before they start.
 
