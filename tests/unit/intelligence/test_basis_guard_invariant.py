@@ -29,6 +29,17 @@ _GUARDED = [
 _TOO_LONG_FOR_FIXTURE = {"rolling_poc"}
 
 
+def _upstream(kernel, full, config) -> dict:
+    """The intermediate inputs a guarded kernel reads (todo 677), produced by compute_kernels on
+    the full series exactly as production feeds them, then sliced with the bars. Their producers
+    must read no volume, so the basis guard has nothing to mask in them."""
+    names = [n for n in kernel.inputs if n not in full]
+    for name in names:
+        producers = [k for k in _REGISTRY.topological_order([name]) if k.name != kernel.name]
+        assert all("volume" not in k.inputs for k in producers), (kernel.name, name)
+    return compute_kernels(_REGISTRY, full, config, outputs=names) if names else {}
+
+
 def _case(seed: int):
     inputs, config = ref.synthetic_inputs()
     n = len(inputs["ts"])
@@ -51,8 +62,7 @@ def test_unmasked_rows_equal_the_kernel_on_their_trailing_window(name, seed):
     full, config, basis = _case(seed)
     n = len(basis)
     cut = {k: full[k] for k in kernel.inputs if k in full}
-    if "_atr_raw_padded" in kernel.inputs:
-        pytest.skip("needs an upstream kernel output; covered by the end-to-end checks")
+    cut.update(_upstream(kernel, full, config))
     got = _guard_volume(kernel, cut, basis, config)[0]
     memory = int(kernel.memory(config))
     compared = 0
@@ -88,8 +98,7 @@ def test_a_none_mask_column_is_never_nan_at_a_segment_start():
     basis = np.ones(n, dtype=np.int64)
     basis[251:] = 2
     cut = {k: full[k] for k in kernel.inputs if k in full}
-    if "_atr_raw_padded" in kernel.inputs:
-        pytest.skip("needs an upstream kernel output; covered by the end-to-end checks")
+    cut.update(_upstream(kernel, full, config))
     got = _guard_volume(kernel, cut, basis, config)[0]
     for out_name, column in got.items():
         if out_name.startswith("_") and out_name.endswith("_is_none"):

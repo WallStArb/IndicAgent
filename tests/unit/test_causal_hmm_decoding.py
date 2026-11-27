@@ -1,19 +1,13 @@
-"""Unit test: causal HMM forward-filter decoding vs full-sequence Viterbi.
+"""Unit test: the causal HMM forward filter is causal.
 
-GaussianHMM.predict() is full-sequence Viterbi. It is NOT causal. It uses both
-past AND future observations to decode each timestep via the Viterbi algorithm
-over the complete sequence. _decode() is the causal forward-filter (alpha-
-pass only) -- at timestep t it uses ONLY observations obs[0..t].
+GaussianHMM.predict() is full-sequence Viterbi and uses future observations. _decode() is
+the causal forward filter (alpha pass only): at timestep t it uses ONLY obs[0..t]. The
+gating property is prefix invariance: decoding obs[0..T] and obs[0..N] gives the same states
+and the same filtered probabilities at every t <= T.
 
-This test verifies they produce DIFFERENT results on a deterministic 30-bar
-sequence with a sharp regime switch at bar 20. On this sequence:
-  - Viterbi can "look ahead" from bar 1 and "know" the switch at bar 20 will happen
-    because it processes the full sequence before decoding any single bar
-  - The causal filter at bars 1-15 has never seen bars 16-30 at all
-
-If _decode() and model.predict() agree on this sequence, the causal decoder
-is NOT actually causal -- it is replicating Viterbi behavior. This test would fail
-(marking a real architecture violation).
+An earlier test asserted that causal and Viterbi labels differ; on cleanly separated regimes
+they rightly agree, so that test only passed when the fit degenerated and skipped (todo 677).
+It is removed; prefix invariance of the probabilities is the stricter check.
 
 No DB, no Kafka. Pure numpy + hmmlearn.
 """
@@ -31,22 +25,24 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+from src.intelligence.features.kernels._hmm import _log_emit_diag, _stationary_distribution
+from src.intelligence.hmm_jit import alpha_pass_jit
 from tests.unit._hmm_decode_helpers import decode as _decode
 
 _SEED = 42
 
 
-def _make_regime_switch_obs(n_bars: int = 30, switch_at: int = 20) -> np.ndarray:
+def _make_regime_switch_obs(n_bars: int = 30, switch_at: int = 20, seed: int = _SEED) -> np.ndarray:
     """Build a deterministic observation sequence with a sharp regime switch.
 
     First switch_at bars: strongly positive log-returns (trending-up regime).
     Remaining bars: strongly negative log-returns (trending-down regime).
-    This creates a sequence where Viterbi's backward pass has substantial
-    information advantage vs the causal forward filter.
 
-    Two-dimensional: [log_return, realized_vol].
+    Two-dimensional: [log_return, realized_vol], in percent. In raw units the per-regime
+    variances (about 1e-6) sit far below hmmlearn's min_covar floor (1e-3), the two states
+    cannot separate and the 2-state fit degenerates to one (todo 677); in percent they do.
     """
-    rng = np.random.default_rng(_SEED)
+    rng = np.random.default_rng(seed)
     obs = np.zeros((n_bars, 2))
     # First segment: positive returns, low vol
     obs[:switch_at, 0] = rng.normal(0.005, 0.001, switch_at)
@@ -54,20 +50,22 @@ def _make_regime_switch_obs(n_bars: int = 30, switch_at: int = 20) -> np.ndarray
     # Second segment: negative returns, higher vol
     obs[switch_at:, 0] = rng.normal(-0.008, 0.001, n_bars - switch_at)
     obs[switch_at:, 1] = rng.uniform(0.004, 0.008, n_bars - switch_at)
-    return obs
+    return obs * 100.0
 
 
 class TestCausalVsViterbi:
-    """Causal forward-filter must differ from full-sequence Viterbi on regime-switch data."""
+    """The causal forward filter is prefix-invariant on regime-switch data."""
 
     def setup_method(self):
-        """Fit a 2-component HMM on the regime-switch sequence.
-
-        200 bars (switch at 150) gives the HMM sufficient data to cleanly separate
-        the two regimes, making the Viterbi backward-pass advantage observable.
-        A 30-bar sequence was too short for reliable state separation.
-        """
-        self.obs = _make_regime_switch_obs(n_bars=200, switch_at=150)
+        """Fit a 2-component HMM on a three-segment sequence (150 up, 50 down, 60 up)."""
+        # up, down, then up again: with one switch the fitted chain is absorbing, its stationary
+        # prior puts no mass on the first regime and bar 0 decodes to the wrong state
+        self.obs = np.vstack(
+            [
+                _make_regime_switch_obs(n_bars=200, switch_at=150),
+                _make_regime_switch_obs(60, 60, seed=_SEED + 1),
+            ]
+        )
         self.n_components = 2
         model = GaussianHMM(
             n_components=self.n_components,
@@ -77,50 +75,19 @@ class TestCausalVsViterbi:
         )
         model.fit(self.obs)
         self.model = model
+        # a degenerate or muddled fit would make every check below trivial (todo 677): Viterbi
+        # must recover the three known segments, up to the label permutation
+        truth = np.r_[np.zeros(150), np.ones(50), np.zeros(60)].astype(int)
+        viterbi = model.predict(self.obs)
+        agreement = max((viterbi == truth).mean(), (viterbi == 1 - truth).mean())
+        assert agreement >= 0.95, f"the fit does not recover the regimes ({agreement:.2f})"
+        share = np.bincount(viterbi, minlength=self.n_components) / len(viterbi)
+        assert share.min() >= 0.10, f"a regime holds under 10 percent of bars ({share})"
 
     def _covars_diag(self) -> np.ndarray:
         """Extract diagonal variances (K, d) from model.covars_ (K, d, d)."""
         d = self.model.means_.shape[1]
         return self.model.covars_[:, np.arange(d), np.arange(d)]
-
-    def test_causal_and_viterbi_differ(self):
-        """Core assertion: causal decoder uses only past observations (no backward pass).
-
-        We verify this by constructing a scenario where the causal decoder at bar T cannot
-        possibly know what will happen at bar T+1..N, while Viterbi can use the full sequence.
-
-        The test checks that decoding obs[0..T] and obs[0..N] produces the same result at T
-        for the causal decoder (true causality), which is a stronger property than simply
-        checking that causal != Viterbi (the latter can be trivially satisfied by HMM degeneracy).
-
-        Precondition: skip if HMM degenerates to a single active state (both decoders agree
-        trivially -- this is an HMM convergence artifact, not a causality violation).
-        """
-        viterbi_states = self.model.predict(self.obs)  # full-sequence Viterbi
-        covars_diag = self._covars_diag()
-
-        causal_states, _ = _decode(
-            self.obs,
-            self.model.means_,
-            covars_diag,
-            self.model.transmat_,
-            self.n_components,
-        )
-
-        # If HMM collapsed to a degenerate single-state solution, both decoders agree
-        # trivially. Skip the diff assertion — causality is verified by test_causal_is_truly_causal.
-        n_viterbi_states = len(np.unique(viterbi_states))
-        if n_viterbi_states < self.n_components:
-            pytest.skip(
-                f"HMM degenerated: Viterbi uses only {n_viterbi_states} of {self.n_components} states. "
-                "Causality is verified by test_causal_is_truly_causal."
-            )
-
-        assert not np.array_equal(viterbi_states, causal_states), (
-            "Causal forward-filter produced identical results to full-sequence Viterbi. "
-            "This means _decode() is NOT causal -- it replicates Viterbi. "
-            "Check for a backward pass or smoothing step in _decode()."
-        )
 
     def test_causal_states_dtype_and_range(self):
         """Causal decoded states must be integer type, all values in {0, 1}."""
@@ -162,42 +129,60 @@ class TestCausalVsViterbi:
             f"got {n_unique_pre} distinct labels: {np.unique(pre_switch_states)}"
         )
 
+    def _ambiguous_tail(self, n: int = 12) -> np.ndarray:
+        """The regime-switch sequence plus n bars between the two fitted means, where the filter
+        is not saturated, so a leak of future information moves a probability materially."""
+        mid = self.model.means_.mean(axis=0)
+        rng = np.random.default_rng(_SEED + 2)
+        spread = np.sqrt(self._covars_diag().mean(axis=0))
+        return np.vstack([self.obs, mid + rng.normal(0.0, 0.3, (n, 2)) * spread])
+
+    def _prefix_check(self, decoder, obs: np.ndarray, cuts) -> None:
+        full_states, full_alpha = decoder(obs)
+        for cut in cuts:
+            states, alpha = decoder(obs[:cut])
+            np.testing.assert_array_equal(states, full_states[:cut], err_msg=f"states, cut {cut}")
+            np.testing.assert_array_equal(alpha, full_alpha[:cut], err_msg=f"alpha, cut {cut}")
+
+    def _decoders(self):
+        means, covars, transmat = self.model.means_, self._covars_diag(), self.model.transmat_
+        log_a = np.log(np.maximum(transmat, 1e-300))
+        pi0 = _stationary_distribution(transmat)
+
+        def production(obs):
+            return alpha_pass_jit(_log_emit_diag(obs, means, covars), log_a, pi0)
+
+        def reference(obs):
+            return _decode(obs, means, covars, transmat, self.n_components)
+
+        return production, reference
+
     def test_causal_is_truly_causal(self):
-        """Causal property: decoding obs[0..T] vs obs[0..2T] must agree at T.
+        """Prefix invariance: decoding obs[0..T] and obs[0..N] gives the same states and the same
+        filtered probabilities at every t <= T, for the production filter (alpha_pass_jit) and the
+        reference one, with cuts inside a run of ambiguous bars where the filter is not
+        saturated, and after each regime switch."""
+        obs = self._ambiguous_tail()
+        n = len(self.obs)
+        cuts = (151, 201, n + 3, n + 6, n + 9)
+        _states, alpha = self._decoders()[0](obs)
+        assert (
+            alpha[n + 3 : n + 9].min() > 1e-9
+        ), "the ambiguous bars must not be saturated (1e-36 after a switch)"
+        for decoder in self._decoders():
+            self._prefix_check(decoder, obs, cuts)
 
-        This is the gold-standard causality test. If state at T differs depending
-        on whether future observations (T+1..2T) are present, the decoder is not causal.
-        """
-        obs = self.obs
-        half = len(obs) // 2
-        covars_diag = self._covars_diag()
+    def test_the_prefix_check_catches_a_smoother(self):
+        """The same check on hmmlearn's forward-backward posteriors (a non-causal decoder) fails."""
 
-        # Decode first half only
-        causal_half, _ = _decode(
-            obs[:half],
-            self.model.means_,
-            covars_diag,
-            self.model.transmat_,
-            self.n_components,
-        )
+        def smoother(obs):
+            posteriors = self.model.predict_proba(obs)
+            return posteriors.argmax(axis=1), posteriors
 
-        # Decode full sequence
-        causal_full, _ = _decode(
-            obs,
-            self.model.means_,
-            covars_diag,
-            self.model.transmat_,
-            self.n_components,
-        )
-
-        np.testing.assert_array_equal(
-            causal_half,
-            causal_full[:half],
-            err_msg=(
-                "Causality violation in _decode(): state at T changed when "
-                "future observations were added. Check for backward pass or smoothing."
-            ),
-        )
+        obs = self._ambiguous_tail()
+        n = len(self.obs)
+        with pytest.raises(AssertionError, match="alpha"):
+            self._prefix_check(smoother, obs, (n + 3, n + 6, n + 9))
 
     def test_causal_decode_output_shape(self):
         """Output state array must have length == n_bars."""

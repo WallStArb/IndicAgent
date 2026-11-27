@@ -2,7 +2,6 @@
 
 import datetime
 import json
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -12,8 +11,6 @@ from src.intelligence.research import store
 from src.intelligence.research.snapshot import build_grid, sector_grid, session_dates
 from src.intelligence.research.spec import load_spec_from_file
 from tests.unit.research.test_spec import FAMILY
-
-FAMILY1_SNAPSHOT = Path("/home/bg/dev/indicagent/logs/research/snapshots/panel_81fa9178ca4ad603")
 
 
 def _bars(with_range=False):
@@ -41,11 +38,17 @@ def test_a_panel_without_fields_writes_the_same_bytes(tmp_path):
     assert "sector_codes" not in store.read_meta(path)["manifest"]
 
 
-@pytest.mark.skipif(not FAMILY1_SNAPSHOT.exists(), reason="family 1 snapshot not on this host")
-def test_the_family1_snapshot_still_verifies_and_loads():
-    assert store.verify(FAMILY1_SNAPSHOT).startswith("81fa9178ca4ad603")
-    loaded = panel_mod.load(FAMILY1_SNAPSHOT)
-    assert loaded.high is None and loaded.sector_pit is None
+# The store digest of a plain three-bar panel (todo 677): it replaces the deleted test that read the
+# untracked family 1 snapshot. A change to the panel store's byte layout moves every recorded
+# snapshot hash, so it must move this pin in the same commit, deliberately.
+PLAIN_PANEL_DIGEST = "3c18be8d09684fabc14ea2e449f63481142c2fad76ca53b52ce269a23aabc995"
+
+
+def test_a_plain_panel_store_digest_is_pinned_and_loads_without_optional_fields(tmp_path):
+    path = panel_mod.save(build_grid(_bars(), "1d"), tmp_path)
+    assert store.verify(path) == PLAIN_PANEL_DIGEST
+    loaded = panel_mod.load(path)
+    assert loaded.high is None and loaded.low is None and loaded.sector_pit is None
 
 
 def test_high_and_low_align_with_open_and_close(tmp_path):
