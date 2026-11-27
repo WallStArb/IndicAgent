@@ -163,8 +163,21 @@ run_guarded() {
   local started temp_lines; started=$(date +%s); temp_lines=$({ wc -l < "$TEMPLOG"; } 2>/dev/null || echo 0)
   setsid "$@" > "$out" 2>&1 &
   local pid=$!; local pgid=""; local i
-  for i in 1 2 3 4 5; do pgid=$(ps -o pgid= -p "$pid" | tr -d ' '); [ -n "$pgid" ] && break; sleep 0.2; done
-  [ -n "$pgid" ] || { log "ABORT cannot read pgid of $pid"; kill "$pid" 2>/dev/null; return 1; }
+  for i in 1 2 3 4 5; do
+    pgid=$(ps -o pgid= -p "$pid" | tr -d ' '); [ -n "$pgid" ] && break
+    kill -0 "$pid" 2>/dev/null || break   # gone: no point waiting out the retries
+    sleep 0.2
+  done
+  # A job that already exited (bash reaps it before ps can read it) is not a failure to read: setsid made it its own
+  # group leader, so its pgid is its pid, and with the group empty there is nothing to watch and `wait` below returns
+  # its own exit code. A job still alive, or one that left members in its group, and cannot be read fails closed.
+  if [ -z "$pgid" ]; then
+    if kill -0 "$pid" 2>/dev/null || group_alive "$pid"; then
+      log "ABORT cannot read pgid of $pid"; stop_group "$pid"; kill "$pid" 2>/dev/null; return 1
+    fi
+    log "job $pid exited before its first watchdog poll (no DIMM reading taken)"
+    pgid=$pid
+  fi
   local paused_at=0 killed=0 misses=0 t now why
   # A launcher that dies (TERM, INT, HUP) must not leave a run unprotected or a group stopped for good.
   trap 'log "ABORT launcher signalled: stopping pgid $pgid"; stop_group "$pgid"; guarded_emit 143 "$started" "$temp_lines"; exit 143' TERM INT HUP

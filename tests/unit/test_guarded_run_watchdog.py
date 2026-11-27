@@ -354,3 +354,61 @@ def test_a_signalled_launcher_stops_its_group_and_exits_143(tmp_path: Path) -> N
             launcher.kill()
     assert "ABORT launcher signalled" in _status(tmp_path)
     assert not _alive("sleep 31.006")
+
+
+_PS_STUB = """#!/bin/sh
+# `ps -o pgid= -p <pid>` ($4 is the pid): answer only after the job has exited, and then read nothing, the case of a
+# job bash already reaped. Every other ps call (the group checks) is the real one.
+case "$*" in
+  *" -p "*) while kill -0 "$4" 2>/dev/null; do sleep 0.05; done; exit 1;;
+  *) exec /usr/bin/ps "$@";;
+esac
+"""
+
+
+def _ps_stub(tmp_path: Path, text: str = _PS_STUB) -> Path:
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    (stub / "ps").write_text(text)
+    (stub / "ps").chmod(0o755)
+    return stub
+
+
+def test_a_job_gone_before_its_pgid_is_read_returns_its_own_exit_code(tmp_path: Path) -> None:
+    """The stub answers only after the job has exited, so the launcher meets exactly 'gone before the read'."""
+    _fake_hwmon(tmp_path / "hw")
+    stub = _ps_stub(tmp_path)
+    result = _bash(
+        tmp_path,
+        f'PATH="{stub}:$PATH"; run_guarded "{tmp_path}/out" bash -c "exit 7"; echo rc=$?',
+    )
+    assert "rc=7" in result.stdout
+    assert "cannot read pgid" not in _status(tmp_path)
+    assert "exited before its first watchdog poll" in _status(tmp_path)
+
+
+def test_a_live_job_whose_pgid_cannot_be_read_fails_closed(tmp_path: Path) -> None:
+    _fake_hwmon(tmp_path / "hw")
+    stub = _ps_stub(
+        tmp_path, '#!/bin/sh\ncase "$*" in *" -p "*) exit 1;; *) exec /usr/bin/ps "$@";; esac\n'
+    )
+    marker = f"33.{uuid.uuid4().int % 900 + 100}"
+    result = _bash(
+        tmp_path, f'PATH="{stub}:$PATH"; run_guarded "{tmp_path}/out" sleep {marker}; echo rc=$?'
+    )
+    assert "rc=1" in result.stdout
+    assert "cannot read pgid" in _status(tmp_path)
+    assert not _alive(f"sleep {marker}")
+
+
+def test_a_dead_job_that_left_its_group_running_fails_closed_and_stops_it(tmp_path: Path) -> None:
+    _fake_hwmon(tmp_path / "hw")
+    stub = _ps_stub(tmp_path)
+    marker = f"34.{uuid.uuid4().int % 900 + 100}"
+    result = _bash(
+        tmp_path,
+        f'PATH="{stub}:$PATH"; run_guarded "{tmp_path}/out" bash -c "sleep {marker} & exit 0"; echo rc=$?',
+    )
+    assert "rc=1" in result.stdout
+    assert "cannot read pgid" in _status(tmp_path)
+    assert not _alive(f"sleep {marker}")
