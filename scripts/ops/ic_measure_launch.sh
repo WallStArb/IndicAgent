@@ -73,7 +73,7 @@ else fail "$FLOOR_KEY is not an integer from 8 to 512 in APR"; fi
 log "ic_measure ${PREFLIGHT_ONLY:+preflight}${PREFLIGHT_ONLY:-run-state checks} ok: run $RUN scope $scope width $width code key ${key:0:12} floor $((MEM_FLOOR_KB / 1048576)) GiB${PREFLIGHT_ONLY:+ (read-only form: database, worktree, floor, window, live-process and user-scope checks only; the block 2 line, DIMM, kernel and timer gates and verdict freshness are not run)}"
 [ -z "${PREFLIGHT_ONLY:-}" ] || exit 0
 
-grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
+block2_gate
 host_gate
 verdict_preflight
 

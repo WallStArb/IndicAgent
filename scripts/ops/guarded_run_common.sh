@@ -55,6 +55,22 @@ dimm_max_c() {
   printf '%s\n' "$temps" | sort -n | tail -1 | awk '{printf "%d", $1/1000}'
 }
 
+# block2_gate: the status file must hold, as the LAST `block2 compare:` line for this pin, an IDENTICAL or an ACCEPTED one.
+# The pin is the battery commit the block 2 rerun runs on (BLOCK2_COMMIT, the one constant family10_block2_rerun.sh also
+# builds from) and every comparison line carries `commit=<sha>`; a line without it, or for another commit, never satisfies
+# the gate, and a later DIFFERENT for the same commit withdraws an earlier pass. The status file is shared and append-only,
+# so a bare IDENTICAL line proves nothing about the code the counted runs use. An ACCEPTED line is the lead's ruling
+# (ledger 2026-11-24g), written by hand in the same form: `block2 compare: ACCEPTED commit=<sha> (<ledger entry>)`.
+BLOCK2_COMMIT=48a65742d44e5357b181a042d495c4d38a6d946f
+block2_gate() {
+  local last
+  last=$(grep -F "block2 compare:" "$STATUS" 2>/dev/null | grep -F "commit=$BLOCK2_COMMIT" | tail -1)
+  case "$last" in
+    *"block2 compare: IDENTICAL"*|*"block2 compare: ACCEPTED"*) ;;
+    *) fail "no IDENTICAL or ACCEPTED block 2 comparison for commit ${BLOCK2_COMMIT:0:9} in the status file (the last one: ${last:-none})";;
+  esac
+}
+
 # apr_floor_kb <key>: the MemAvailable floor in kB from an APR key holding GiB; prints nothing and returns 1 unless it is an
 # integer inside the schema bounds (8 to 512 GiB, the config_schema rows of migrations 622 and 623), so a value written
 # around ConfigService cannot switch the gate off. Returns 1 for an unusable value and 2 when the database cannot be read.

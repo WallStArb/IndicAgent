@@ -16,7 +16,7 @@ cd "$REPO" || fail "cd repo"
 RESUME=""
 if [ "${1:-}" = "--resume" ]; then RESUME=${2:?run id}; elif [ -z "$CHECK" ]; then EXPECT=${1:?expected rebuild_code_key prefix}; COMMIT=${2:-}; fi
 
-grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
+block2_gate
 apr_value_gate infra.feature_factory.workers 4
 # The run pins the IC block width in its apr_hash at --new-run and ic_measure_launch.sh refuses any other width (todo 471);
 # a wrong value found there costs a repeat of stage_1d, so the pilot refuses at minute zero. Keep in step with WIDTH_RULED there.

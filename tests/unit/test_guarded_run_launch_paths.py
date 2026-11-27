@@ -18,6 +18,7 @@ import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts" / "ops"
 RUN_ID = "11111111-2222-3333-4444-555555555555"
+BLOCK2_COMMIT = "48a65742d44e5357b181a042d495c4d38a6d946f"  # the pin of a block 2 comparison line
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "t",
     "GIT_AUTHOR_EMAIL": "t@example.com",
@@ -143,7 +144,7 @@ class Lab:
         self.scratch.mkdir(parents=True)
         (self.scratch / "memtester_clean").write_text("ok\n")
         self.status = self.repo / "logs" / "family10_run_status.txt"
-        self.status.write_text("block2 compare: IDENTICAL []\n")
+        self.status.write_text(f"block2 compare: IDENTICAL [] commit={BLOCK2_COMMIT}\n")
         scope = tmp_path / "cg" / "scope"  # the fake cgroup the stubbed user scope "creates"
         scope.mkdir(parents=True)
         (scope / "memory.peak").write_text("1048576\n")
@@ -465,7 +466,7 @@ def test_the_pilot_refuses_without_the_block2_comparison(lab: Lab) -> None:
     lab.status.write_text("nothing\n")
     result = _pilot(lab, "0f593f92f8b4")
     assert result.returncode == 3
-    assert "no IDENTICAL block 2 comparison" in lab.status_text()
+    assert "no IDENTICAL or ACCEPTED block 2 comparison for commit 48a65742d" in lab.status_text()
 
 
 def test_the_pilot_refuses_with_the_wrong_worker_count(lab: Lab) -> None:
@@ -712,3 +713,63 @@ def test_check_of_a_healthy_launch_probes_the_scope_and_writes_nothing(lab: Lab)
     result = _pilot(lab, "--check")
     assert result.returncode == 0, result.stdout
     assert not list((lab.root / "textfile").iterdir())
+
+
+# ---------------------------------------------------------------------------------------------
+# block2_gate: a comparison line passes only for this pin (todo 681 review, integrity gap)
+# ---------------------------------------------------------------------------------------------
+
+OTHER_COMMIT = "c0832b091" + "0" * 31
+
+
+def _gate(lab: Lab, *lines: str) -> subprocess.CompletedProcess[str]:
+    lab.status.write_text("".join(f"{line}\n" for line in lines))
+    return lab.run("block2_gate; echo gate_rc=$?")
+
+
+@pytest.mark.parametrize(
+    ("lines", "passes"),
+    [
+        ((f"block2 compare: IDENTICAL [] commit={BLOCK2_COMMIT}",), True),
+        ((f"block2 compare: ACCEPTED commit={BLOCK2_COMMIT} (ledger 2026-11-24g)",), True),
+        ((f"block2 compare: IDENTICAL [] commit={OTHER_COMMIT}",), False),  # another pin's evidence
+        (("block2 compare: IDENTICAL []",), False),  # an old line without a pin
+        (("block2 compare: ACCEPTED (lead ruling, ledger 2026-11-24g)",), False),
+        (("no comparison yet",), False),
+        (
+            (
+                f"block2 compare: IDENTICAL [] commit={BLOCK2_COMMIT}",
+                f"block2 compare: DIFFERENT ['report'] commit={BLOCK2_COMMIT}",
+            ),
+            False,  # a later DIFFERENT withdraws the pass
+        ),
+        (
+            (
+                f"block2 compare: DIFFERENT ['report'] commit={BLOCK2_COMMIT}",
+                f"block2 compare: ACCEPTED commit={BLOCK2_COMMIT} (ledger 2026-11-24g)",
+            ),
+            True,
+        ),
+        (
+            (
+                f"block2 compare: IDENTICAL [] commit={BLOCK2_COMMIT}",
+                f"block2 compare: DIFFERENT [] commit={OTHER_COMMIT}",
+            ),
+            True,  # another pin's line does not withdraw this pin's pass
+        ),
+    ],
+)
+def test_the_block2_gate_matches_the_pin(lab: Lab, lines: tuple[str, ...], passes: bool) -> None:
+    result = _gate(lab, *lines)
+    if passes:
+        assert "gate_rc=0" in result.stdout, lab.status_text()
+    else:
+        assert result.returncode == 3 or "gate_rc=" not in result.stdout
+        assert (
+            "no IDENTICAL or ACCEPTED block 2 comparison for commit 48a65742d" in lab.status_text()
+        )
+
+
+def test_the_block2_rerun_writes_the_pin_it_gates_on() -> None:
+    text = (SCRIPTS / "family10_block2_rerun.sh").read_text()
+    assert "COMMIT=$BLOCK2_COMMIT" in text and '"commit=" + sys.argv[3]' in text

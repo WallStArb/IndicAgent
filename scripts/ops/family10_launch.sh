@@ -25,7 +25,7 @@ BOUND=c0832b091
 SPECS=("$@"); [ ${#SPECS[@]} -gt 0 ] || SPECS=(family10_volume_shock_h5 family10_volume_shock_h5_core)
 LAUNCH=${LAUNCH_COMMIT:-$BOUND}
 if [ -z "${PREFLIGHT_ONLY:-}" ]; then
-  grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
+  block2_gate
   host_gate
 fi
 cd "$REPO" && git fetch -q origin || fail "fetch"

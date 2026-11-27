@@ -254,7 +254,9 @@ def test_stage_check_refuses_when_no_user_scope_can_start(stage: Stage) -> None:
 def test_check_goes_on_after_a_missing_block2_comparison(stage: Stage) -> None:
     stage.status.write_text("")
     result = stage.stage("--check", RUN_ID, PREFIX, WORKERS_NOW="8")
-    assert "REFUSED: no IDENTICAL block 2 comparison" in result.stdout
+    assert (
+        "REFUSED: no IDENTICAL or ACCEPTED block 2 comparison for commit 48a65742d" in result.stdout
+    )
     assert "REFUSED: infra.feature_factory.workers is 8, expected 4" in result.stdout
 
 

@@ -77,7 +77,7 @@ stage_preflight() {   # a launch exits at the first refusal; --check goes on and
     || { fail "cannot compute rebuild_code_key in $WT"; return 1; }
   reason=$(stage_preflight_judge "$scope" "$(step_status pilot)" "$(step_status feature_complete)" "$head_now" "$recorded" "$key" "$EXPECT") \
     || fail "preflight: $reason"   # a check goes on: the gates below are independent of the run's state
-  grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
+  block2_gate
   apr_value_gate infra.feature_factory.workers 4
   apr_value_gate alpha.ic.feature_block_columns 16 "the run pins it; ic_measure_launch.sh refuses any other width"
   if floor_kb=$(stage_floor_kb); then MEM_FLOOR_KB=$floor_kb; else MEM_FLOOR_KB=0; fail "$FLOOR_KEY is not an integer from 8 to 512 in APR"; fi   # 0: a check does not add a second, misleading memory refusal
