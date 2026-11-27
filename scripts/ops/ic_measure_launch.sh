@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # First IC measure at the scope-1d pin (todo 471), guarded: quiesce -> ic_measure step of the corpus run under the
-# DIMM watchdog and RSS log -> release timers. docs/operations/guarded-run-runbook.md.
+# DIMM watchdog and RSS log -> release timers. The timers stay held on every failure path (restated bars between
+# feature_complete and the IC measure would split the IC inputs from the features, lead ruling 2026-11-27) and are
+# released only by a clean exit. The MemAvailable floor is APR infra.run_guarded.mem_floor_gib.ic_measure.
+# docs/operations/guarded-run-runbook.md.
 # Usage: setsid -f bash ic_measure_launch.sh <run_id> <expected_rebuild_code_key_prefix>
 # Env:   PREFLIGHT_ONLY=1   read-only checks, print the verdict on the terminal, exit; no host gate, no timers touched.
 #        RSS_CHECK=1        first run `ic_measure --tf 1d --dry-run` on the 25 names in $RSS_SYMBOLS_FILE (one per line)
@@ -63,6 +66,8 @@ key=$(cd "$WT" && "$PY" -c "import sys; sys.path.insert(0,'.'); from services.ba
 reason=$(ic_preflight_judge "$scope" "$width" "$(step pilot)" "$(step feature_complete)" "$(step ic_measure)" "$head_now" "$recorded" "$key" "$EXPECT") \
   || fail "preflight: $reason"
 log "ic_measure preflight ok: run $RUN scope $scope width $width code key ${key:0:12}"
+FLOOR_KEY=infra.run_guarded.mem_floor_gib.ic_measure   # read before the preflight exit: an unseeded or unusable key shows there
+if floor_kb=$(apr_floor_kb "$FLOOR_KEY"); then MEM_FLOOR_KB=$floor_kb; else fail "$FLOOR_KEY is not an integer from 8 to 512 in APR"; fi
 [ -z "${PREFLIGHT_ONLY:-}" ] || exit 0
 
 grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
@@ -80,15 +85,17 @@ if [ -n "${RSS_CHECK:-}" ]; then
   exit "$rc"
 fi
 
-log "quiesce"; $CR --quiesce >> "$STATUS" 2>&1 || { $CR --release >> "$STATUS" 2>&1; fail "quiesce failed"; }
-cd "$WT" || { $CR --release >> "$STATUS" 2>&1; fail "cd worktree"; }
+HELD="resume with: bash $REPO/scripts/ops/ic_measure_launch.sh $RUN $EXPECT; release with: cd $REPO && $CR --release (only after the run is abandoned)"
+log "quiesce"
+$CR --quiesce >> "$STATUS" 2>&1 || { log "quiesce failed: the timer set may be only partly quiesced, nothing was released; run $CR --quiesce again or check systemctl list-timers; $HELD"; fail "quiesce failed"; }   # never release on a failure
+cd "$WT" || { log "timers held: run $RUN; $HELD"; fail "cd worktree"; }
 before=$(wc -l < "$TEMPLOG" 2>/dev/null || echo 0)
 GUARDED_STAGE=ic_measure run_guarded "$SCRATCH/ic_measure_$RUN.out" "$PY" -m services.corpus_rerun --run-id "$RUN" --through ic_measure
 rc=$?; log "ic_measure exit=$rc run=$RUN width=$width peak_rss_mb=$(peak_rss_mb_since "$TEMPLOG" "$before")"
-cd "$REPO" || exit 3
+cd "$REPO" || { log "timers held: run $RUN (ic_measure exit=$rc); $HELD"; exit 3; }
 if [ "$rc" -eq 0 ]; then
   $CR --release >> "$STATUS" 2>&1; log "timers released"
 else
-  log "timers held: run $RUN (ic_measure exit=$rc); resume with: bash scripts/ops/ic_measure_launch.sh $RUN $EXPECT; release with --release after the run is abandoned"
+  log "timers held: run $RUN (ic_measure exit=$rc); $HELD"
 fi
 exit "$rc"

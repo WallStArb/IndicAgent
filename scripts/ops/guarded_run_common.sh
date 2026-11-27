@@ -48,6 +48,18 @@ dimm_max_c() {
   printf '%s\n' "$temps" | sort -n | tail -1 | awk '{printf "%d", $1/1000}'
 }
 
+# apr_floor_kb <key>: the MemAvailable floor in kB from an APR key holding GiB; prints nothing and returns 1 unless it is an
+# integer inside the schema bounds (8 to 512 GiB, the config_schema rows of migrations 622 and 623), so a value written
+# around ConfigService cannot switch the gate off. The caller sets MEM_FLOOR_KB from it before host_gate.
+apr_floor_kb() {
+  local gib; gib=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select config_value from config_state where config_key='$1'") || return 1
+  case "$gib" in ""|*[!0-9]*) return 1;; esac
+  gib=${gib#"${gib%%[!0]*}"}   # leading zeros off (08 is decimal); more than three digits is out of range before any arithmetic wraps
+  [ -n "$gib" ] && [ "${#gib}" -le 3 ] || return 1
+  { [ "$gib" -ge 8 ] && [ "$gib" -le 512 ]; } || return 1
+  echo $((gib * 1024 * 1024))
+}
+
 mem_available_kb() { awk '/^MemAvailable:/{print $2}' "${MEMINFO:-/proc/meminfo}"; }
 
 mem_gate() {     # MemAvailable in kB against the floor in kB; the message gives the exact GiB
