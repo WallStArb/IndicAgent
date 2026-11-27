@@ -27,4 +27,4 @@ def test_the_database_setting_pins_utc() -> None:
             "WHERE d.datname = current_database() AND s.setrole = 0"
         )
         settings = [item for (row,) in cur.fetchall() for item in row]
-    assert "timezone=UTC" in settings
+    assert "timezone=utc" in {item.lower() for item in settings}  # stored as TimeZone=UTC
