@@ -841,6 +841,12 @@ Lead ruling 2026-11-20 stands: no prefix-sum port (`volume.py`, `price.py`) befo
 - The 2026-11-20 pin table (replaced) showed `universe_membership` "built" at 858,454 rows as met. That build is the one migration 605 resets, and the 645 pin (`17c9ca02f`) is superseded by `730622ae` and moves again at the repin. Its strict sweep row ("undecided APTV, PNR, SW") predates the scoped rerun `20261120c`.
 - STATE.md says the Massive archive runs "to 2026-11-18"; that is the manifest's last file day. The pinned archive end and seam is 2026-11-16.
 
+## Re-pin after pilot eca9e854 (2026-11-26)
+
+Landed on main: base stack ff7c28acd (indicagent-b9), review fixes d5645d391. Contents: `amihud_illiq_z` and `illiquidity_momentum_product` are object dependent with none masks (the product's mask is amihud's own); `tests/unit/intelligence/test_declared_memory_covers_real_warmup.py` checks every 1d column's first finite row against its declared memory on a dense and a 25 percent zero-return fixture; pilot timing divides cumulative stage seconds by loaded units across resumes; `corpus_pilot.sh --check` and `services.corpus_rerun --check`; the supersede tool for runbook Recovery. Left before `--new-run`: held_verdicts, the listing_end migrations, clearing eca9e854's 63 units (3,063,558 rows) and any other blocker `--check` names (f9f69166 holds 56 completed units), then a new run id and the repilot.
+
+Known limits, not fixed: the pilot cannot time a sample whose units were all adopted from an earlier run (it refuses and names the runs to clear); the `compression_bound` replan tail biases the per-unit time upward (todo 682).
+
 ## Done when
 
 1. Items 1-12 landed on main, each through /simplify, /review and the unit suite; `repro_frozen`
