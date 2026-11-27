@@ -334,7 +334,7 @@ Measured 2026-11-27, host at rest (`docker stats`, `pg_settings`, `free -g`):
 | Postgres container (`timescaledb`) | 15.8 GiB resident | `shared_buffers` is 14.0 GiB (1835008 pages of 8 kB), `work_mem` 256 MB per sort or hash node, `max_connections` 200, `maintenance_work_mem` 2 GiB |
 | Other containers (eleven) | 1.2 GiB together | redpanda 182 MiB of its 6 GiB `mem_limit`; one of the eleven is the sibling project's `ssfi-timescaledb` (259 MiB), which is not in `production/docker-compose.yml` |
 | Kernel, OS, page cache | not budgeted | `free` showed 47 GiB buff/cache and 39 GiB available at the same time, so cache yields to jobs |
-| One heavy compute job (4 workers) | pending the first runs | the repilot's pilot and the `ic_measure` run give the first real peaks; the per-worker slope needs one 8-worker run, which the owner allows only after a run holds both DIMM sensors under 85 C |
+| Corpus pilot, scope 1d (4 workers) | 1.90 GiB peak, swap 0, `oom_kill` 0, no leftover processes; hottest DIMM 47 C; about 1.7 h in its scope (run dcb7caa4, 2026-11-27) | `run_resource_corpus_pilot_pilot.prom`; the peak includes page cache. `stage_1d` and the `ic_measure` run fill the next cells; the per-worker slope needs one 8-worker run, which the owner allows only after a run holds both DIMM sensors under 85 C |
 | One I/O-only transfer | pending the first run | |
 | Headroom | pending | |
 
