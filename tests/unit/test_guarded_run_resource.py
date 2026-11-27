@@ -165,7 +165,11 @@ def test_every_launcher_runs_in_a_scope_and_names_its_stage(launcher: str) -> No
 
 def test_the_pilot_check_path_is_not_scoped() -> None:
     lines = (OPS / "corpus_pilot.sh").read_text().splitlines()
-    scoped = [line for line in lines if "run_resource_scope" in line and not line.startswith("#")]
+    scoped = [
+        line
+        for line in lines
+        if re.search(r"run_resource_scope(?!_)", line) and not line.startswith("#")
+    ]
     assert len(scoped) == 1 and scoped[0].startswith(
         '[ -n "$CHECK" ] || {'
     )  # a check writes nothing

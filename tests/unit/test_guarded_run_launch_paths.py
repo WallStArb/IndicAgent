@@ -685,3 +685,17 @@ def test_a_run_id_with_unsafe_characters_never_reaches_the_labels(lab: Lab) -> N
     result = lab.run(body)
     assert "rc=0" in result.stdout
     assert "WARN" not in lab.status_text()
+
+
+def test_check_refuses_when_no_user_scope_can_start(lab: Lab) -> None:
+    _new_run_lab(lab)
+    result = _pilot(lab, "--check", SYSTEMD_RUN_RC="1")
+    assert result.returncode == 1
+    assert "REFUSED: no user scope with memory accounting" in result.stdout
+
+
+def test_check_of_a_healthy_launch_probes_the_scope_and_writes_nothing(lab: Lab) -> None:
+    _new_run_lab(lab)
+    result = _pilot(lab, "--check")
+    assert result.returncode == 0, result.stdout
+    assert not list((lab.root / "textfile").iterdir())

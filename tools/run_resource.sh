@@ -167,6 +167,14 @@ run_resource_scope() {
     --setenv=RUN_RESOURCE_REEXEC=1 --setenv=RUN_RESOURCE_START="$(date +%s)" -- "$@"
 }
 
+# Read-only probe for a launcher's --check: a throwaway user scope with memory accounting must start and
+# pass run_resource_preflight (memory.peak readable, textfile directory writable). Writes nothing.
+run_resource_scope_check() {
+  systemd-run --user --scope --collect --quiet -p MemoryAccounting=yes --setenv=RUN_RESOURCE_PREFLIGHT_SOURCE="${BASH_SOURCE[0]}" \
+    -- bash -c '. "$RUN_RESOURCE_PREFLIGHT_SOURCE" && run_resource_preflight' \
+    || { run_resource_fail "cannot start a user scope with memory accounting (systemd-run --user, linger, cgroup delegation)"; return 3; }
+}
+
 # The command runs in its own process group so a TERM, INT or HUP to the wrapper reaches the whole job; the
 # wrapper outlives the job, so the scope (and its memory.peak) outlives it too. The job's own exit code is the
 # wrapper's exit code; a failed report is printed and fails the run only when the job succeeded.
