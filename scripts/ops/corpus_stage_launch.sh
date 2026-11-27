@@ -94,6 +94,7 @@ if [ -n "$CHECK" ]; then
   exit $?
 fi
 
+GUARDED_RUN_ID=$RUN   # the validated run id labels the run_resource gauges
 cd "$WT" || fail "cd worktree"
 GUARDED_STAGE=stage_1d run_guarded "$REPO/logs/corpus_stage_$RUN.out" "$PY" -m services.corpus_rerun --run-id "$RUN" --through "$THROUGH"
 rc=$?; log "stage exit=$rc run=$RUN (rss_mb per 20 s is in $TEMPLOG)"
