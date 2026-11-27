@@ -45,6 +45,7 @@ _FACTORIES = {
     "_get_or_create_gauge": "gauge",
     "_get_or_create_histogram": "histogram",
 }
+RUN_RESOURCE_SCRIPT = REPO / "tools/run_resource.sh"
 DASHBOARDS = sorted((REPO / "production/grafana/dashboards").glob("*.json"))
 EXPORTER_PREFIXES = (
     "node_",
@@ -57,7 +58,6 @@ EXPORTER_PREFIXES = (
     "otelcol_",
     "timescaledb_",
     "standby_",  # node-exporter textfile metrics written by production/standby/standby_probe.sh
-    "run_resource_",  # node-exporter textfile metrics written by tools/run_resource.sh (todo 681)
 )
 EXPORTER_NAMES = {"up", "target_info", "scrape_duration_seconds", "scrape_samples_scraped"}
 _PROMQL_WORDS = {
@@ -106,6 +106,17 @@ def _metric_names(expr: str) -> set[str]:
     tokens = set(re.findall(r"\b[a-zA-Z_:][a-zA-Z0-9_:]*\b", expr))
     names = {t for t in tokens if t not in _PROMQL_WORDS and not t.endswith("_over_time")}
     return {t for t in names if "_" in t} | ({"up"} & tokens)
+
+
+def _run_resource_names() -> set[str]:
+    """The exact series tools/run_resource.sh writes (todo 681), read from its METRICS heredoc
+    (`name|help|value` lines), so a panel or rule naming a run_resource_ series the script does not
+    emit fails here instead of drawing nothing."""
+    match = re.search(r"<<-?METRICS\n(.*?)\n\s*METRICS\n", RUN_RESOURCE_SCRIPT.read_text(), re.S)
+    assert match, "no METRICS heredoc in tools/run_resource.sh"
+    names = {f"run_resource_{line.split('|', 1)[0].strip()}" for line in match[1].splitlines()}
+    assert names, "the METRICS heredoc of tools/run_resource.sh is empty"
+    return names
 
 
 def _writer_snakes() -> list[str]:
@@ -182,8 +193,15 @@ def _python_queries() -> list[str]:
     return queries
 
 
+def _declared(metric: str, patterns: list[re.Pattern[str]], run_resource_names: set[str]) -> bool:
+    if metric in EXPORTER_NAMES or metric.startswith(EXPORTER_PREFIXES):
+        return True
+    return metric in run_resource_names or any(p.fullmatch(metric) for p in patterns)
+
+
 def test_every_queried_metric_is_declared_in_code():
     patterns = _exported_patterns()
+    run_resource_names = _run_resource_names()
     queried: dict[str, set[str]] = {}
     sources = [(p, yaml.safe_load(p.read_text())) for p in RULE_FILES]
     sources += [(p, json.loads(p.read_text())) for p in DASHBOARDS]
@@ -192,12 +210,24 @@ def test_every_queried_metric_is_declared_in_code():
         for metric in _metric_names(expr):
             queried.setdefault(metric, set()).add(path.name)
 
-    def declared(metric: str) -> bool:
-        if metric in EXPORTER_NAMES or metric.startswith(EXPORTER_PREFIXES):
-            return True
-        return any(p.fullmatch(metric) for p in patterns)
-
-    undeclared = {m: sorted(files) for m, files in queried.items() if not declared(m)}
+    undeclared = {
+        m: sorted(files)
+        for m, files in queried.items()
+        if not _declared(m, patterns, run_resource_names)
+    }
     assert not undeclared, "metrics queried but declared nowhere in code:\n" + "\n".join(
         f"  {m}: {', '.join(files)}" for m, files in sorted(undeclared.items())
     )
+
+
+def test_only_the_series_run_resource_sh_emits_count_as_declared():
+    emitted = _run_resource_names()
+    assert "run_resource_memory_peak_bytes" in emitted
+    assert _declared("run_resource_memory_peak_bytes", [], emitted)
+    assert not _declared("run_resource_memory_peak", [], emitted)  # a near-miss typo
+
+
+def test_the_operations_dashboard_queries_run_resource_series():
+    operations = REPO / "production/grafana/dashboards/operations.json"
+    used = {m for e in _exprs_in(json.loads(operations.read_text())) for m in _metric_names(e)}
+    assert {m for m in used if m.startswith("run_resource_")} == _run_resource_names()
