@@ -13,8 +13,8 @@ Dry run is the default and writes nothing. Each unit is one transaction on one s
 provenance row, delete its rows, assert the deleted count equals the row_count its load recorded; a mismatch
 (another unit's rows in the same replace_where, a partial load) rolls that unit back and stops the run of
 the tool, so nothing the provenance cannot account for is ever deleted. Refused while a corpus run,
-ic_measure or rebuild process is live, and for a run whose pilot or a later step completed (only a
-failed run's units are cleared). Exit 0 clean, 1 a mismatch, a live run or an unknown run.
+ic_measure or rebuild process is live; for a run whose pilot or a later step completed, --apply also needs
+--completed-run (a dry run lists it either way). Exit 0 clean, 1 a mismatch, a live run or an unknown run.
 """
 
 from __future__ import annotations
@@ -40,8 +40,8 @@ SELECT batch_key, generation, tf, range_start, range_end, symbols, row_count
  WHERE run_id = %s::uuid AND target_table = %s AND status = 'completed'
  ORDER BY tf, range_start, batch_key
 """
-# A run whose pilot or a later step completed still stands on its units (and may have adopted units
-# of earlier runs, which carry their run id): clearing it would hollow a completed step. Refused.
+# A run whose pilot or a later step completed still stands on its units: --apply refuses it unless
+# --completed-run says the clear is meant (a re-pin replaces that corpus). A dry run lists it.
 _COMPLETED_COMPUTE_STEPS_SQL = """
 SELECT step FROM corpus_run_step
  WHERE run_id = %s::uuid AND status = 'completed' AND step <> ALL(%s)
@@ -156,6 +156,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--apply", action="store_true", help="flip and delete; the default is a dry run"
     )
+    parser.add_argument(
+        "--completed-run",
+        action="store_true",
+        help="with --apply: clear a run whose pilot or a later step completed (a re-pin)",
+    )
     args = parser.parse_args(argv)
     if not _UUID.match(args.run_id):
         parser.error(f"{args.run_id!r} is not a run id (a lowercase uuid)")
@@ -179,16 +184,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         steps = conn.execute(
             _COMPLETED_COMPUTE_STEPS_SQL, (args.run_id, [DATA_GATE, PIN_GATE])
         ).fetchall()
-        if steps:
-            names = ", ".join(row[0] for row in steps)
-            print(
-                f"refused: run {args.run_id} completed {names}; its units back a completed step",
-                file=sys.stderr,
-            )
-            return 1
+        completed = ", ".join(row[0] for row in steps)
         plans = plan(conn, fetch_units(conn, args.run_id))
         lines, clean = render(plans, args.apply)
         print("\n".join(lines))
+        if completed:
+            print(f"note: run {args.run_id} completed {completed}; its units back those steps")
+            if args.apply and not args.completed_run:
+                print(
+                    "refused: the run completed a compute step; to clear it anyway (a re-pin "
+                    "replaces its corpus) add --completed-run",
+                    file=sys.stderr,
+                )
+                return 1
         if not clean or not args.apply:
             return 0 if clean else 1
         try:

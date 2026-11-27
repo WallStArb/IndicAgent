@@ -1600,10 +1600,21 @@ class CorpusRerun:
             # every unit is complete but no recorded invocation loaded one (a kill after the loads,
             # before the step recorded its timing): clearing the run's units with
             # scripts/ops/ops_corpus_supersede_run_rows.py lets a resume compute and time them
-            untimed = "pilot_1d" if daily_stage is None else "pilot_1h"
+            untimed, stage = (
+                ("pilot_1d", daily) if daily_stage is None else ("pilot_1h", hourly or {})
+            )
+            owners = sorted(
+                {str(a.get("adopted_from_run_id")) for a in stage.get("adopted", [])}
+                - {self.run.run_id}
+            )
             raise StepFailed(
                 f"pilot: no {untimed} unit was loaded in any recorded invocation, nothing to "
-                "time; clear this run's units (ops_corpus_supersede_run_rows.py) and resume",
+                "time; clear the units with ops_corpus_supersede_run_rows.py and resume: "
+                + (
+                    f"they were adopted from run(s) {', '.join(owners)}, clear those"
+                    if owners
+                    else "this run's own units"
+                ),
                 summary,
             )
 
@@ -2150,8 +2161,8 @@ def new_run_check(
     try:  # the span plan --new-run records, refused when the disk budget cannot hold it
         plan_run(conn, settings, horizon, scope)
         span_plan = {"name": "span_plan", "ok": True, "detail": "the disk budget holds the plan"}
-    except SpanPlanRefused as refused:
-        span_plan = {"name": "span_plan", "ok": False, "detail": str(refused)}
+    except SpanPlanRefused as error:
+        span_plan = {"name": "span_plan", "ok": False, "detail": str(error)}
     refusal = data_gate_refusal(gate)
     checks = [
         {

@@ -516,6 +516,13 @@ def test_check_of_a_new_run_refuses_a_checkout_behind_origin(lab: Lab) -> None:
     assert _git(lab.repo, "rev-parse", "HEAD") != _git(clone, "rev-parse", "HEAD")  # no pull
 
 
+def test_check_of_a_new_run_refuses_a_dirty_checkout(lab: Lab) -> None:
+    _new_run_lab(lab)
+    (lab.repo / "f").write_text("edited")
+    result = _pilot(lab, "--check")
+    assert result.returncode == 1 and "uncommitted tracked edits" in result.stdout
+
+
 def test_check_adds_the_runner_refusals_to_the_gate_refusals(lab: Lab) -> None:
     result = _pilot(lab, "--check", CHECK_RC="1", WORKERS_NOW="8")
     assert result.returncode == 1

@@ -156,21 +156,32 @@ class _MainConn:
         return SimpleNamespace(fetchall=lambda: [])
 
 
-def _main_with(monkeypatch, steps: list[str]) -> tuple[int, _MainConn]:
+def _main_with(monkeypatch, steps: list[str], *flags: str) -> tuple[int, _MainConn]:
     import psycopg
 
     conn = _MainConn(steps)
     monkeypatch.setattr(tool, "_live_run_refusal", lambda: None)
     monkeypatch.setattr(psycopg, "connect", lambda *a, **k: conn)
-    return tool.main([RUN, "--apply"]), conn
+    return tool.main([RUN, *flags]), conn
 
 
-def test_main_refuses_a_run_whose_pilot_or_a_later_step_completed(monkeypatch, capsys):
-    rc, conn = _main_with(monkeypatch, ["pilot"])
-    assert rc == 1 and "completed pilot" in capsys.readouterr().err
+def test_apply_refuses_a_run_whose_pilot_completed_without_the_explicit_flag(monkeypatch, capsys):
+    rc, conn = _main_with(monkeypatch, ["pilot"], "--apply")
+    assert rc == 1 and "add --completed-run" in capsys.readouterr().err
     assert "UPDATE" not in conn.sql and "DELETE" not in conn.sql
 
 
+def test_a_dry_run_of_a_completed_run_still_lists_it(monkeypatch, capsys):
+    rc, _ = _main_with(monkeypatch, ["pilot", "stage_1d"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "0 units, 0 stored rows" in out and "completed pilot, stage_1d" in out
+
+
+def test_the_explicit_flag_clears_a_completed_run(monkeypatch, capsys):
+    rc, _ = _main_with(monkeypatch, ["pilot"], "--apply", "--completed-run")
+    assert rc == 0 and "deleted 0 rows in 0 units" in capsys.readouterr().out
+
+
 def test_main_clears_a_run_that_completed_only_its_gates(monkeypatch, capsys):
-    rc, _ = _main_with(monkeypatch, [])
+    rc, _ = _main_with(monkeypatch, [], "--apply")
     assert rc == 0 and "0 units, 0 stored rows" in capsys.readouterr().out

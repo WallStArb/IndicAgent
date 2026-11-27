@@ -31,9 +31,11 @@ if [ -n "$CHECK" ]; then   # the run-side checks: the same gates the launch meet
     else fail "no worktree $WT for run $RESUME"; fi
   else
     # the check plans batch keys from the checked-out code while the launch pulls first: a stale checkout
-    # would plan the old pin's keys, see the old run's units as adopted and pass (read-only: no fetch)
+    # would plan the old pin's keys, see the old run's units as adopted and pass (read-only: no fetch). It
+# checks the default commit (origin/main); a launch given a commit_sha pins that commit instead.
     head=$(git rev-parse HEAD 2>/dev/null); remote=$(git ls-remote origin refs/heads/main 2>/dev/null | cut -f1)
     { [ -n "$remote" ] && [ "$head" = "$remote" ]; } || fail "main checkout HEAD ${head:-unknown} is not origin/main ${remote:-unreadable}: pull, then check"
+    [ -z "$(git status --porcelain --untracked-files=no 2>/dev/null)" ] || fail "main checkout has uncommitted tracked edits: the check would plan keys from code the launch does not pin"
     $CR --new-run --check --data-gate-scope 1d || fail "services.corpus_rerun --new-run --check refused (above)"
   fi
   refusals_report

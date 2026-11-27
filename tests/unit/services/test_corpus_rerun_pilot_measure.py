@@ -143,3 +143,15 @@ def test_an_untimed_pilot_reports_its_unit_problems_first_with_the_stage_summary
         world.runner.execute("pilot")
     assert "nothing to time" not in str(refused.value)
     assert refused.value.summary["stage_1d_sample"]["units_failed"] == 2
+
+
+def test_an_untimed_pilot_of_adopted_units_names_the_runs_to_clear():
+    world = _world()
+    _through(world, "pilot")
+    adopted = _pass(loaded=0, skipped=2)
+    adopted["adopted"] = [
+        {"batch_key": k, "adopted_from_run_id": "older-run"} for k in adopted["scope_batch_keys"]
+    ]
+    _timed(world, [adopted])
+    with pytest.raises(cr.StepFailed, match="adopted from run\\(s\\) older-run"):
+        world.runner.execute("pilot")
