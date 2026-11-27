@@ -65,11 +65,11 @@ def _judge(*args: str) -> subprocess.CompletedProcess[str]:
     return _bash("stage_preflight_judge " + " ".join(f"'{a}'" for a in args))
 
 
-def test_script_parses() -> None:
+def test_stage_launcher_parses() -> None:
     assert subprocess.run(["bash", "-n", str(SCRIPT)], check=False).returncode == 0
 
 
-def test_a_ready_run_passes() -> None:
+def test_a_ready_run_passes_the_stage_judge() -> None:
     assert _judge(*OK).returncode == 0
 
 
@@ -86,7 +86,7 @@ def test_a_ready_run_passes() -> None:
         (5, PREFIX, "does not start with"),  # a key equal to the prefix is not a full key
     ],
 )
-def test_each_refusal_names_its_reason(index: int, value: str, message: str) -> None:
+def test_each_stage_refusal_names_its_reason(index: int, value: str, message: str) -> None:
     args = list(OK)
     args[index] = value
     result = _judge(*args)
