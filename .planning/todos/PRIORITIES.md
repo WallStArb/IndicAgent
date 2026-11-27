@@ -46,7 +46,7 @@ Ranked P0 and P1 order by the path to a counted test (lead pass 2026-11-24; "cod
 | Rank | Todo | Blocker | Owner | Size | Code-key note |
 |---|---|---|---|---|---|
 | 1 | 584 | verdict refresh, new pilot at pin 0f593f92f8b4 (waits on the 06:00Z audit), then `stage_1d` | lead, indicagent-fb | heavy slot, hours | is the pin |
-| 2 | 649 | timer `indicagent-split-feed-auditor.timer` installed 2026-11-26 (daily 07:45Z, first run clean); left: measure the base rate over a month, then close | ops session | small, no code edit | none |
+| 2 | 649 | timer `indicagent-split-feed-auditor.timer` installed 2026-11-26 (daily 07:45Z, first run clean); left: the mechanical closing criteria in the todo (28 clean runs, earliest 2026-12-25, plus two alert gaps) | ops session | small, no code edit | none |
 | 3 | 600 | final capture of every entitled dataset (running 2026-11-26, worker lane) plus the ubuntu2 copy; owner decision: renew or lapse by 2026-12-10 | lead, owner | decision | none |
 | 4 | 669 | after the four family 10 runs and the StepM read; one route plus new battery cells | research session | medium | edits `src/intelligence/research`: `repro_frozen` bit-identical, rebinds, never beside a live counted run; before the pin of any counted corpus test |
 | 5 | 588 | part C (real-data dry S0) needs the scope-all rerun (item (e) deleted 2026-11-25: S0 refuses rk_vwap_dev loudly; tag `archive/588e-volume-basis-2026-11`) | research session | medium | S0 code: after the pilot |

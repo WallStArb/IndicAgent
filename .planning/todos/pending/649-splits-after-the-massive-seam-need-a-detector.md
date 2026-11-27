@@ -54,3 +54,27 @@ Item 2 built as `services/split_feed_auditor.py` (oneshot, unit and timer in `pr
 ## Verdict refresh needs an owner of record (2026-11-24, indicagent-fb)
 
 The pin gate (`d2_landed`) refuses member 1d verdicts older than `threshold.bar_integrity.report_max_age_hours` (30 h). The 06:00Z bar-reconciliation audit refreshes active names only; dead members' verdicts come from `scripts/ops/bars/ops_member_verdicts_1d.py --apply` (about 1.8 h measured 2026-11-25), which has no timer and no owner, so the pilot 7c5612f0 pin gate refused 11,350 of 12,857 members at 61.4 h. Ruling (lead, 2026-11-24): the refresh is launcher-run, not a timer. The operator of a pilot or stage launch runs the refresh command the launcher preflight prints (a timer would join the quiesce set, and the verdicts only matter right before a pin). Recorded in `docs/operations/guarded-run-runbook.md`. Not part of the split detector; recorded here because the refusal arrived with it.
+
+## Timer check and mechanical closing criteria (2026-11-27, indicagent-a1, read-only)
+
+Checked: `indicagent-split-feed-auditor.timer` is enabled and loaded, next fire 07:45 UTC (the unit reads `OnCalendar=*-*-* 07:45:00 UTC`, `Persistent=true`). The service is a oneshot with no `[Install]`, so `disabled` on the service is correct. One run so far, 2026-11-26 08:30:06Z (a catch-up fire), exit 0 in 0.36 s: feed read 74 splits since 2026-11-16, 72 inactive ignored, 2 recorded (SNDK, VIXM), 0 candidates, 0 unseen, 0 overdue. Metric visible: `job_completed_total{job_name="split-feed-auditor",status="success"}` is in Prometheus (`:9090`; `job_name` is the oneshot name, `job` is `otel-collector`). Query it with a range (`[2d]` or `max_over_time(...[26h])`), because an instant query returns nothing a few minutes after the push.
+
+Gaps found (no code edited):
+- The defect-class counts exist only in the log line `split_feed_auditor.judged`, not as metrics. Only the run status is a metric.
+- `NightlyCaptureMissed`-style alerts exist for the alpaca nightly only. The generic oneshot alert fires on `status="failure"`; a `gap_found` or `candidates` run exits 1 or writes a file but sets a different status, so nothing alerts. A missed fire of this timer is also unalerted. Add both with the next alert-rules batch (todo 681 owns the rules file).
+- No Grafana panel reads `job_completed_total`.
+
+Base-rate query (defect classes per run, read from the log; run from the repo root, any time):
+
+```
+grep -h '"split_feed_auditor.judged"' logs/split_feed_auditor.log | jq -s '{runs:length, runs_with_candidates:(map(select(.n_candidates>0))|length), runs_unseen:(map(select(.n_unseen>0))|length), runs_overdue:(map(select(.n_overdue>0))|length), max_recorded:(map(.n_recorded)|max)}'
+```
+
+Splits per month on active names are the growth of `corporate_action` rows with `effective_date` in the window for active instruments (read-only SQL, the 2026-11-23 method above); compare with `runs_with_candidates`.
+
+Close this todo, with no further judgment, when all hold on one read:
+1. At least 28 `split_feed_auditor.complete` lines with status `success` or `candidates`, on at least 28 distinct UTC dates (earliest possible 2026-12-25).
+2. Zero `split_feed_auditor.run_failed` lines in the log, and `max_over_time(job_completed_total{job_name="split-feed-auditor",status="failure"}[30d])` is empty.
+3. `runs_unseen` and `runs_overdue` are 0 on the last 7 runs; every candidate file in `logs/split_candidates/` is applied (a `corporate_action` row exists for its symbol and ex-date) or noted as declined in this todo.
+4. The base-rate output and the monthly active-name split count are pasted here, and the two alert gaps above are either landed in `production/alertmanager-rules.yml` or filed as a todo with a PRIORITIES row.
+Then move the todo to `completed/` in the same commit as the PRIORITIES row removal. If the Massive lapse (about 2026-12-10) leaves candidates unreviewed, criterion 3 stays open.
