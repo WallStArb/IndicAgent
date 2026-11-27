@@ -492,12 +492,28 @@ def test_check_reports_every_refusal_at_once_and_exits_nonzero(lab: Lab) -> None
 
 
 def test_check_of_a_healthy_launch_exits_zero_and_writes_nothing(lab: Lab) -> None:
+    _new_run_lab(lab)
     before = lab.status_text()
     result = _pilot(lab, "--check")
     assert result.returncode == 0, result.stdout
     assert "REFUSED" not in result.stdout and "corpus_rerun check output" in result.stdout
     assert _calls_with(lab, "--new-run --check --data-gate-scope 1d")
     assert lab.status_text() == before and not _writes(lab)
+
+
+def test_check_of_a_new_run_refuses_a_checkout_behind_origin(lab: Lab) -> None:
+    _new_run_lab(lab)
+    clone = lab.root / "clone"
+    subprocess.run(
+        ["git", "clone", "-q", str(lab.root / "origin.git"), str(clone)], check=True, env=os.environ
+    )
+    (clone / "f").write_text("y")
+    _git(clone, "commit", "-q", "-am", "moved")
+    _git(clone, "push", "-q", "origin", "main")
+    result = _pilot(lab, "--check")
+    assert result.returncode == 1
+    assert "is not origin/main" in result.stdout and "pull, then check" in result.stdout
+    assert _git(lab.repo, "rev-parse", "HEAD") != _git(clone, "rev-parse", "HEAD")  # no pull
 
 
 def test_check_adds_the_runner_refusals_to_the_gate_refusals(lab: Lab) -> None:
@@ -539,3 +555,10 @@ def test_a_check_creates_no_scratch_directory(lab: Lab) -> None:
     shutil.rmtree(lab.scratch)
     lab.run("true", COLLECT_REFUSALS="1")
     assert not lab.scratch.exists()
+
+
+def test_an_inherited_collect_mode_does_not_turn_a_launch_refusal_into_a_no_op(lab: Lab) -> None:
+    result = _new_run(lab, COLLECT_REFUSALS="1", WORKERS_NOW="8")
+    assert result.returncode == 3
+    assert "infra.feature_factory.workers is 8" in lab.status_text()
+    assert not _calls_with(lab, "--new-run")

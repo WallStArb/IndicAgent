@@ -8,6 +8,7 @@
 # $SCRATCH/wt-f10pre-<pid> removed on exit, and its messages on the terminal (not the status file). It never touches the live
 # run's worktree path, prunes nothing, skips the host gate and repro_frozen, and refuses while a run_spec process is live.
 set -u
+unset COLLECT_REFUSALS   # collect mode is corpus_pilot.sh --check only: an inherited value would make every fail() return
 . "$(dirname "$0")/guarded_run_common.sh"
 [ -z "${PREFLIGHT_ONLY:-}" ] || STATUS=/dev/stdout   # preflight talks to the terminal, never the run's status file
 : >> "$STATUS"; exec 2>> "$STATUS"

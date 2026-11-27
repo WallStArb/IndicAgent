@@ -7,7 +7,7 @@
 # Preconditions: block 2 compare IDENTICAL in the status file; memtester_clean present; the lead has
 # set infra.feature_factory.workers to 4 (config_history reason recorded); no heavy job live.
 set -u
-CHECK=""
+CHECK=""; unset COLLECT_REFUSALS   # set here on --check only: an inherited value would make every fail() return
 if [ "${1:-}" = "--check" ]; then CHECK=1; COLLECT_REFUSALS=1; shift; fi   # before sourcing: collect mode reads it there
 . "$(dirname "$0")/guarded_run_common.sh"
 [ -n "$CHECK" ] || { : >> "$STATUS"; exec 2>> "$STATUS"; }   # a check writes nothing, not even the status file
@@ -30,6 +30,10 @@ if [ -n "$CHECK" ]; then   # the run-side checks: the same gates the launch meet
     if [ -d "$WT" ]; then (cd "$WT" && $PY -m services.corpus_rerun --run-id "$RESUME" --check) || fail "services.corpus_rerun --check refused (above)"
     else fail "no worktree $WT for run $RESUME"; fi
   else
+    # the check plans batch keys from the checked-out code while the launch pulls first: a stale checkout
+    # would plan the old pin's keys, see the old run's units as adopted and pass (read-only: no fetch)
+    head=$(git rev-parse HEAD 2>/dev/null); remote=$(git ls-remote origin refs/heads/main 2>/dev/null | cut -f1)
+    { [ -n "$remote" ] && [ "$head" = "$remote" ]; } || fail "main checkout HEAD ${head:-unknown} is not origin/main ${remote:-unreadable}: pull, then check"
     $CR --new-run --check --data-gate-scope 1d || fail "services.corpus_rerun --new-run --check refused (above)"
   fi
   refusals_report

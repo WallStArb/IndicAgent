@@ -9,6 +9,7 @@
 # 2026-11-24); the run pins it in its apr_hash. Only the 1d timeframe is measured: the run's recorded scope must be 1d.
 # Preconditions: pilot and feature_complete completed for the run at this pin, memtester_clean present, no heavy job live.
 set -u
+unset COLLECT_REFUSALS   # collect mode is corpus_pilot.sh --check only: an inherited value would make every fail() return
 . "$(dirname "$0")/guarded_run_common.sh"
 WIDTH_KEY=alpha.ic.feature_block_columns
 WIDTH_RULED=16

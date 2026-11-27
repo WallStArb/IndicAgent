@@ -4,6 +4,7 @@
 # Seeds are by position, so the worker count does not change a result. NOT RUN.
 # Usage: setsid -f bash family10_block2_rerun.sh
 set -u
+unset COLLECT_REFUSALS   # collect mode is corpus_pilot.sh --check only: an inherited value would make every fail() return
 . "$(dirname "$0")/guarded_run_common.sh"
 : >> "$STATUS"; exec 2>> "$STATUS"
 COMMIT=48a65742d44e5357b181a042d495c4d38a6d946f
