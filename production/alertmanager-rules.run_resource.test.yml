@@ -1,0 +1,100 @@
+# promtool test rules production/alertmanager-rules.run_resource.test.yml  (run from production/)
+rule_files:
+  - alertmanager-rules.yml
+evaluation_interval: 1m
+tests:
+  # a clean run alerts nothing
+  - interval: 1m
+    input_series:
+      - series: 'run_resource_info{workload="pilot", stage="s1", run_id="r1", instance="h:9100"}'
+        values: '1x90'
+      - series: 'run_resource_oom_kill{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '0x90'
+      - series: 'run_resource_leftover_processes{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '0x90'
+      - series: 'run_resource_exit_code{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '0x90'
+      - series: 'run_resource_end_timestamp_seconds{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '0x90'
+    alert_rule_test:
+      - {eval_time: 10m, alertname: RunOomKilled, exp_alerts: []}
+      - {eval_time: 10m, alertname: RunLeftoverProcesses, exp_alerts: []}
+      - {eval_time: 10m, alertname: RunKilledWithoutOom, exp_alerts: []}
+  # a run that ended at t=0 with one OOM kill and two leftover processes alerts inside the hour and
+  # goes quiet after it, although the served file never changes
+  - interval: 1m
+    input_series:
+      - series: 'run_resource_info{workload="pilot", stage="s1", run_id="r1", instance="h:9100"}'
+        values: '1x90'
+      - series: 'run_resource_oom_kill{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '1x90'
+      - series: 'run_resource_leftover_processes{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '2x90'
+      - series: 'run_resource_exit_code{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '137x90'
+      - series: 'run_resource_end_timestamp_seconds{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '0x90'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RunOomKilled
+        exp_alerts:
+          - exp_labels: {severity: warning, workload: pilot, stage: s1, run_id: r1, instance: "h:9100"}
+            exp_annotations:
+              summary: "Run pilot/s1 (r1) had 1 process(es) killed by the kernel OOM killer"
+              description: "Its results are not trustworthy. memory.peak and the exit code are in the run_resource_ series and the launcher's status line; check the host memory budget before relaunching."
+      - eval_time: 30m
+        alertname: RunLeftoverProcesses
+        exp_alerts:
+          - exp_labels: {severity: warning, workload: pilot, stage: s1, run_id: r1, instance: "h:9100"}
+            exp_annotations:
+              summary: "Run pilot/s1 (r1) left 2 process(es) running in its scope"
+              description: "Orphaned workers still hold DB connections and may be writing: follow the kill procedure in docs/reference/gotchas.md (ProcessPoolExecutor orphans) and confirm zero remain."
+      # exit 137 together with an OOM kill is the OOM rule's case, not the separate warning
+      - {eval_time: 30m, alertname: RunKilledWithoutOom, exp_alerts: []}
+      - {eval_time: 70m, alertname: RunOomKilled, exp_alerts: []}
+      - {eval_time: 70m, alertname: RunLeftoverProcesses, exp_alerts: []}
+  # exit 137 or 143 with no kernel OOM kill is the separate warning
+  - interval: 1m
+    input_series:
+      - series: 'run_resource_info{workload="pilot", stage="s1", run_id="r2", instance="h:9100"}'
+        values: '1x90'
+      - series: 'run_resource_oom_kill{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '0x90'
+      - series: 'run_resource_exit_code{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '137x90'
+      - series: 'run_resource_end_timestamp_seconds{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '0x90'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RunKilledWithoutOom
+        exp_alerts:
+          - exp_labels: {severity: warning, workload: pilot, stage: s1, run_id: r2, instance: "h:9100"}
+            exp_annotations:
+              summary: "Run pilot/s1 (r2) was signalled (exit 137) with no kernel OOM kill"
+              description: "Exit 137 (SIGKILL) or 143 (TERM: the DIMM watchdog, a launcher trap or an operator) with oom_kill 0. Read the launcher log and family10_dimm_temp.log before trusting or resuming the run."
+      - {eval_time: 70m, alertname: RunKilledWithoutOom, exp_alerts: []}
+  # the DIMM watchdog ends a run with exit 143 (TERM): same warning; a stale second stage file does
+  # not alert, and a missing run_resource_info series drops the alert instead of erroring
+  - interval: 1m
+    input_series:
+      - series: 'run_resource_info{workload="pilot", stage="s1", run_id="r3", instance="h:9100"}'
+        values: '1x90'
+      - series: 'run_resource_oom_kill{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '0x90'
+      - series: 'run_resource_exit_code{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '143x90'
+      - series: 'run_resource_end_timestamp_seconds{workload="pilot", stage="s1", instance="h:9100"}'
+        values: '0x90'
+      - series: 'run_resource_oom_kill{workload="pilot", stage="s2", instance="h:9100"}'
+        values: '3x90'
+      - series: 'run_resource_end_timestamp_seconds{workload="pilot", stage="s2", instance="h:9100"}'
+        values: '0x90'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RunKilledWithoutOom
+        exp_alerts:
+          - exp_labels: {severity: warning, workload: pilot, stage: s1, run_id: r3, instance: "h:9100"}
+            exp_annotations:
+              summary: "Run pilot/s1 (r3) was signalled (exit 143) with no kernel OOM kill"
+              description: "Exit 137 (SIGKILL) or 143 (TERM: the DIMM watchdog, a launcher trap or an operator) with oom_kill 0. Read the launcher log and family10_dimm_temp.log before trusting or resuming the run."
+      - {eval_time: 30m, alertname: RunOomKilled, exp_alerts: []}

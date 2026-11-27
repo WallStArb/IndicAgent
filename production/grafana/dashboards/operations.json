@@ -9,7 +9,7 @@
         "enable": true,
         "iconColor": "yellow",
         "name": "Run end",
-        "expr": "max by (workload, run_id) (run_resource_end_timestamp_seconds <= time() > time() - 60)",
+        "expr": "max by (workload, run_id) ((run_resource_end_timestamp_seconds <= time() > time() - 60) * on (instance, workload, stage) group_left (run_id) run_resource_info)",
         "step": "15s",
         "titleFormat": "run end {{workload}}",
         "textFormat": "{{run_id}}"
@@ -925,6 +925,18 @@
                 "value": "dateTimeAsLocal"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #H"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
           }
         ]
       },
@@ -950,7 +962,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (workload, stage, run_id) (run_resource_memory_peak_bytes)",
+          "expr": "max by (workload, stage) (run_resource_memory_peak_bytes)",
           "refId": "A",
           "instant": true,
           "range": false,
@@ -961,7 +973,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (workload, stage, run_id) (run_resource_swap_peak_bytes)",
+          "expr": "max by (workload, stage) (run_resource_swap_peak_bytes)",
           "refId": "B",
           "instant": true,
           "range": false,
@@ -972,7 +984,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (workload, stage, run_id) (run_resource_oom_kill)",
+          "expr": "max by (workload, stage) (run_resource_oom_kill)",
           "refId": "C",
           "instant": true,
           "range": false,
@@ -983,7 +995,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (workload, stage, run_id) (run_resource_leftover_processes)",
+          "expr": "max by (workload, stage) (run_resource_leftover_processes)",
           "refId": "D",
           "instant": true,
           "range": false,
@@ -994,7 +1006,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (workload, stage, run_id) (run_resource_exit_code)",
+          "expr": "max by (workload, stage) (run_resource_exit_code)",
           "refId": "E",
           "instant": true,
           "range": false,
@@ -1005,7 +1017,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (workload, stage, run_id) (run_resource_start_timestamp_seconds) * 1000",
+          "expr": "max by (workload, stage) (run_resource_start_timestamp_seconds) * 1000",
           "refId": "F",
           "instant": true,
           "range": false,
@@ -1016,8 +1028,19 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (workload, stage, run_id) (run_resource_end_timestamp_seconds) * 1000",
+          "expr": "max by (workload, stage) (run_resource_end_timestamp_seconds) * 1000",
           "refId": "G",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (workload, stage, run_id) (run_resource_info)",
+          "refId": "H",
           "instant": true,
           "range": false,
           "format": "table"

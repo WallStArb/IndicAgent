@@ -155,6 +155,15 @@ cd production && docker run --rm -v "$PWD":/p -w /p --entrypoint promtool prom/p
 
 ## Warning Alerts
 
+### Run resource: `RunOomKilled`, `RunLeftoverProcesses`, `RunKilledWithoutOom` (todo 681)
+
+**Symptoms:**
+- A finished run left the kernel OOM killer's mark (`oom_kill` above 0), processes still running in its scope, or an exit code of 137 or 143 with no OOM kill
+
+**Diagnosis:** the series come from `tools/run_resource.sh` (node_exporter textfile, one file per workload and stage, overwritten by the next run of it). Each rule alerts for one hour after the run's `run_resource_end_timestamp_seconds`, so a stale file never alerts twice. The launcher status line and the Operations dashboard row "Run resources" show the peak, swap peak and exit code. A kill of the whole scope (systemd-oomd, `cgroup.kill`) also kills the emitter, writes no file and fires nothing.
+
+**Resolution:** leftover processes are the orphaned-worker case in `docs/reference/gotchas.md`; kill them and confirm zero remain. After an OOM kill read the host memory budget before relaunching. Rules are in group `run_resource` of `production/alertmanager-rules.yml`, tested by `production/alertmanager-rules.run_resource.test.yml` (same promtool command as the DIMM rules).
+
 ### DIMM sensor missing: `DimmSensorMissing` (fewer than two spd5118 chips with a temperature reading for 10 minutes)
 
 **Symptoms:**

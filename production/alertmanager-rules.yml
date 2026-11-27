@@ -264,6 +264,47 @@ groups:
           summary: "Fewer than two spd5118 DIMM temperature sensors visible to node_exporter"
           description: "DIMM overheating alerts are blind. Check indicagent-node-exporter (hwmon collector), the spd5118 kernel driver (`sensors`), and the node scrape."
 
+  # Per-run resource outcome (todo 681; textfile series from tools/run_resource.sh, one file per
+  # workload and stage, overwritten by that workload's next run). node_exporter serves a finished run's
+  # values until then, so every rule pairs the value with time() - run_resource_end_timestamp_seconds
+  # < 3600: a run alerts for one hour after it ends and a stale file never alerts again. run_id sits
+  # on run_resource_info only; the group_left join puts it on the alert. oom_kill counts the kernel
+  # OOM killer only, so a signalled run with oom_kill 0 is its own warning: exit 143 is a TERM (the DIMM
+  # watchdog and launcher traps, an operator kill), exit 137 a SIGKILL from elsewhere. Known gap: a kill
+  # of the whole scope (systemd-oomd, cgroup.kill) also ends the emitter, writes no file and alerts
+  # nothing; the status line and the launcher log are the only record of such a run.
+  - name: run_resource
+    rules:
+      - alert: RunOomKilled
+        expr: >
+          (run_resource_oom_kill * on (instance, workload, stage) group_left (run_id) run_resource_info > 0)
+          and on (instance, workload, stage) (time() - run_resource_end_timestamp_seconds < 3600)
+        labels:
+          severity: warning
+        annotations:
+          summary: "Run {{ $labels.workload }}/{{ $labels.stage }} ({{ $labels.run_id }}) had {{ $value }} process(es) killed by the kernel OOM killer"
+          description: "Its results are not trustworthy. memory.peak and the exit code are in the run_resource_ series and the launcher's status line; check the host memory budget before relaunching."
+      - alert: RunLeftoverProcesses
+        expr: >
+          (run_resource_leftover_processes * on (instance, workload, stage) group_left (run_id) run_resource_info > 0)
+          and on (instance, workload, stage) (time() - run_resource_end_timestamp_seconds < 3600)
+        labels:
+          severity: warning
+        annotations:
+          summary: "Run {{ $labels.workload }}/{{ $labels.stage }} ({{ $labels.run_id }}) left {{ $value }} process(es) running in its scope"
+          description: "Orphaned workers still hold DB connections and may be writing: follow the kill procedure in docs/reference/gotchas.md (ProcessPoolExecutor orphans) and confirm zero remain."
+      - alert: RunKilledWithoutOom
+        expr: >
+          ((run_resource_exit_code == 137 or run_resource_exit_code == 143)
+          * on (instance, workload, stage) group_left (run_id) run_resource_info
+          and on (instance, workload, stage) run_resource_oom_kill == 0)
+          and on (instance, workload, stage) (time() - run_resource_end_timestamp_seconds < 3600)
+        labels:
+          severity: warning
+        annotations:
+          summary: "Run {{ $labels.workload }}/{{ $labels.stage }} ({{ $labels.run_id }}) was signalled (exit {{ $value }}) with no kernel OOM kill"
+          description: "Exit 137 (SIGKILL) or 143 (TERM: the DIMM watchdog, a launcher trap or an operator) with oom_kill 0. Read the launcher log and family10_dimm_temp.log before trusting or resuming the run."
+
   # ubuntu2 backup and mirror (metrics from production/standby/standby_probe.sh). Alerting is
   # not wired to a pager; these rules turn the Grafana panel red and show on /alerts.
   - name: standby_backup

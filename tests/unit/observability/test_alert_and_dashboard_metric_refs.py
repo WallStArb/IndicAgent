@@ -116,7 +116,11 @@ def _run_resource_names() -> set[str]:
     assert match, "no METRICS heredoc in tools/run_resource.sh"
     names = {f"run_resource_{line.split('|', 1)[0].strip()}" for line in match[1].splitlines()}
     assert names, "the METRICS heredoc of tools/run_resource.sh is empty"
-    return names
+    # the identity series is printed ahead of the heredoc loop (it carries run_id, the gauges do not)
+    assert (
+        "%s_info{" in RUN_RESOURCE_SCRIPT.read_text()
+    ), "tools/run_resource.sh no longer writes run_resource_info"
+    return names | {"run_resource_info"}
 
 
 def _writer_snakes() -> list[str]:
