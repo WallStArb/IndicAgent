@@ -1,13 +1,17 @@
 import dataclasses
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from psycopg import sql
 
 from scripts.ops.ops_feature_column_screen import (
+    ANY_NAME,
     APR_KEYS,
     CLOCK_INHERITS,
     EXPECTED_NOT_JUDGED,
+    RULED_DISCLOSED,
+    Ruling,
     _clock_query,
     _query,
     _rows_before_coverage_query,
@@ -23,6 +27,7 @@ from scripts.ops.ops_feature_column_screen import (
     judge,
     judged_shortfall,
     null_share_gate,
+    object_dependent,
     registry_declarations,
     screen_rows,
     stored_first_row,
@@ -131,6 +136,7 @@ def _screen(
     fill_exempt=frozenset(),
     clock=None,
     object_columns=frozenset(),
+    rulings=None,
 ):
     memory = {"1d": memory or dict.fromkeys(columns, 10)}
     return screen_rows(
@@ -145,6 +151,7 @@ def _screen(
         zero_share_max=0.25,
         clock=clock,
         object_columns=object_columns,
+        rulings=rulings,
     )
 
 
@@ -613,3 +620,71 @@ def test_clock_inherits_is_needed_only_while_the_derived_columns_reach_is_shorte
             f"{derived} now declares its reach past {source}'s first row: delete CLOCK_INHERITS "
             "and inherit_clocks (todo 674 landed)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Ruled cells: a ledger ruling discloses a named failing cell instead of failing it (2026-11-27c)
+# ---------------------------------------------------------------------------
+
+_RULE = Ruling("reason", "2026-11-27c")
+
+
+def test_a_ruled_cell_is_reported_under_ruled_and_an_unruled_one_still_fails():
+    rows = [_row("1d", "A", 1200, LIVE, ZEROY), _row("1d", "B", 1200, LIVE, ZEROY)]
+    report, _ = _screen(rows, rulings={"1d": {("G3", "x", "A"): _RULE}})
+    entry = report["1d"]
+    assert entry["G3"] == {"x": {"n_names": 1, "examples": ["B"]}}
+    assert entry["ruled"] == {
+        "G3": {
+            "x": {"n_names": 1, "examples": ["A"], "reasons": ["reason"], "ledger": ["2026-11-27c"]}
+        }
+    }
+    assert gate_failures(report) == {"G1": 0, "G2": 0, "G3": 1} and entry["ruled_stale"] == []
+
+
+def test_a_ruling_on_another_gate_or_tf_does_not_rule_the_cell():
+    rows = [_row("1d", "A", 1200, LIVE, ZEROY)]
+    for rulings in ({"1d": {("G2", "x", "A"): _RULE}}, {"1h": {("G3", "x", "A"): _RULE}}):
+        report, _ = _screen(rows, rulings=rulings)
+        assert gate_failures(report)["G3"] == 1 and report["1d"]["ruled"] == {}
+
+
+def test_an_any_name_ruling_rules_every_name_and_a_ruling_matching_nothing_is_stale():
+    rows = [_row("1d", "A", 1200, LIVE, ZEROY), _row("1d", "B", 1200, LIVE, ZEROY)]
+    rulings = {
+        "1d": {
+            ("G3", "x", ANY_NAME): _RULE,
+            ("G1", "live", "A"): _RULE,
+            ("G1", "live", "NOT_SCREENED"): _RULE,  # outside this screen: not stale
+        }
+    }
+    report, _ = _screen(rows, rulings=rulings)
+    assert report["1d"]["G3"] == {} and report["1d"]["ruled"]["G3"]["x"]["n_names"] == 2
+    assert report["1d"]["ruled_stale"] == ["G1/live/A"]
+    assert gate_failures(report) == {"G1": 0, "G2": 0, "G3": 0}
+
+
+def test_a_g1_all_null_cell_can_be_ruled():
+    rows = [_row("1d", "A", 1200, LIVE, LIVE), _row("1d", "SPY", 1200, LIVE, EMPTY)]
+    assert _screen(rows)[0]["1d"]["G1"]["x"]["examples"] == ["SPY"]
+    report, _ = _screen(rows, rulings={"1d": {("G1", "x", "SPY"): _RULE}})
+    assert report["1d"]["G1"] == {} and report["1d"]["ruled"]["G1"]["x"]["examples"] == ["SPY"]
+
+
+def test_every_ruling_is_still_needed_and_names_a_recorded_ledger_entry():
+    """A ruling stands in for a declaration that lands at a re-pin. Once the registry declares it
+    (G3: zero_is_state or an acausal control; G1 and G2: object dependent), delete the ruling."""
+    registry = default_registry()
+    columns = set(feature_vectors_numeric_columns())
+    objects = object_dependent(registry)
+    covered = {"G1": objects, "G2": objects, "G3": fill_audit_exempt(registry)}
+    ledger = Path(__file__).resolve().parents[2] / "docs/plans/methodology-change-ledger.md"
+    headings = [line for line in ledger.read_text().splitlines() if line.startswith("## ")]
+    for tf, by_key in RULED_DISCLOSED.items():
+        for (gate, column, symbol), ruling in by_key.items():
+            assert column in columns, (tf, gate, column)
+            assert (
+                column not in covered[gate]
+            ), f"{gate}/{column} is declared now: delete its ruling"
+            assert symbol != ANY_NAME or gate == "G3", (gate, column)
+            assert any(h.startswith(f"## {ruling.ledger}:") for h in headings), ruling.ledger

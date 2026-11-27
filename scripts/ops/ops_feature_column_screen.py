@@ -44,6 +44,11 @@ Per (tf, name) and column:
   its stored rows (`covered_dividend_clock`).
 - Inherited clock (G2, G6): a column computed from a context column starts no earlier than it
   (`CLOCK_INHERITS`).
+- Ruled cells (G1-G3): a failing (gate, column, name) cell that a ledger ruling names in
+  `RULED_DISCLOSED` is moved to the report's `ruled` and not counted as a failure; a ruling that
+  matches no failing cell is listed in `ruled_stale`. A ruling is a stopgap until the declaration
+  it stands in for lands at a re-pin; a ruling the registry's declarations already cover fails the
+  unit tests, so the list only shrinks.
 A name with no more rows than a column's declared memory is not judged on that column (empty is
 expected). Names with fewer than --min-name-rows rows on a timeframe are not judged at all.
 
@@ -71,6 +76,7 @@ import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from collections.abc import Set as AbstractSet
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from itertools import batched
 from pathlib import Path
@@ -200,12 +206,19 @@ def object_dependent(registry) -> frozenset[str]:
     return frozenset(registry.object_dependent_outputs())
 
 
+def _names(names: list[str]) -> dict:
+    """The count of names and a few examples."""
+    return {"n_names": len(names), "examples": sorted(names)[:EXAMPLES]}
+
+
 def _failing(by_column: dict[str, list[str]]) -> dict[str, dict]:
     """Per failing column: the count of names and a few examples."""
-    return {
-        c: {"n_names": len(v), "examples": sorted(v)[:EXAMPLES]}
-        for c, v in sorted(by_column.items())
-    }
+    return {c: _names(v) for c, v in sorted(by_column.items())}
+
+
+def _cells(by_column: Mapping[str, Mapping]) -> int:
+    """The (column, name) cells of one gate's per-column report."""
+    return sum(v["n_names"] for v in by_column.values())
 
 
 def registry_declarations(registry) -> dict[str, bool]:
@@ -229,9 +242,13 @@ def screen_rows(
     zero_share_max: float,
     clock: Mapping[tuple[str, str], Mapping[str, int]] | None = None,
     object_columns: AbstractSet[str] = frozenset(),
+    rulings: Mapping[str, Mapping[tuple[str, str, str], Ruling]] | None = None,
 ) -> tuple[dict[str, dict], dict[str, int]]:
     """Per-timeframe gate report from the per-(tf, symbol) rows (tf, symbol, row count, then
-    STATS_PER_COLUMN per column), and the timeframes skipped below min_rows."""
+    STATS_PER_COLUMN per column), and the timeframes skipped below min_rows. Failing cells that
+    `rulings` (main passes `RULED_DISCLOSED`) names are reported under `ruled`, not as
+    failures."""
+    rulings = rulings or {}
     by_tf: dict[str, list[tuple]] = defaultdict(list)
     for tf, symbol, n_rows, *stats in rows:
         by_tf[tf].append((symbol, n_rows, stats))
@@ -285,6 +302,7 @@ def screen_rows(
                 fails["G1"][column].extend(constant_names)
             else:
                 disclosed[column] = constant_names
+        ruled, stale = apply_rulings(fails, rulings.get(tf, {}), {s for s, _, _ in judged})
 
         report[tf] = {
             "n_rows": n_rows,
@@ -295,8 +313,64 @@ def screen_rows(
             "partial": {c: dict(r) for c, r in sorted(reasons.items()) if c not in dead},
             "constant_disclosed": _failing(disclosed),
             **{gate: _failing(fails[gate]) for gate in GATES},
+            "ruled": ruled,
+            "ruled_stale": stale,
         }
     return report, skipped
+
+
+@dataclass(frozen=True)
+class Ruling:
+    """Why a failing screen cell is disclosed instead of failed, and the ledger entry that rules it."""
+
+    reason: str
+    ledger: str
+
+
+ANY_NAME = "*"  # a ruling key's symbol that matches every name (G3 only)
+
+
+def apply_rulings(
+    fails: dict[str, dict[str, list[str]]],
+    rulings: Mapping[tuple[str, str, str], Ruling],
+    judged: AbstractSet[str],
+) -> tuple[dict[str, dict], list[str]]:
+    """Move the failing cells `rulings` names out of `fails` (in place). Returns, per gate and
+    column, the ruled names with their reasons and ledger ids, and as `gate/column/symbol` the
+    rulings that matched no failing cell though their name was judged (a name outside a
+    --symbol or --pilot screen is not stale)."""
+    used: set[tuple[str, str, str]] = set()
+    ruled: dict[str, dict] = {}
+    for gate, by_column in fails.items():
+        for column in list(by_column):
+            kept, names, hits = [], [], set()
+            for symbol in by_column[column]:
+                key = (gate, column, symbol)
+                if key not in rulings:
+                    key = (gate, column, ANY_NAME)
+                if key in rulings:
+                    names.append(symbol)
+                    hits.add(key)
+                else:
+                    kept.append(symbol)
+            if not names:
+                continue
+            used |= hits
+            if kept:
+                by_column[column] = kept
+            else:
+                del by_column[column]
+            ruled.setdefault(gate, {})[column] = {
+                **_names(names),
+                "reasons": sorted({rulings[k].reason for k in hits}),
+                "ledger": sorted({rulings[k].ledger for k in hits}),
+            }
+    stale = sorted(
+        "/".join(key)
+        for key in rulings
+        if key not in used and (key[2] == ANY_NAME or key[2] in judged)
+    )
+    return dict(sorted(ruled.items())), stale
 
 
 # Columns whose declared warmup legitimately exceeds every judged name's history, per tf, with the
@@ -307,6 +381,170 @@ EXPECTED_NOT_JUDGED: dict[str, dict[str, str]] = {
     "1d": {
         "hma_slope_z": "z-score window of 252 over a 30-bar slope step: 7,560 bars (7,308 stored rows), longer than "
         "any 1d history (todo 652)",
+    },
+}
+
+
+_LEDGER_27C = "2026-11-27c"
+_GK_PK = (
+    "garman_klass_vol_z",
+    "garman_klass_vol_velocity",
+    "parkinson_vol_z",
+    "parkinson_vol_velocity",
+)
+_CASH_LATE = "cash-like: the variance proxy spreads above the z-score floor late, NaN before"
+_FLAT_ZERO = (
+    "measured zero on a flat or thin name: an unchanged close, a zero range, a close at its level "
+    "or a tied comparison, judged over few post-warmup rows; never a fill"
+)
+
+
+def _rule(
+    gate: str, columns: tuple[str, ...], symbols: tuple[str, ...], reason: str
+) -> dict[tuple[str, str, str], Ruling]:
+    return {(gate, c, s): Ruling(reason, _LEDGER_27C) for c in columns for s in symbols}
+
+
+# Failing cells a ledger ruling discloses instead of failing (ledger 2026-11-27c, run dcb7caa4):
+# per tf, (gate, column, symbol) -> Ruling; ANY_NAME only for a G3 column whose 0.0 the ruling
+# holds not to be a fill. Each entry is a stopgap for a declaration that lands at the next re-pin
+# (G3: a kernel `zero_is_state`, or NaN where the object is absent; G1: the reference name's own
+# factor declared undefined); once the registry covers an entry,
+# tests/unit/test_ops_feature_column_screen.py fails until it is deleted. EXPECTED_NOT_JUDGED above
+# is the G6 counterpart.
+RULED_DISCLOSED: dict[str, dict[tuple[str, str, str], Ruling]] = {
+    "1d": {
+        **_rule(
+            "G1",
+            (
+                "equity_beta_z",
+                "idiosyncratic_volatility",
+                "market_residual_lag1_acf",
+                "market_residual_return",
+                "market_residual_z",
+                "residual_beta_stability",
+            ),
+            ("SPY",),
+            "the market reference regressed on itself: NaN by construction (kernels/residual.py)",
+        ),
+        **_rule(
+            "G1",
+            ("rate_beta_z",),
+            ("TLT",),
+            "the rate reference regressed on itself: NaN by construction",
+        ),
+        **_rule(
+            "G1",
+            _GK_PK,
+            ("SGOV",),
+            "cash-like: the range variance proxy never spreads above the z-score floor, so NaN",
+        ),
+        **_rule("G2", _GK_PK, ("BILS",), _CASH_LATE),
+        **_rule("G2", ("yang_zhang_vol_z", "yang_zhang_vol_velocity"), ("SGOV",), _CASH_LATE),
+        **_rule(
+            "G2",
+            ("bar_close_pos", "body_ratio", "lower_wick_ratio", "upper_wick_ratio"),
+            ("IDMO~02PL3Z37",),
+            "thin early trading: high equals low on 17% of bars, the bar shape is NaN there",
+        ),
+        **_rule(
+            "G2",
+            ("up_vol_body_diff", "vol_body_product"),
+            ("FSEC",),
+            "thin early trading: high equals low on 26% of bars, the body terms are NaN there",
+        ),
+        **_rule(
+            "G2",
+            ("vol_persistence", "volume_z", "volume_z_velocity"),
+            ("GNLN",),
+            "back-adjusted volume is 1 for years, so the volume z is NaN (volume basis, 588e)",
+        ),
+        **_rule(
+            "G2",
+            ("dividend_yield",),
+            ("FOXA", "IYT", "PRSU", "RIOT", "SDOG", "SJNK", "UUP", "WTTR"),
+            "the stored yield's coverage path (todo 684): a late first value is NaN, never 0.0",
+        ),
+        **_rule(
+            "G3",
+            ("ob_mitigation_pct",),
+            (ANY_NAME,),
+            "0.0 is a measured state: the nearest order block untouched since its impulse; the "
+            "zero-width path is unreachable (a block candle closes strictly away from its open)",
+        ),
+        **_rule(
+            "G3",
+            ("trend_direction", "trend_leg_count", "trend_duration_bars"),
+            (ANY_NAME,),
+            "zero is state on a tie, absence on no legs; the re-pin decides per case (NaN for no "
+            "legs); every zero on the 86 failing names is a tie (median 64 post-warmup rows)",
+        ),
+        **_rule("G3", ("breakout_volume_product",), ("AAC~1829432",), _FLAT_ZERO),
+        **_rule(
+            "G3",
+            (
+                "efficiency_ratio_fast",
+                "efficiency_ratio_slow",
+                "range_position",
+                "stoch_k_fast",
+            ),
+            ("PVI",),
+            _FLAT_ZERO,
+        ),
+        **_rule(
+            "G3",
+            ("efficiency_volume_product",),
+            ("BSCK~1657201", "BSCL~1657201", "BSJK~1657201", "HMPT", "PVI"),
+            _FLAT_ZERO,
+        ),
+        **_rule("G3", ("price_position", "swing_low_dist_atr"), ("ALTU~0YMVNVR9",), _FLAT_ZERO),
+        **_rule(
+            "G3",
+            ("range_vol_product",),
+            (
+                "ALTU~0YMVNVR9",
+                "BOAC",
+                "CONX",
+                "DBKO",
+                "FHK",
+                "KBND",
+                "KRS",
+                "NSTB",
+                "PIAI",
+                "SDK",
+                "SJF",
+                "SJH~1174610",
+                "UVT",
+            ),
+            _FLAT_ZERO,
+        ),
+        **_rule(
+            "G3",
+            ("ret_vol_product_fast",),
+            (
+                "AKCA",
+                "BIL",
+                "BSCK~1657201",
+                "BSCL~1657201",
+                "BSJK~1657201",
+                "BSJL~1657201",
+                "HMPT",
+                "PVI",
+                "UNA",
+                "VTTI",
+            ),
+            _FLAT_ZERO,
+        ),
+        **_rule(
+            "G3",
+            ("ret_vol_ratio_fast",),
+            ("BSCL~1657201", "BSJL~1657201", "COVS", "MEP", "PVI", "TSVT"),
+            _FLAT_ZERO,
+        ),
+        **_rule(
+            "G3", ("swing_high_dist_atr",), ("BOAC", "BUFF", "GLG~1365790", "SHCR"), _FLAT_ZERO
+        ),
+        **_rule("G3", ("swing_velocity_bias",), ("AWA", "ITUS", "TIG~0VM3JWP2"), _FLAT_ZERO),
     },
 }
 
@@ -509,9 +747,7 @@ def judged_shortfall(report: dict[str, dict], minimum: int) -> dict[str, int]:
 
 def gate_failures(report: dict[str, dict]) -> dict[str, int]:
     """Failing (column, name) cells per gate over every timeframe."""
-    return {
-        gate: sum(v["n_names"] for r in report.values() for v in r[gate].values()) for gate in GATES
-    }
+    return {gate: sum(_cells(r[gate]) for r in report.values()) for gate in GATES}
 
 
 def apr_value(cfg, key: str):
@@ -651,6 +887,7 @@ def main(argv: list[str] | None = None) -> int:
         zero_share_max=zero_share_max,
         clock=clock,
         object_columns=object_dependent(registry),
+        rulings=RULED_DISCLOSED,
     )
 
     for tf, n_rows in skipped.items():
@@ -659,7 +896,9 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"{tf}: {entry['n_rows']} rows, {entry['n_names_judged']} of {entry['n_names']} names "
             f"judged; dead on every name: {len(entry['dead'])}, on some: {len(entry['partial'])}; "
-            f"failing columns G1 {len(entry['G1'])}, G2 {len(entry['G2'])}, G3 {len(entry['G3'])}"
+            f"failing columns G1 {len(entry['G1'])}, G2 {len(entry['G2'])}, G3 {len(entry['G3'])}; "
+            f"ruled cells {sum(_cells(g) for g in entry['ruled'].values())}, "
+            f"stale rulings {len(entry['ruled_stale'])}"
         )
     failures = gate_failures(report)
     nulls: dict[str, dict] = {}
