@@ -25,12 +25,13 @@ processors:
   # Every oneshot run is a new process, so service.instance.id (host:pid) makes a new series per
   # run. The nightly capture's freshness gauge and the split feed auditor's class gauge are read as
   # one series over 26h, so their series must not change per run: drop the per-process id for
-  # those services only.
+  # those services only. Each name must equal the service_name its process passes to
+  # init_otel_providers (tests/unit/observability/test_otel_collector_service_names.py).
   transform/stable_nightly:
     metric_statements:
       - context: resource
         statements:
-          - delete_key(resource.attributes, "service.instance.id") where resource.attributes["service.name"] == "indicagent-alpaca-nightly" or resource.attributes["service.name"] == "indicagent-split-feed-auditor"
+          - delete_key(resource.attributes, "service.instance.id") where resource.attributes["service.name"] == "indicagent-alpaca-nightly" or resource.attributes["service.name"] == "split-feed-auditor"
   attributes/job_name:
     actions:
       - key: job_name
