@@ -6,6 +6,7 @@ import csv
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -17,6 +18,7 @@ from services.split_feed_auditor import (
     FeedError,
     FeedSplit,
     Flagged,
+    Judgement,
     Recorded,
     candidate_rows,
     feed_window,
@@ -217,3 +219,32 @@ def test_feed_window_ends_yesterday_and_never_precedes_the_seam():
     seam = date(2026, 11, 16)
     assert feed_window(date(2026, 11, 24), 14, seam) == (seam, date(2026, 11, 23))
     assert feed_window(date(2027, 1, 10), 14, seam) == (date(2026, 12, 27), date(2027, 1, 9))
+
+
+def test_counts_name_every_class_once():
+    judgement = Judgement(
+        recorded=[_fwd("A")],
+        inactive=[_fwd("B"), _fwd("C")],
+        candidates=[_fwd("D")] * 3,
+        unseen=[_fwd("E")] * 4,
+        overdue=[_fwd("F")] * 5,
+    )
+    assert judgement.counts() == {
+        "inactive_ignored": 2,
+        "recorded": 1,
+        "candidates": 3,
+        "unseen": 4,
+        "overdue": 5,
+    }
+
+
+def test_report_counts_sets_one_gauge_point_per_class(monkeypatch):
+    import services.split_feed_auditor as auditor
+
+    calls = []
+    monkeypatch.setattr(
+        auditor, "SPLIT_FEED_SPLITS", SimpleNamespace(set=lambda v, a: calls.append((a, v)))
+    )
+    judgement = Judgement([_fwd("A")], [], [_fwd("B")] * 2, [], [])
+    auditor.report_counts(judgement)
+    assert dict((a["class"], v) for a, v in calls) == judgement.counts()

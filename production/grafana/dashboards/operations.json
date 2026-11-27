@@ -1175,7 +1175,7 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 24,
+        "w": 12,
         "x": 0,
         "y": 59
       },
@@ -1201,6 +1201,52 @@
         }
       ],
       "title": "Oneshot completions by job and status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "split_feed_auditor_splits{class}: the counts of the last successful judge of the split feed auditor (todo 683). recorded and inactive_ignored need no action, candidates warn, unseen and overdue fail the run. A run that fails before judging draws nothing here; liveness and failures are job_completed_total{job_name=\"split-feed-auditor\"} in the panel beside it. last_over_time over 26h (the SplitFeedAuditorMissed window) keeps the latest run visible between daily fires.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 6
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 59
+      },
+      "id": 72,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (class) (last_over_time(split_feed_auditor_splits[26h]))",
+          "refId": "A",
+          "legendFormat": "{{class}}"
+        }
+      ],
+      "title": "Split feed auditor: splits by class (last successful judge)",
       "type": "timeseries"
     }
   ],

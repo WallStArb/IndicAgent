@@ -1,8 +1,6 @@
 ---
 claimable: true
-claimed_by: indicagent-03
-claimed_at: 2026-11-27T07:49:18+00:00
-status: pending
+status: completed
 priority: P3
 filed: 2026-11-27
 source: todo 649 timer check (indicagent-a1, lead ruling 2026-11-27)
@@ -27,3 +25,7 @@ Add one gauge per class (or one gauge with a `class` label) through `src/observa
 The alerts for a missed fire and for the `gap_found` and `candidates` statuses (`SplitFeedAuditorMissed`, `SplitFeedAuditorFinding`) read only `job_completed_total` and do not wait for this.
 
 Claim note (lead 2026-11-27): timer-run code; edit it only in a detached worktree off `origin/main` and land only CI-green.
+
+## Closed 2026-11-27 (claimed and landed by indicagent-03)
+
+One gauge with a class label, `split_feed_auditor_splits{class}` (inactive_ignored, recorded, candidates, unseen, overdue), set once per run from `Judgement.counts()`, the same source as the `split_feed_auditor.judged` log line, and flushed by the existing `flush_and_shutdown_metrics()`. The operations dashboard shows it beside the oneshot completions panel. The metric-ref test reads the name from the code (`point_gauge`), so no allow-list edit was needed.

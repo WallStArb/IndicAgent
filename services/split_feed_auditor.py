@@ -48,7 +48,7 @@ sys.path.insert(0, str(project_root))
 from services.batch_support.db import load_config_service_sync
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
-from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
+from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics, point_gauge
 from src.observability.otel import OTelInitError, init_otel_providers
 
 setup_service_logging("logs/split_feed_auditor.log")
@@ -56,6 +56,12 @@ setup_service_logging("logs/split_feed_auditor.log")
 _logger = structlog.get_logger(__name__)
 
 _JOB = "split-feed-auditor"
+SPLIT_FEED_SPLITS = point_gauge(
+    "split_feed_auditor_splits",
+    "Feed splits by class from a successful judge of split_feed_auditor: inactive_ignored, recorded, "
+    "candidates, unseen, overdue (unseen and overdue fail the run). A run that fails before judging "
+    "sets nothing; liveness and failures are job_completed_total{job_name=split-feed-auditor}",
+)
 _FEED_URL = "https://data.alpaca.markets/v1/corporate-actions"
 _FEED_TYPES = "forward_split,reverse_split"
 _FEED_KEYS = {"forward_splits": "split", "reverse_splits": "reverse_split"}
@@ -144,6 +150,16 @@ class Judgement:
     @property
     def failed(self) -> bool:
         return bool(self.unseen or self.overdue)
+
+    def counts(self) -> dict[str, int]:
+        """Splits per class, the one source of the judged log line and the class gauge (todo 683)."""
+        return {
+            "inactive_ignored": len(self.inactive),
+            "recorded": len(self.recorded),
+            "candidates": len(self.candidates),
+            "unseen": len(self.unseen),
+            "overdue": len(self.overdue),
+        }
 
 
 def _rate(value: Any, where: str) -> float:
@@ -366,6 +382,14 @@ def _describe(splits: list[FeedSplit]) -> list[str]:
     return [f"{s.symbol} {s.ex_date.isoformat()} factor {s.factor:g}" for s in splits]
 
 
+def report_counts(judgement: Judgement) -> None:
+    """The judged log line and one class gauge point per class, from the same counts."""
+    counts = judgement.counts()
+    _logger.info("split_feed_auditor.judged", **{f"n_{k}": v for k, v in counts.items()})
+    for split_class, n in counts.items():
+        SPLIT_FEED_SPLITS.set(n, {"class": split_class})
+
+
 def main() -> None:
     try:
         init_otel_providers(service_name=_JOB)
@@ -414,14 +438,7 @@ def main() -> None:
             proposed = judgement.candidates + judgement.unseen + judgement.overdue
             last_old = _last_old_scale(cur, proposed) if proposed else {}
 
-        _logger.info(
-            "split_feed_auditor.judged",
-            n_inactive_ignored=len(judgement.inactive),
-            n_recorded=len(judgement.recorded),
-            n_candidates=len(judgement.candidates),
-            n_unseen=len(judgement.unseen),
-            n_overdue=len(judgement.overdue),
-        )
+        report_counts(judgement)
         if proposed:
             path = _CANDIDATE_DIR / f"split_candidates_{today.isoformat()}.csv"
             write_candidates(path, candidate_rows(proposed, last_old))
