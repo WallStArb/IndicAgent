@@ -54,7 +54,7 @@ Ranked P0 and P1 order by the path to a counted test (lead pass 2026-11-24; "cod
 | 6 | 636 | StepM across the counted looks, then the `reversal_21` pooled read; the 547 ruling shapes the final cut | lead, owner for 547 | small | none |
 | 7 | 471 | width-pin measurement runs only after the pilot and with no heavy job live | lead | one heavy run | none |
 | 8 | 547, 586 | owner rulings (S1 drift; persistence statistic, branch `wip/586-persistence-statistic`) | owner | decision then medium | `statistics/`: `repro_frozen` |
-| 9 | 558, 461, 466, 583, 571 | all after the corpus rerun lands the rebuilt columns; 461 and 466 ledger and card annotations are docs only and can land now | worker sessions | small each | 571 and 583 write the DB after the rerun |
+| 9 | 558, 461, 466, 583, 571 | all after the corpus rerun lands the rebuilt columns; the 461 and 466 ledger and card annotations are done (5f1af57f6), only the re-measurements remain | worker sessions | small each | 571 and 583 write the DB after the rerun |
 | 10 | 614 rows 3, 9, 10, 11, 13, 16 | step 7 proved itself; rows 3 to 13 touch modules the rebuild imports, so after `stage_1d`; row 16 per file | worker session | medium | yes, after `stage_1d` |
 | 11 | 439 part 2, 435, 441, 423, 440, 442, 601, 603 | the corpus rerun and phase 186-28 IC run; 442 is paused and owned by phase 183 | after the rerun | per todo | research edits wait for quiet |
 | 12 | 615, 622, 624 | data-quality items, now P3 under the 2026-11-20 materiality rule; 609 is folded into 584 | lead | none to small | none |
