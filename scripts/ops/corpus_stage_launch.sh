@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Corpus stage launcher (scope 1d): the run's stage_1d and feature_complete steps, guarded: refuse unless the pilot
 # completed at the run's pin and the blocking timers are quiesced -> stage under the DIMM watchdog and RSS log in one
-# user scope (run_resource gauges) -> release the timers on a clean exit, hold them otherwise.
+# user scope (run_resource gauges) -> hold the timers on every exit.
 # docs/operations/guarded-run-runbook.md.
 # Usage: setsid -f bash corpus_stage_launch.sh <run_id> <expected_rebuild_code_key_prefix>
 #        bash corpus_stage_launch.sh --check <run_id> <expected_rebuild_code_key_prefix>
@@ -9,8 +9,10 @@
 # The run walks `--through feature_complete` and no further until todos 670 and 671 exist (ledger 2026-11-24f).
 # Preconditions: pilot completed for the run at its recorded code_commit; the blocking timers quiesced
 # (`python -m services.corpus_rerun --quiesce`, so the bars stay unchanged under the run); block 2 compare IDENTICAL in
-# the status file; memtester_clean present; no heavy job live. A stage that stops resumes with the same command; the
-# timers stay held until `--release`.
+# the status file; memtester_clean present; no heavy job live. The timers stay held on every exit: a stage that stops
+# resumes with the same command, and a complete one is followed by ic_measure_launch.sh, which reads the same rows and
+# releases on its own clean exit (restated bars between feature_complete and ic_measure would split the IC inputs from
+# the features, lead ruling 2026-11-27). Release by hand with `python -m services.corpus_rerun --release` if the run is abandoned.
 # The MemAvailable floor is APR infra.run_guarded.mem_floor_gib.stage_1d (seed 40, sized for 16-worker batteries):
 # the pilot at 4 workers peaked at 1.90 GiB in its cgroup.
 set -u
@@ -100,8 +102,7 @@ GUARDED_STAGE=stage_1d run_guarded "$REPO/logs/corpus_stage_$RUN.out" "$PY" -m s
 rc=$?; log "stage exit=$rc run=$RUN (rss_mb per 20 s is in $TEMPLOG)"
 cd "$REPO" || exit 3
 if [ "$rc" -eq 0 ]; then
-  if $CR --release >> "$STATUS" 2>&1; then log "timers released"
-  else log "WARN timers NOT released after a clean stage: run  $PY -m services.corpus_rerun --release  by hand (the nightly capture stays off until then)"; fi
+  log "stage_1d complete, timers held for ic_measure, release after it (ic_measure_launch.sh releases on its own clean exit)"
 else
   log "timers held: run $RUN (stage exit=$rc); resume with: bash scripts/ops/corpus_stage_launch.sh $RUN $EXPECT; release with --release after the run is abandoned"
 fi

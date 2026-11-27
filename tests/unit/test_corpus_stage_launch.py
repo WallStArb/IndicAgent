@@ -140,13 +140,13 @@ def _calls(stage: Stage, needle: str) -> list[str]:
     return [c for c in stage.calls() if needle in c]
 
 
-def test_a_ready_run_stages_and_releases_the_timers(stage: Stage) -> None:
+def test_a_ready_run_stages_and_holds_the_timers_for_ic_measure(stage: Stage) -> None:
     result = _launch(stage)
     assert result.returncode == 0, stage.status_text()
     assert _calls(stage, f"--run-id {RUN_ID} --through feature_complete")
-    assert _calls(stage, "--release")
+    assert not _calls(stage, "--release")
     text = stage.status_text()
-    assert "timers released" in text and "mem floor 24 GiB" in text
+    assert "timers held for ic_measure, release after it" in text and "mem floor 24 GiB" in text
     assert "stage=stage_1d" in text  # the run_resource gauge line for the stage
 
 
@@ -177,13 +177,6 @@ def test_a_masked_timer_passes(stage: Stage) -> None:
 def test_a_floor_with_a_leading_zero_is_read_as_decimal(stage: Stage) -> None:
     assert _launch(stage, FLOOR_NOW="08").returncode == 0, stage.status_text()
     assert "mem floor 8 GiB" in stage.status_text()
-
-
-def test_a_failed_release_after_a_clean_stage_is_not_logged_as_released(stage: Stage) -> None:
-    result = _launch(stage, RELEASE_RC="1")
-    assert result.returncode == 0
-    assert "timers NOT released" in stage.status_text()
-    assert "timers released" not in stage.status_text()
 
 
 def test_an_active_timer_refuses(stage: Stage) -> None:

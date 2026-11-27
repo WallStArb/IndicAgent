@@ -151,5 +151,8 @@ launch would meet, read-only: the run-side gates, the two APR keys, the quiesced
 - The MemAvailable floor is APR `infra.run_guarded.mem_floor_gib.stage_1d` (migration 622, seed 40), read before the host gate. The shared 40 GiB floor was sized for 16-worker batteries; the idle host reads
   38.6 to 40.7 GiB because Postgres holds 15 GiB of shared memory, and the pilot at 4 workers peaked at 1.90 GiB in its cgroup.
   Change it through `ConfigService` with a `changed_by` and `reason`.
-- Exit 0 releases the timers. Any other exit holds them and logs the resume command (the same command; the runner resumes the
-  run). A watchdog abort is 143.
+- The timers stay held on every exit (lead ruling 2026-11-27). On exit 0 the status file says "stage_1d complete, timers held for
+  ic_measure, release after it": `ic_measure_launch.sh` reads the same rows, re-quiesces (the first record is kept) and releases on
+  its own clean exit, so no bar is restated between `feature_complete` and the IC measure. The nightly then backfills two or three
+  days of Alpaca bars. On any other exit the launcher logs the resume command (the same command; the runner resumes the run);
+  abandon a run with `python -m services.corpus_rerun --release`. A watchdog abort is 143.
