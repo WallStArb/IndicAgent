@@ -131,6 +131,7 @@ Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22
 
 | Todo | Why now |
 |---|---|
+| [686](pending/686-code-health-report-hotspots-ratchets-escaped-defects.md) | New 2026-11-27, P2, owner ruling (constant refinement is north star). The code loop of `docs/foundation/harness-improvement-sop.md`: one read-only report of file hotspots, `fixes <sha>` escaped defects and every ratchet baseline, so the refactor queue is ranked by evidence. Pairs with 685. |
 | [685](pending/685-harness-signals-logger-and-the-lead-retro.md) | New 2026-11-27, P2, owner ruling (harness improvement SOP is core). Step 1 of `docs/foundation/harness-improvement-sop.md`: a read-only logger of session idle time, claims and CI, plus the lead's notes on owner interventions, so harness changes are judged on evidence. First judgment: does pull-based claiming (`1850fb596`) cut idle minutes and owner pokes over 14 days. |
 | [663](pending/663-family-10-volume-shock-kernels-spec-and-run.md) | New 2026-11-22, P2, spec, members, battery and run blocked on todo 653 (member panel source plus S1 residual e). Kernels on main; data gates 563 and 560 cleared, prereg gates 4 and 5 open (heavy slot). |
 | [665](pending/665-ic-measure-feature-list-reads-the-dormant-featurevector-dataclass.md) | New 2026-11-24, P3. `ic_measure` chooses its feature columns from the dormant `FeatureVector` dataclass plus table extras; take them from `feature_vectors_numeric_columns()` and refuse a registry column the table lacks. Results unchanged. |

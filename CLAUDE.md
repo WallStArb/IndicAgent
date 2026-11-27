@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.64.0
+Version: 5.64.1
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project, not a production system. Decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. Apply the rigor of a system built to last; do not hedge around operational risk that doesn't apply.
@@ -23,7 +23,7 @@ Version: 5.64.0
 
 ## Harness Improvement SOP (core, owner 2026-11-27)
 
-The harness (this file, PLANNING-SYSTEM.md, the lead loop, gates, process tests, `tools/`, skills, memory) improves on evidence, like the research machine; goal over process. The lead runs the loop: instrument the harness's own signals (idle sessions, owner interventions, review findings by class, CI reds, critical-path landings) -> retro on a fixed cadence and after every owner intervention; a failure shape seen twice is a candidate -> mechanize first (delete the cause, else a loud check, else a tool default; a prose rule here is the last resort) -> every change states the signal it should move and a check date -> keep it if the signal moved, else revert -> prune rules unfired for 60 days; this file has a size budget, so a new rule pays for its space -> monthly, judge the retro itself and change its method when its hit rate is poor. Guards: owner veto on this file and anything irreversible; no session edits its own permissions or hooks; harness changes pass the Done-Coding SOP and an independent review; read activity signals only with an outcome signal. Method: `docs/foundation/harness-improvement-sop.md`.
+The harness (this file, PLANNING-SYSTEM.md, the lead loop, gates, process tests, `tools/`, skills, memory) improves on evidence, like the research machine; goal over process. The lead runs the loop: instrument the harness's own signals (idle sessions, owner interventions, review findings by class, CI reds, critical-path landings) -> retro on a fixed cadence and after every owner intervention; a failure shape seen twice is a candidate -> mechanize first (delete the cause, else a loud check, else a tool default; a prose rule here is the last resort) -> every change states the signal it should move and a check date -> keep it if the signal moved, else revert -> prune rules unfired for 60 days; this file has a size budget, so a new rule pays for its space -> monthly, judge the retro itself and change its method when its hit rate is poor. Guards: owner veto on this file and anything irreversible; no session edits its own permissions or hooks; harness changes pass the Done-Coding SOP and an independent review; read activity signals only with an outcome signal. The same loop governs the code (constant refinement is north star): a commit fixing an earlier landing's defect says `fixes <sha>` in its body; baselines (complexity census, mypy, vulture, glossary, duplicate tests) only shrink; measured hotspots feed the refactor queue; a review-finding class seen twice becomes a check; monthly, the gates themselves are judged by the defects that escaped them. Method: `docs/foundation/harness-improvement-sop.md`.
 
 ## Done-Coding SOP
 
