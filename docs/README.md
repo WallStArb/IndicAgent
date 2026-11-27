@@ -55,6 +55,7 @@ WHY+WHAT: principles, naming rules, AI working rules. These change rarely.
 | `musk-5-step-process.md` | Musk's 5-step design process: make requirements less dumb, delete, simplify, accelerate, automate |
 | `renaissance-grade-standards.md` | Renaissance-grade standards |
 | `performance-investigation-sop.md` | Performance and throughput investigation SOP |
+| `harness-improvement-sop.md` | Harness improvement SOP: instrument, retro, mechanize, predict, judge, prune, recurse (core, owner 2026-11-27) |
 | `timescaledb-compressed-column-migration.md` | TimescaleDB compressed-column migration pattern |
 | `business-requirements.md` | IndicAgent business requirements |
 | `v3-north-star.md` | v3.0 North Star: the intelligence-vectors concept (canonical for the North Star philosophy) |

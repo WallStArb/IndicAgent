@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.63.23
+Version: 5.64.0
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project, not a production system. Decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. Apply the rigor of a system built to last; do not hedge around operational risk that doesn't apply.
@@ -20,6 +20,10 @@ Version: 5.63.23
 **Docs:** `docs/foundation/` is canonical; `docs/` root is index only. `.planning/STATE.md` is read by `tests/unit/test_doc_schema_numbers.py` and `test_rebuild_preconditions.py`; keep its frontmatter and run both after an edit. Rare pitfalls and operational procedures (backfill, gateway, worker kill, git/shared-checkout, planning quirks): `docs/reference/gotchas.md`. Planning flow (IDEAS.md → docs/ideas/ → docs/plans/ → todos/pending/ → ROADMAP.md → phases/): `.planning/PLANNING-SYSTEM.md`; progress: `.planning/STATE.md`; todo priorities: `.planning/todos/PRIORITIES.md` (every pending todo needs a row, every link must resolve, CI-enforced).
 **Doc disposition (owner 2026-10-31):** root `docs/plans/` holds only operative and canonical documents. An old plan keeps only the good info, ideas and context that might add value in future: write a short archive stub in `docs/plans/archive/` (title, date, the ideas/hypotheses worth keeping, outcome pointer, git-history pointer) and delete the full text; full text survives in archive only where the detail itself is the value. A stale-but-live doc is condensed to status + decision + the numbers a disclosure requires (confirm the linked doc holds the detail before cutting; frozen sections stay verbatim). Pure garbage (deleted-system era, no live reference, no rationale value) deletes outright with no stub. Protected: `docs/plans/methodology-change-ledger.md` (append-only), `docs/plans/OOS-EVAL-PROTOCOL.md`, `docs/plans/SHADOW-REVIEW.md`, frozen preregs, canonical designs. Repair or remove every reference to a deleted path (CI-enforced).
 **Compressed-hypertable column type changes:** a migration doing decompress→`ALTER COLUMN TYPE`→recompress MUST end with a bare `VACUUM <table>;` (migration 312's omission became a 768 GB disk-full incident). CI-enforced. Template: `docs/foundation/timescaledb-compressed-column-migration.md`.
+
+## Harness Improvement SOP (core, owner 2026-11-27)
+
+The harness (this file, PLANNING-SYSTEM.md, the lead loop, gates, process tests, `tools/`, skills, memory) improves on evidence, like the research machine; goal over process. The lead runs the loop: instrument the harness's own signals (idle sessions, owner interventions, review findings by class, CI reds, critical-path landings) -> retro on a fixed cadence and after every owner intervention; a failure shape seen twice is a candidate -> mechanize first (delete the cause, else a loud check, else a tool default; a prose rule here is the last resort) -> every change states the signal it should move and a check date -> keep it if the signal moved, else revert -> prune rules unfired for 60 days; this file has a size budget, so a new rule pays for its space -> monthly, judge the retro itself and change its method when its hit rate is poor. Guards: owner veto on this file and anything irreversible; no session edits its own permissions or hooks; harness changes pass the Done-Coding SOP and an independent review; read activity signals only with an outcome signal. Method: `docs/foundation/harness-improvement-sop.md`.
 
 ## Done-Coding SOP
 
