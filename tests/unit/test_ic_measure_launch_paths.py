@@ -5,8 +5,11 @@ MemAvailable floor comes from APR (infra.run_guarded.mem_floor_gib.ic_measure) b
 
 from __future__ import annotations
 
+import re
 import shutil
+import signal
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -157,15 +160,69 @@ def test_the_read_only_preflight_probes_the_user_scope(ic: IcLab) -> None:
     )
 
 
-def test_every_check_form_uses_the_one_scope_gate() -> None:
-    for name in (
-        "corpus_pilot.sh",
-        "corpus_stage_launch.sh",
-        "ic_measure_launch.sh",
-        "family10_launch.sh",
-    ):
-        text = (SCRIPTS / name).read_text()
-        assert "scope_gate" in text, name
-        assert (
-            "run_resource_scope_check" not in text
-        ), name  # the probe is called only through the helper
+def test_family10_preflight_only_refuses_early_when_no_scope_can_start(ic: IcLab) -> None:
+    shutil.copy(SCRIPTS / "family10_launch.sh", ic.repo / "scripts" / "ops" / "family10_launch.sh")
+    refused = subprocess.run(
+        ["bash", str(ic.repo / "scripts" / "ops" / "family10_launch.sh")],
+        env={**ic.env, "PREFLIGHT_ONLY": "1", "SYSTEMD_RUN_RC": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert refused.returncode == 3
+    assert "no user scope with memory accounting" in refused.stdout
+    assert "battery ok" not in refused.stdout  # before the fetch, the worktree and the static gates
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["corpus_pilot.sh", "corpus_stage_launch.sh", "ic_measure_launch.sh", "family10_launch.sh"],
+)
+def test_every_check_form_calls_the_one_scope_gate(name: str) -> None:
+    text = (SCRIPTS / name).read_text()
+    calls = [
+        line
+        for line in text.splitlines()
+        if re.search(r"(^|[\s;{(])scope_gate\b", line) and not line.lstrip().startswith("#")
+    ]
+    assert calls, name
+    assert (
+        "run_resource_scope_check" not in text
+    ), name  # the probe is called only through the helper
+
+
+def test_the_read_only_preflight_says_which_gates_it_did_not_run(ic: IcLab) -> None:
+    result = ic.launch(PREFLIGHT_ONLY="1")
+    assert result.returncode == 0
+    assert "read-only form: database, worktree, floor and user scope only" in result.stdout
+    assert not ic.calls_with("--quiesce") and not ic.calls_with("--release")
+
+
+def test_a_term_during_the_measure_logs_the_hold_and_the_resume_command(ic: IcLab) -> None:
+    process = subprocess.Popen(
+        ["bash", str(ic.repo / "scripts" / "ops" / SCRIPT.name), RUN_ID, PREFIX],
+        env=ic.env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    for _ in range(200):
+        if ic.calls_with("--through ic_measure"):
+            break
+        time.sleep(0.05)
+    process.send_signal(signal.SIGTERM)
+    process.communicate(timeout=30)
+    assert process.returncode == 143
+    assert not ic.calls_with("--release")
+    assert f"bash {ic.repo}/scripts/ops/ic_measure_launch.sh {RUN_ID} {PREFIX}" in ic.status_text()
+
+
+def test_a_failed_release_after_a_clean_measure_is_loud(ic: IcLab) -> None:
+    result = ic.launch(RELEASE_RC="1")
+    assert result.returncode == 4
+    assert "WARN the IC measure finished but --release failed" in ic.status_text()
+
+
+def test_ic_unreachable_apr_is_named_as_such(ic: IcLab) -> None:
+    refused = ic.launch(FLOOR_RC="1", PREFLIGHT_ONLY="1")
+    assert refused.returncode == 3 and "database unreachable" in refused.stdout

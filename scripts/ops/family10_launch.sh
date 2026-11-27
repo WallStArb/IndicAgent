@@ -6,7 +6,8 @@
 # bound record (the runner's own static_gate), its spec hashes must equal the recorded rows' and StepM must be the attested one.
 # PREFLIGHT_ONLY=1 stops after those checks. It writes only: a `git fetch` (remote-tracking refs), a throwaway worktree
 # $SCRATCH/wt-f10pre-<pid> removed on exit, and its messages on the terminal (not the status file). It never touches the live
-# run's worktree path, prunes nothing, skips the host gate and repro_frozen, and refuses while a run_spec process is live.
+# run's worktree path, prunes nothing, skips the host gate and repro_frozen, and refuses while a run_spec process is live. It also
+# probes a throwaway user scope (scope_gate, todo 681) and refuses when the run could not get one.
 set -u
 unset COLLECT_REFUSALS   # collect mode is corpus_pilot.sh --check only: an inherited value would make every fail() return
 . "$(dirname "$0")/guarded_run_common.sh"
@@ -16,6 +17,7 @@ unset COLLECT_REFUSALS   # collect mode is corpus_pilot.sh --check only: an inhe
 WT=$SCRATCH/wt-f10run
 if [ -n "${PREFLIGHT_ONLY:-}" ]; then
   pgrep -f 'python.*run_spec' >/dev/null && fail "a run_spec process is live: preflight refuses while a counted run may use the shared checkout"
+  scope_gate   # a host that cannot give the run its user scope refuses here, before the fetch and the worktree
   WT=$SCRATCH/wt-f10pre-$$
   trap 'git -C "$REPO" worktree remove --force "$WT" >/dev/null 2>&1' EXIT
 fi
@@ -56,7 +58,7 @@ PY
   [ -z "$recorded" ] || [ "$recorded" = "${HASH[$spec]}" ] || fail "$spec: spec hash ${HASH[$spec]} differs from the recorded rows ($recorded): the earlier killed rows would become gaps in the StepM read"
   log "preflight $spec hash=${HASH[$spec]:0:10} battery ok"
 done
-[ -z "${PREFLIGHT_ONLY:-}" ] || { scope_gate; log "preflight OK at $LAUNCH"; exit 0; }
+[ -z "${PREFLIGHT_ONLY:-}" ] || { log "preflight OK at $LAUNCH"; exit 0; }
 
 GUARDED_STAGE=repro_frozen run_guarded "$SCRATCH/repro_frozen.out" "$PY" -m scripts.research.determinism.repro_frozen "$SCRATCH/repro" --logs "$REPO/logs"
 rc=$?; log "repro_frozen exit=$rc"

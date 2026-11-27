@@ -57,9 +57,10 @@ dimm_max_c() {
 
 # apr_floor_kb <key>: the MemAvailable floor in kB from an APR key holding GiB; prints nothing and returns 1 unless it is an
 # integer inside the schema bounds (8 to 512 GiB, the config_schema rows of migrations 622 and 623), so a value written
-# around ConfigService cannot switch the gate off. The caller sets MEM_FLOOR_KB from it before host_gate.
+# around ConfigService cannot switch the gate off. Returns 1 for an unusable value and 2 when the database cannot be read.
+# The caller sets MEM_FLOOR_KB from it before host_gate.
 apr_floor_kb() {
-  local gib; gib=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select config_value from config_state where config_key='$1'") || return 1
+  local gib; gib=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "select config_value from config_state where config_key='$1'") || return 2   # 2: APR unreachable, not a bad value
   case "$gib" in ""|*[!0-9]*) return 1;; esac
   gib=${gib#"${gib%%[!0]*}"}   # leading zeros off (08 is decimal); more than three digits is out of range before any arithmetic wraps
   [ -n "$gib" ] && [ "${#gib}" -le 3 ] || return 1

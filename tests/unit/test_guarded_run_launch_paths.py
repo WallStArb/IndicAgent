@@ -637,7 +637,7 @@ def test_every_launcher_re_executes_itself_in_a_user_scope(
     assert calls[0].endswith(" ".join(args))
 
 
-def test_ic_measure_preflight_only_makes_no_scope(lab: Lab) -> None:
+def test_ic_measure_preflight_only_makes_no_reexec_scope(lab: Lab) -> None:
     subprocess.run(
         ["bash", str(lab.repo / "scripts" / "ops" / "ic_measure_launch.sh"), RUN_ID, "abc"],
         env={**lab.env, "STUB_SCOPE_RECORD": "1", "PREFLIGHT_ONLY": "1"},
@@ -649,7 +649,7 @@ def test_ic_measure_preflight_only_makes_no_scope(lab: Lab) -> None:
     assert not _scope_calls(lab)
 
 
-def test_family10_preflight_only_makes_no_scope(lab: Lab) -> None:
+def test_family10_preflight_only_makes_no_reexec_scope(lab: Lab) -> None:
     lab.run(script="family10_launch.sh", STUB_SCOPE_RECORD="1", PREFLIGHT_ONLY="1")
     assert not _scope_calls(lab)
 
