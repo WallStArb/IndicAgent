@@ -75,17 +75,26 @@ def test_a_sparse_stretch_is_the_object_missing_and_a_dense_one_is_not():
     assert first_finite > WINDOW  # later than a liquid name's first finite row (bar WINDOW)
 
 
-def test_the_product_inherits_the_amihud_object_and_its_own_none_mask():
+def test_the_product_inherits_the_amihud_object_and_only_that():
     closes, volumes = _sparse_then_dense()
-    amihud = _compute_amihud(_inputs(closes, volumes), CONFIG)["amihud_illiq_z"]
-    momentum = np.where(np.arange(len(closes)) < 30, np.nan, 0.5)
+    out_amihud = _compute_amihud(_inputs(closes, volumes), CONFIG)
+    amihud = out_amihud["amihud_illiq_z"]
+    momentum = np.full(len(closes), 0.5)
+    gap = np.flatnonzero(~np.isnan(amihud))[:3]
+    momentum[gap] = np.nan  # a momentum gap where amihud has a value
     out = _compute_illiquidity_momentum_product(
-        {"amihud_illiq_z": amihud, "momentum_z_fast": momentum}, CONFIG
+        {
+            "amihud_illiq_z": amihud,
+            none_mask_name("amihud_illiq_z"): out_amihud[none_mask_name("amihud_illiq_z")],
+            "momentum_z_fast": momentum,
+        },
+        CONFIG,
     )
     product = out["illiquidity_momentum_product"]
     mask = out[none_mask_name("illiquidity_momentum_product")].astype(bool)
-    assert (mask == np.isnan(product)).all()
-    assert mask[np.isnan(amihud)].all()  # no amihud value, no product value
+    assert (mask == np.isnan(amihud)).all()  # no amihud value, no product object
+    # a NaN momentum is a missing value, never an absent object
+    assert np.isnan(product[gap]).all() and not mask[gap].any()
 
 
 def test_both_columns_are_declared_object_dependent_with_their_none_masks():

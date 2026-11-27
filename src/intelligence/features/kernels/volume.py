@@ -506,10 +506,13 @@ def _compute_amihud(x, config):
 
 
 def _compute_illiquidity_momentum_product(x, config):
-    product = x["amihud_illiq_z"] * x["momentum_z_fast"]
+    # None where amihud_illiq_z is None (its object is absent); a NaN momentum_z_fast stays a NaN
+    # value, counted as missing, never hidden as an absent object
     return {
-        "illiquidity_momentum_product": product,
-        none_mask_name("illiquidity_momentum_product"): np.isnan(product).astype(np.float64),
+        "illiquidity_momentum_product": x["amihud_illiq_z"] * x["momentum_z_fast"],
+        none_mask_name("illiquidity_momentum_product"): np.asarray(
+            x[none_mask_name("amihud_illiq_z")], dtype=np.float64
+        ),
     }
 
 
@@ -866,10 +869,10 @@ KERNELS = (
     _k(
         "illiquidity_momentum_product",
         ("illiquidity_momentum_product", none_mask_name("illiquidity_momentum_product")),
-        ("amihud_illiq_z", "momentum_z_fast"),
+        ("amihud_illiq_z", none_mask_name("amihud_illiq_z"), "momentum_z_fast"),
         lambda c: 0,
         _compute_illiquidity_momentum_product,
-        # inherits amihud_illiq_z's object: NaN wherever the amihud window is not yet warm
+        # inherits amihud_illiq_z's object, and only that: its none mask is amihud_illiq_z's
         object_dependent=frozenset({"illiquidity_momentum_product"}),
     ),
 )
