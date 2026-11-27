@@ -70,7 +70,7 @@ if floor_kb=$(apr_floor_kb "$FLOOR_KEY"); then MEM_FLOOR_KB=$floor_kb
 elif [ $? -eq 2 ]; then fail "cannot read $FLOOR_KEY from APR (database unreachable)"
 else fail "$FLOOR_KEY is not an integer from 8 to 512 in APR"; fi
 [ -z "${PREFLIGHT_ONLY:-}" ] || scope_gate   # the read-only form probes the user scope too
-log "ic_measure preflight ok: run $RUN scope $scope width $width code key ${key:0:12} floor $((MEM_FLOOR_KB / 1048576)) GiB${PREFLIGHT_ONLY:+ (read-only form: database, worktree, floor and user scope only; the block 2 line, host gate and verdict freshness are not run)}"
+log "ic_measure ${PREFLIGHT_ONLY:+preflight}${PREFLIGHT_ONLY:-run-state checks} ok: run $RUN scope $scope width $width code key ${key:0:12} floor $((MEM_FLOOR_KB / 1048576)) GiB${PREFLIGHT_ONLY:+ (read-only form: database, worktree, floor, window, live-process and user-scope checks only; the block 2 line, DIMM, kernel and timer gates and verdict freshness are not run)}"
 [ -z "${PREFLIGHT_ONLY:-}" ] || exit 0
 
 grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
@@ -89,18 +89,18 @@ if [ -n "${RSS_CHECK:-}" ]; then
 fi
 
 HELD="resume with: bash $REPO/scripts/ops/ic_measure_launch.sh $RUN $EXPECT; release with: cd $REPO && $CR --release (only after the run is abandoned)"
+trap 'log "timers held: run $RUN (the launcher was stopped or exited early); $HELD"' EXIT   # armed before the quiesce: a TERM, INT or HUP at any later point leaves the resume command
 log "quiesce"
-$CR --quiesce >> "$STATUS" 2>&1 || { log "quiesce failed: the timer set may be only partly quiesced, nothing was released; run $CR --quiesce again or check systemctl list-timers; $HELD"; fail "quiesce failed"; }   # never release on a failure
-cd "$WT" || { log "timers held: run $RUN; $HELD"; fail "cd worktree"; }
-trap 'log "timers held: run $RUN (the launcher was stopped or exited early); $HELD"' EXIT   # a TERM, INT or HUP exits through run_guarded'"'"'s trap
+$CR --quiesce >> "$STATUS" 2>&1 || { trap - EXIT; log "quiesce failed: the timer set may be only partly quiesced, nothing was released; run $CR --quiesce again or check systemctl list-timers; $HELD"; fail "quiesce failed"; }   # never release on a failure
+cd "$WT" || { trap - EXIT; log "timers held: run $RUN; $HELD"; fail "cd worktree"; }
 before=$(wc -l < "$TEMPLOG" 2>/dev/null || echo 0)
 GUARDED_STAGE=ic_measure run_guarded "$SCRATCH/ic_measure_$RUN.out" "$PY" -m services.corpus_rerun --run-id "$RUN" --through ic_measure
 rc=$?; log "ic_measure exit=$rc run=$RUN width=$width peak_rss_mb=$(peak_rss_mb_since "$TEMPLOG" "$before")"
-cd "$REPO" || { log "timers held: run $RUN (ic_measure exit=$rc); $HELD"; exit 3; }
 trap - EXIT
+cd "$REPO" || { log "timers held: run $RUN (ic_measure exit=$rc); $HELD"; exit 3; }
 if [ "$rc" -eq 0 ]; then
   if $CR --release >> "$STATUS" 2>&1; then log "timers released"
-  else log "WARN the IC measure finished but --release failed: the timers are still off; $HELD"; exit 4; fi
+  else log "WARN the IC measure is complete but --release failed and the timers are still off: release them now with: cd $REPO && $CR --release"; exit 4; fi
 else
   log "timers held: run $RUN (ic_measure exit=$rc); $HELD"
 fi

@@ -34,7 +34,8 @@ exec "$BASE_STUBS/psql" "$@"
 """
 _PYTHON = """#!/bin/sh
 case "$*" in
-  *--check*|*--quiesce*|*--release*) ;;
+  *--quiesce*) [ -z "${QUIESCE_SLEEP:-}" ] || sleep "$QUIESCE_SLEEP";;
+  *--check*|*--release*) ;;
   *"--through ic_measure"*) echo "$*" >> "$STUB_LOG"; sleep 0.6; exit "${IC_RC:-0}";;
 esac
 exec "$BASE_STUBS/python" "$@"
@@ -195,7 +196,10 @@ def test_every_check_form_calls_the_one_scope_gate(name: str) -> None:
 def test_the_read_only_preflight_says_which_gates_it_did_not_run(ic: IcLab) -> None:
     result = ic.launch(PREFLIGHT_ONLY="1")
     assert result.returncode == 0
-    assert "read-only form: database, worktree, floor and user scope only" in result.stdout
+    assert (
+        "read-only form: database, worktree, floor, window, live-process and user-scope checks only"
+        in result.stdout
+    )
     assert not ic.calls_with("--quiesce") and not ic.calls_with("--release")
 
 
@@ -206,10 +210,16 @@ def test_a_term_during_the_measure_logs_the_hold_and_the_resume_command(ic: IcLa
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    for _ in range(200):
-        if ic.calls_with("--through ic_measure"):
+    poll_log = (
+        ic.repo / "logs" / "family10_dimm_temp.log"
+    )  # run_guarded writes a line once its trap is armed
+    for _ in range(400):
+        if ic.calls_with("--through ic_measure") and poll_log.exists() and poll_log.stat().st_size:
             break
         time.sleep(0.05)
+    else:
+        process.kill()
+        pytest.fail("the measure never reached its first watchdog poll")
     process.send_signal(signal.SIGTERM)
     process.communicate(timeout=30)
     assert process.returncode == 143
@@ -220,9 +230,30 @@ def test_a_term_during_the_measure_logs_the_hold_and_the_resume_command(ic: IcLa
 def test_a_failed_release_after_a_clean_measure_is_loud(ic: IcLab) -> None:
     result = ic.launch(RELEASE_RC="1")
     assert result.returncode == 4
-    assert "WARN the IC measure finished but --release failed" in ic.status_text()
+    text = ic.status_text()
+    assert "WARN the IC measure is complete but --release failed" in text
+    assert (
+        "resume with" not in text.split("WARN the IC measure")[1]
+    )  # a finished run is not resumed
 
 
 def test_ic_unreachable_apr_is_named_as_such(ic: IcLab) -> None:
     refused = ic.launch(FLOOR_RC="1", PREFLIGHT_ONLY="1")
     assert refused.returncode == 3 and "database unreachable" in refused.stdout
+
+
+def test_a_term_during_the_quiesce_leaves_the_resume_command(ic: IcLab) -> None:
+    process = subprocess.Popen(
+        ["bash", str(ic.repo / "scripts" / "ops" / SCRIPT.name), RUN_ID, PREFIX],
+        env={**ic.env, "QUIESCE_SLEEP": "2"},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    for _ in range(200):
+        if "quiesce" in ic.status_text().splitlines()[-1]:
+            break
+        time.sleep(0.05)
+    process.send_signal(signal.SIGTERM)
+    process.communicate(timeout=30)
+    assert f"bash {ic.repo}/scripts/ops/ic_measure_launch.sh {RUN_ID} {PREFIX}" in ic.status_text()
+    assert not ic.calls_with("--release")
