@@ -68,12 +68,13 @@ lapse, so the slice cannot grow later.
 
 Measured 2026-11-26: the last 20 sessions are 327 GB (about 16 GB a day), so about 7 hours at the
 46 GB/h of the first slice, and ubuntu1 has 1.5 TB free. Flat-file downloads have no request cap.
-Start about 2026-12-05 so the newest sessions are in and the run ends before the lapse; it is
-network and disk bound, so the lead decides whether it overlaps the pilot. Resumable (a rerun skips
+All 20 sessions through 2026-11-25 are already published, so the run starts as soon as the lead
+says the corpus repilot has ended; an earlier slice only widens the safety buffer before the lapse.
+It is network and disk bound, so the lead decides whether it overlaps a compute job. Resumable (a rerun skips
 recorded keys); `--cap-gb` (400) and `--min-free-gb` (400) refuse rather than fill the disk.
 
-Schedule and command (lead ruling 2026-11-26; start 2026-12-05, not later without the lead's
-ruling; the lapse is 2026-12-10). Run it detached, send the lead a line at start, at the halfway
+Schedule and command (lead ruling 2026-11-27: start on the lead's go once the repilot has ended, not
+later than 3 days before the account expiry E, about 2026-12-10). Run it detached, send the lead a line at start, at the halfway
 point and at the end:
 
 ```
@@ -160,9 +161,10 @@ files (no `--delete`) and refuses when the mirror would be left under 40 GB.
 
 1. Done 2026-11-26: `--verify` exit 0; `--mirror-push` exit 0 (7.57 GB sent); `--mirror-verify` exit 0
    (98,381 files, 7,810,833,420 bytes on both sides, 0 missing, 0 differing).
-2. About 2026-12-05: the tape slice (above).
-3. About 2026-12-07 (read the exact lapse date off the account page first; ask the owner), one
-   heavy job at a time:
+2. On the lead's go after the repilot ends (2026-11-27 or later): the tape slice (above).
+3. The final pass runs on the earlier of the day the 2026-11-30 month-end list is served (from
+   2026-12-01 or 12-02) and E minus 2 days, where E is the expiry date the owner reads off the
+   account page (the lead asks); one heavy job at a time:
    - `massive_download --restat` (expect an empty report), then
      `--refresh-inventory --date-from 2026-11-14` (download only; the seam stays pinned at
      2026-11-16, so new files cannot move it), then `--verify` and `--verify-etag` (exit 0 on
