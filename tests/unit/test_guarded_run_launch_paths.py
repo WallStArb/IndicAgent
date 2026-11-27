@@ -9,6 +9,7 @@ temporary repo so their status file, scratch directory and worktrees are private
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -685,6 +686,18 @@ def test_a_run_id_with_unsafe_characters_never_reaches_the_labels(lab: Lab) -> N
     result = lab.run(body)
     assert "rc=0" in result.stdout
     assert "WARN" not in lab.status_text()
+    info = next((lab.root / "textfile").glob("*.prom")).read_text()
+    assert re.search(r'run_id="\d{8}T\d{6}Z"', info) and "a b" not in info  # the start stamp
+
+
+@pytest.mark.parametrize(
+    ("script", "assignments"), [("corpus_pilot.sh", 2), ("ic_measure_launch.sh", 1)]
+)
+def test_a_launcher_with_a_validated_run_id_labels_the_run_with_it(
+    script: str, assignments: int
+) -> None:
+    text = (SCRIPTS / script).read_text()
+    assert text.count("GUARDED_RUN_ID=$RUN") == assignments
 
 
 def test_check_refuses_when_no_user_scope_can_start(lab: Lab) -> None:

@@ -46,7 +46,7 @@ class Lab:
         preamble = (
             f'source "{COMMON}"; STATUS="{self.root}/status"; TEMPLOG="{self.root}/temp.log"; '
             'POLL_S=0.2; KILL_GRACE_S=1; : >> "$STATUS"; '
-            "GUARDED_WORKLOAD=launcher; GUARDED_STAGE=stage_x; RUN=r1; RUN_RESOURCE_SCOPED=1; "
+            "GUARDED_WORKLOAD=launcher; GUARDED_STAGE=stage_x; RUN=ambient; GUARDED_RUN_ID=r1; RUN_RESOURCE_SCOPED=1; "
         )
         env = {
             "GUARDED_RUN_DIR": str(self.root),
@@ -92,6 +92,9 @@ def test_a_normal_exit_emits_the_gauges_and_a_status_line(tmp_path: Path) -> Non
     values = lab.samples()
     assert values["run_resource_exit_code"] == "7"
     assert values["run_resource_memory_peak_bytes"] == str(300 * MIB)
+    text = (tmp_path / "out" / "run_resource_launcher_stage_x.prom").read_text()
+    assert 'run_resource_info{workload="launcher",stage="stage_x",run_id="r1"} 1' in text
+    assert "ambient" not in text  # the ambient RUN never labels a series
     line = next(x for x in lab.status().splitlines() if "run_resource workload=launcher" in x)
     assert "exit=7" in line and "memory_peak_gib=0.29" in line and "max_c=57" in line
 

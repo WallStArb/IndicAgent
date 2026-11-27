@@ -10,9 +10,10 @@
 # Wrapper mode:  run_resource.sh <workload> <stage> <run_id> -- cmd args...
 # Sourced:       run_resource_scope <argv...>   re-exec argv inside a user scope (exit 3 when none)
 #                run_resource_emit <workload> <stage> <run_id> <rc>
+#                run_resource_scope_check       read-only probe: a user scope starts and passes run_resource_preflight
 #
-# Series: one run_resource_info{workload,stage,run_id} 1 per run and six gauges labelled workload and stage only, so
-# a run costs one extra series, not seven. The file is overwritten per workload and node_exporter serves a finished
+# Series: one run_resource_info{workload,stage,run_id} 1 per run and seven gauges labelled workload and stage only, so
+# a run costs one extra series, not eight. The file is overwritten per workload and node_exporter serves a finished
 # run's values until the next one: alert on them together with time() - run_resource_end_timestamp_seconds.
 # oom_kill counts the kernel OOM killer only; exit_code 137 with oom_kill 0 is a SIGKILL from elsewhere (systemd-oomd,
 # cgroup.kill, the DIMM watchdog), so read the two together.
@@ -147,6 +148,8 @@ run_resource_preflight() {
   dir=$(run_resource_cgroup_dir) || return 3
   run_resource_read_int "$dir/memory.peak" >/dev/null \
     || { run_resource_fail "no readable $dir/memory.peak in this scope (memory accounting missing)"; return 3; }
+  [[ -r $dir/memory.events && -r $dir/cgroup.procs ]] \
+    || { run_resource_fail "no readable $dir/memory.events and cgroup.procs in this scope"; return 3; }
   [[ -d $out && -w $out ]] || { run_resource_fail "$out is not a writable directory"; return 3; }
 }
 
@@ -171,9 +174,10 @@ run_resource_scope() {
 # Read-only probe for a launcher's --check: a throwaway user scope with memory accounting must start and
 # pass run_resource_preflight (memory.peak readable, textfile directory writable). Writes nothing.
 run_resource_scope_check() {
+  systemd-run --user --scope --quiet true 2>/dev/null \
+    || { run_resource_fail "systemd-run --user failed (no user manager, linger or cgroup delegation)"; return 3; }
   systemd-run --user --scope --collect --quiet -p MemoryAccounting=yes --setenv=RUN_RESOURCE_PREFLIGHT_SOURCE="${BASH_SOURCE[0]}" \
-    -- bash -c '. "$RUN_RESOURCE_PREFLIGHT_SOURCE" && run_resource_preflight' \
-    || { run_resource_fail "cannot start a user scope with memory accounting (systemd-run --user, linger, cgroup delegation)"; return 3; }
+    -- bash -c '. "$RUN_RESOURCE_PREFLIGHT_SOURCE" && run_resource_preflight' || return 3   # its message says which probe failed
 }
 
 # The command runs in its own process group so a TERM, INT or HUP to the wrapper reaches the whole job; the
