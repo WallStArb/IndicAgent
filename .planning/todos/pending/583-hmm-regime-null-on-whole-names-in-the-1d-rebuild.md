@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P1
 filed: 2026-11-01
 source: todo 564 column screen, per-name view (scripts/ops/ops_feature_column_screen.py)

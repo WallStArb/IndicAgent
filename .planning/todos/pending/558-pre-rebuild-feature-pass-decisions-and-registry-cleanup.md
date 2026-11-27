@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P1
 filed: 2026-10-28
 source: owner question 2026-10-28 (new features, factors and signals; missing atomic features; cleanup)

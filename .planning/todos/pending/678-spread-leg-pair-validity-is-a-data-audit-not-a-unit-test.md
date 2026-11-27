@@ -1,6 +1,7 @@
 ---
 claimable: true
 status: pending
+objective: O3
 priority: P3
 filed: 2026-11-26
 source: indicagent-8c test hygiene audit (lane O, lead ruling 2026-11-25)

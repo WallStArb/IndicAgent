@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P0
 filed: 2026-11-04
 source: independent review of the phase-184 wiring wave (9f280d0aa..e1cca6456), lead rulings by indicagent-16

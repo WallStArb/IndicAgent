@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P2
 filed: 2026-09-30
 source: plan 186-13 task 2 caveat trace (todo 451)

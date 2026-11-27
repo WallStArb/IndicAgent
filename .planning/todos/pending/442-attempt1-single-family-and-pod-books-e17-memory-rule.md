@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P1
 filed: 2026-09-26
 source: adopted unified design (todo 436), sections 4.1 and 4.5; Fable review items 3 and 6

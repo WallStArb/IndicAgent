@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O3
 priority: P1
 filed: 2026-11-14
 source: lead audit 2026-11-14 (read-only worker, claims 1 and 2 re-verified at source by the lead), executed under the owner's standing licence to rewrite

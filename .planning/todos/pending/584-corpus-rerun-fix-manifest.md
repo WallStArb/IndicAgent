@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P0
 filed: 2026-11-01
 source: lead orchestrator (indicagent-4f), owner sequence 2026-11-01: data -> all fixes -> corpus rerun -> ensemble research

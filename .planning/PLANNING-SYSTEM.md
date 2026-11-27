@@ -4,6 +4,18 @@ How ideas, todos, roadmap, and phases relate and flow into each other.
 
 ---
 
+## Objectives (above the backlog)
+
+**File:** `.planning/OBJECTIVES.md` (owner ruling 2026-11-27)
+
+The owner gives the system objectives; the lead turns each into todos and phases and assigns or spawns the workers.
+
+- The owner writes OBJECTIVES.md: each objective has an id (`O1`, `O2`, ...), an outcome, a measurable done-criterion, constraints and vetoes, a priority, a status and its source. The lead proposes a new or changed objective in a commit for the owner to confirm; it never invents one.
+- Every todo names the objective it serves: `objective: O<n>` as a top-level key of its line-1 frontmatter. Required on every todo numbered above 687 (the highest number when the layer landed, `OBJECTIVE_REQUIRED_AFTER` in `tools/todo_claims.py`), optional on older ones, and checked wherever it is set. A todo that serves no objective is a question for the owner, not a todo.
+- Enforced by `tests/unit/test_todo_priorities_link_integrity.py` through `tools/todo_claims.py`: ids unique in OBJECTIVES.md, one `objective:` line per todo, its value an id of the table.
+
+---
+
 ## The Five Layers
 
 ```
@@ -158,6 +170,16 @@ An idle worker session claims light work itself instead of waiting for the lead.
 - How to renew or release: a holder still on the work after three days rewrites `claimed_at`; a release removes both fields (finished work closes the todo instead, and a todo in `completed/` or `deferred/` carries no claim). A claim whose `claimed_at` is more than three days old is stale and is released by its holder or the lead.
 - Landing: every claimed landing still passes the Done-Coding SOP, is reviewed by an independent reviewer session and is reported to the lead with its sha and that reviewer's session name. Timer-run code is still edited only in a detached worktree off `origin/main`.
 - Enforced by `tests/unit/test_todo_priorities_link_integrity.py` through `tools/todo_claims.py`: claim fields only as top-level keys of the line-1 frontmatter, one of each, only on a pending `claimable: true` todo, `claimed_by` a session name (`indicagent-<id>`), `claimed_at` in UTC and not in the future. Staleness is not tested, so an abandoned claim never turns an unrelated worker's suite red: `.venv/bin/python tools/todo_claims.py` lists every claim with its age and exits 1 on a stale or broken one, and the lead runs it in the orient step (1) of every lead-loop cycle and releases or reassigns what it flags.
+
+### Spawning workers (lead)
+
+The lead starts its own headless worker sessions with `scripts/ops/spawn_worker.sh` instead of waiting for the owner to open one.
+
+- Which path: a lead-assigned lane that needs a session of its own and no idle session can take it: spawn. Light work marked `claimable: true`: an idle session claims it. A bounded read, search or review inside the lead's own task: a subagent.
+- How: `scripts/ops/spawn_worker.sh --name <name> --todo <N> --brief <file> --model <model> --permission-mode <mode>`. It creates a detached worktree off `origin/main` (`../indicagent-wt-<name>`), runs `claude -p` with the brief on stdin, detached with `setsid`, logging to `logs/agents/<name>.log`, and appends the worker to `logs/agents/workers.jsonl` (append-only). `--list` shows every worker not yet reaped; `--reap` removes the worktree (and its local branch, when merged) of a finished worker once no process runs in it, it is clean (ignored files count, bar tool caches), unlocked and every commit on it has landed on `origin/main`. The registry lives in the primary checkout; one lock serialises spawn and reap.
+- Capacity gate: it refuses when the brief lacks one of the seven parts, the todo is not pending on `origin/main`, is claimed or already has a live worker, the name is taken, the live workers reach `infra.spawn_worker.max_workers`, or MemAvailable is under `infra.spawn_worker.mem_margin_gib` plus, while a heavy job is live, the largest `infra.run_guarded.mem_floor_gib.*` floor. A missing APR key refuses (migration 625).
+- Permission mode: there is no default. A headless worker cannot answer a prompt, so what it may run is set by the mode and the settings the owner chooses; no session picks a wider mode for itself or a peer (harness SOP guards).
+- A spawned worker's landing is reviewed independently like any other (Done-Coding SOP, suite exit code), and the lead reaps it after the landing.
 
 ---
 

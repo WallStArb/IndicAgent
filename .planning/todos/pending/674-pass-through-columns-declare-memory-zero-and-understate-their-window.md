@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P1
 filed: 2026-11-24
 source: indicagent-fb, member check for todo 669 (lead ruling 2026-11-24: a silent wrong answer)

@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P1
 filed: 2026-10-30
 source: owner 2026-10-30 ("yes reset it after the rebuild")

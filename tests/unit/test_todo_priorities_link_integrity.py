@@ -21,7 +21,8 @@ never again accumulates silently between manual audits.
 
 It also holds todo numbers unique across pending/, completed/ and deferred/ and every
 PRIORITIES.md link label equal to its file's number (todo 394), and every todo claim well formed
-(tools/todo_claims.py).
+(tools/todo_claims.py), and every todo's `objective:` an id of .planning/OBJECTIVES.md (required on
+todos numbered after todo_claims.OBJECTIVE_REQUIRED_AFTER).
 
 CI-clean: no DB, no network -- pure filesystem + regex scan.
 """
@@ -106,7 +107,7 @@ def test_dead_link_allow_list_has_no_stale_entries():
     )
 
 
-_TODO_NUMBER = re.compile(r"^(\d+)-")
+_TODO_NUMBER = todo_claims.TODO_NUMBER
 _TODO_LINK = re.compile(r"\[([^\]]*)\]\(\.?/?(?:pending|completed|deferred)/([^)#]*)[^)]*\)")
 
 
@@ -149,3 +150,19 @@ def test_every_claim_is_well_formed():
         if claim.errors
     }
     assert not bad, f"malformed todo claims (fix or release them): {bad}"
+
+
+def test_every_todo_names_a_known_objective():
+    """PLANNING-SYSTEM.md "Objectives": OBJECTIVES.md ids are unique, and a todo's `objective:` is
+    one of them (required on every todo filed after the layer landed). Planted cases live in
+    tests/unit/tools/test_todo_claims.py."""
+    ids = todo_claims.objective_ids(todo_claims.OBJECTIVES_FILE.read_text(encoding="utf-8"))
+    assert ids, "OBJECTIVES.md has no objective rows"
+    repeated = sorted({i for i in ids if ids.count(i) > 1})
+    assert not repeated, f"objective ids used by more than one row of OBJECTIVES.md: {repeated}"
+    bad = {
+        f"{path.parent.name}/{path.name}": errors
+        for path in sorted(_TODOS_DIR.glob("*/*.md"))
+        if (errors := todo_claims.objective_errors(path.name, path.read_text(), set(ids)))
+    }
+    assert not bad, f"todos with a missing or unknown objective (OBJECTIVES.md ids): {bad}"

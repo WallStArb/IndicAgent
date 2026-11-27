@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Todo claims (PLANNING-SYSTEM.md, "Claiming a todo"): each claim, its problems, its staleness.
+Also the line-1 frontmatter parser the todo tests share, and the `objective:` rule
+(PLANNING-SYSTEM.md, "Objectives"): `objective_errors`.
 
     .venv/bin/python tools/todo_claims.py        # the lead loop runs this
 
@@ -20,6 +22,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 TODOS_DIR = Path(__file__).resolve().parent.parent / ".planning" / "todos"
+OBJECTIVES_FILE = TODOS_DIR.parent / "OBJECTIVES.md"
+# the highest todo number when the objectives layer landed (2026-11-27): every later todo names one
+OBJECTIVE_REQUIRED_AFTER = 687
 STALE_DAYS = 3
 CLOCK_SKEW = timedelta(minutes=5)
 CLAIM_KEYS = ("claimed_by", "claimed_at")
@@ -30,6 +35,8 @@ _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 _CLAIM_LINE = re.compile(rf"^[\s>*-]*[\"']?({'|'.join(CLAIM_KEYS)})[\"']?\s*:", re.M)
 _HEAD_END = re.compile(r"^(?:#|\s*$)", re.M)
 _SESSION_NAME = re.compile(r"indicagent-[a-z0-9]+")  # a ListAgents name, e.g. indicagent-03
+_OBJECTIVE_ROW = re.compile(r"^\|\s*(O\d+)\s*\|", re.M)  # a table row of OBJECTIVES.md
+TODO_NUMBER = re.compile(r"^(\d+)-")  # a todo file name: <number>-<slug>.md
 
 
 @dataclass
@@ -90,6 +97,30 @@ def parse_claim(todo: str, text: str, now: datetime) -> Claim | None:
     elif at > now + CLOCK_SKEW:
         errors.append("claimed_at is in the future")
     return Claim(todo, fields, at, tuple(errors))
+
+
+def objective_ids(objectives_text: str) -> list[str]:
+    """The objective ids of OBJECTIVES.md's table, in order (a repeated id appears twice)."""
+    return _OBJECTIVE_ROW.findall(objectives_text)
+
+
+def objective_errors(name: str, text: str, ids: set[str]) -> tuple[str, ...]:
+    """Every rule the `objective:` field of one todo file (its basename, e.g. 700-x.md) breaks:
+    at most one line, its value one of `ids`, and present on every todo numbered above
+    OBJECTIVE_REQUIRED_AFTER. Optional on older todos, but checked wherever it is set."""
+    values = [value for key, value in frontmatter(text) if key == "objective"]
+    number = TODO_NUMBER.match(name)
+    if not values:
+        if number and int(number[1]) > OBJECTIVE_REQUIRED_AFTER:
+            return (
+                "no objective: line in the line-1 frontmatter "
+                f"(todos after {OBJECTIVE_REQUIRED_AFTER} name one)",
+            )
+        return ()
+    errors = [f"objective {v!r} is not an id in OBJECTIVES.md" for v in values if v not in ids]
+    if len(values) > 1:
+        errors.append("more than one objective line (a todo serves one objective)")
+    return tuple(errors)
 
 
 def claims(todos_dir: Path, now: datetime) -> list[Claim]:

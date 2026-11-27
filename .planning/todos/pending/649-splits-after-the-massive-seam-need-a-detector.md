@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O2
 priority: P1
 filed: 2026-11-21
 source: Alpaca nightly 2026-11-20 exited 1 (PARTIAL, one basis-change restatement flag, SNDK 5m); second case in two days after VIXM (todo 641)

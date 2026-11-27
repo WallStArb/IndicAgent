@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P1
 filed: 2026-11-04
 source: plan 184-05 battery report (184-05-BATTERY.md), 1,000 simulations per cell at 4,000 sessions

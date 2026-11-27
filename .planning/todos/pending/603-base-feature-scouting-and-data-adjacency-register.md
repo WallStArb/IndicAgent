@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P1
 filed: 2026-11-09
 source: owner 2026-11-09 (a process that looks at the data we have and adjacent retrievable data, proposes new base features; same thinking for regimes and families)

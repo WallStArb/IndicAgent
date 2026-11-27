@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P1
 filed: 2026-09-24
 source: council review 2026-09-24, docs/plans/archive/2026-09-24-edge-proof-program.md "Phase 181 queue"

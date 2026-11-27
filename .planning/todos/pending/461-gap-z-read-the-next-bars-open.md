@@ -1,5 +1,6 @@
 ---
 status: pending
+objective: O1
 priority: P1
 filed: 2026-09-29
 source: plan 186-12 causality probe on the moved gap_z kernel

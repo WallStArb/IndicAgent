@@ -134,3 +134,39 @@ def test_main_exits_0_on_a_fresh_claim_and_1_on_a_broken_or_stale_one(tmp_path, 
     assert code == 1 and "PROBLEM pending/700-x.md: stale, age 73.0 h > 72 h" in out
     code, out = run("claimed_by: null\n")
     assert code == 1 and "PROBLEM pending/700-x.md: claimed_by 'null' is not a session name" in out
+
+
+IDS = {"O1", "O2"}
+LATER = f"{tc.OBJECTIVE_REQUIRED_AFTER + 1}-x.md"
+
+
+def _objective(line: str) -> str:
+    return f"---\nstatus: pending\n{line}---\n\n# Title\n"
+
+
+def test_objective_ids_are_read_from_the_table_rows_only():
+    text = "Use `objective: O9` in prose.\n\n| Id | Outcome |\n|---|---|\n| O1 | a |\n| O2 | b |\n"
+    assert tc.objective_ids(text) == ["O1", "O2"]
+
+
+def test_a_known_objective_passes_and_an_older_todo_may_omit_it():
+    assert tc.objective_errors(LATER, _objective("objective: O1\n"), IDS) == ()
+    assert tc.objective_errors("600-x.md", _objective(""), IDS) == ()
+
+
+def test_a_later_todo_without_an_objective_is_rejected():
+    assert any("no objective" in e for e in tc.objective_errors(LATER, _objective(""), IDS))
+    no_block = "# Title\n\nobjective: O1\n"  # a body line is prose, not the field
+    assert any("no objective" in e for e in tc.objective_errors(LATER, no_block, IDS))
+
+
+@pytest.mark.parametrize("value", ["O3", "o1", "", "O1, O2"])
+def test_an_unknown_objective_is_rejected_on_any_todo(value):
+    for name in (LATER, "600-x.md"):
+        errors = tc.objective_errors(name, _objective(f"objective: {value}\n"), IDS)
+        assert any("not an id in OBJECTIVES.md" in e for e in errors)
+
+
+def test_two_objective_lines_are_rejected():
+    errors = tc.objective_errors(LATER, _objective("objective: O1\nobjective: O2\n"), IDS)
+    assert any("more than one objective" in e for e in errors)
