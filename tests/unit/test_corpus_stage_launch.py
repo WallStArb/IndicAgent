@@ -22,6 +22,7 @@ OK = ("1d", "completed", "", "abc", "abc", KEY, PREFIX)
 
 # Prepended to the shared stubs: the run row, its steps, the floor key, a timer's state and the stage step.
 _PSQL = """#!/bin/sh
+[ -n "${PGPASSWORD:-}" ] || { echo "psql: error: connection to server failed: fe_sendauth: no password supplied" >&2; exit 2; }
 case "$*" in
   *data_gate_scope*) echo "${SCOPE_NOW-1d}"; exit 0;;
   *"from corpus_run_step"*)
@@ -35,7 +36,7 @@ esac
 exec "$BASE_STUBS/psql" "$@"
 """
 _SYSTEMCTL = """#!/bin/sh
-[ "$1" = is-enabled ] && { echo "${STUB_ENABLED:-disabled}"; exit 0; }
+[ "$1" = is-enabled ] && { echo "${STUB_ENABLED-disabled}"; exit 0; }
 if [ "$1" = is-active ]; then
   case "$2" in *.timer) echo "${STUB_TIMER_ACTIVE:-inactive}"; exit 0;; esac
 fi
@@ -159,8 +160,30 @@ def test_a_failed_stage_holds_the_timers_and_keeps_its_exit_code(stage: Stage) -
 def test_the_launch_never_quiesces_it_refuses_unquiesced_timers(stage: Stage) -> None:
     result = _launch(stage, STUB_ENABLED="enabled")
     assert result.returncode == 3
-    assert "is enabled: quiesce first" in stage.status_text()
+    assert "is not disabled or masked: quiesce first" in stage.status_text()
     assert not _calls(stage, "--through") and not _calls(stage, "--quiesce")
+
+
+@pytest.mark.parametrize("state", ["enabled-runtime", "static", "linked", ""])
+def test_a_timer_in_any_state_but_disabled_or_masked_refuses(stage: Stage, state: str) -> None:
+    assert _launch(stage, STUB_ENABLED=state).returncode == 3
+    assert "is not disabled or masked" in stage.status_text()
+
+
+def test_a_masked_timer_passes(stage: Stage) -> None:
+    assert _launch(stage, STUB_ENABLED="masked").returncode == 0, stage.status_text()
+
+
+def test_a_floor_with_a_leading_zero_is_read_as_decimal(stage: Stage) -> None:
+    assert _launch(stage, FLOOR_NOW="08").returncode == 0, stage.status_text()
+    assert "mem floor 8 GiB" in stage.status_text()
+
+
+def test_a_failed_release_after_a_clean_stage_is_not_logged_as_released(stage: Stage) -> None:
+    result = _launch(stage, RELEASE_RC="1")
+    assert result.returncode == 0
+    assert "timers NOT released" in stage.status_text()
+    assert "timers released" not in stage.status_text()
 
 
 def test_an_active_timer_refuses(stage: Stage) -> None:
@@ -176,7 +199,7 @@ def test_the_floor_comes_from_apr_and_applies_before_the_host_gate(stage: Stage)
     assert not _calls(stage, "--through")
 
 
-@pytest.mark.parametrize("value", ["", "0", "-5", "forty", "2.5"])
+@pytest.mark.parametrize("value", ["", "0", "1", "7", "513", "-5", "forty", "2.5"])
 def test_an_unusable_floor_refuses(stage: Stage, value: str) -> None:
     assert _launch(stage, FLOOR_NOW=value).returncode == 3
     assert "is not a positive integer in APR" in stage.status_text()
@@ -218,6 +241,13 @@ def test_a_run_id_that_is_not_a_uuid_refuses(stage: Stage) -> None:
     assert "is not a uuid" in stage.status_text()
 
 
+def test_check_goes_on_after_a_missing_block2_comparison(stage: Stage) -> None:
+    stage.status.write_text("")
+    result = stage.stage("--check", RUN_ID, PREFIX, WORKERS_NOW="8")
+    assert "REFUSED: no IDENTICAL block 2 comparison" in result.stdout
+    assert "REFUSED: infra.feature_factory.workers is 8, expected 4" in result.stdout
+
+
 def test_check_reports_every_refusal_and_writes_nothing(stage: Stage) -> None:
     before = stage.status_text()
     result = stage.stage(
@@ -232,7 +262,7 @@ def test_check_reports_every_refusal_and_writes_nothing(stage: Stage) -> None:
     assert result.returncode == 1
     for refusal in (
         "preflight: pilot step is 'failed', not completed",
-        "a.timer is enabled: quiesce first",
+        "a.timer is not disabled or masked: quiesce first",
         "infra.feature_factory.workers is 8, expected 4",
         "another heavy job is live",
     ):

@@ -20,6 +20,7 @@ if [ "${1:-}" = "--check" ]; then CHECK=1; COLLECT_REFUSALS=1; shift; fi   # bef
 THROUGH=feature_complete
 FLOOR_KEY=infra.run_guarded.mem_floor_gib.stage_1d
 PSQL=(psql -U postgres -h localhost -d indicagent -tAc)
+export PGPASSWORD=postgres
 
 # stage_preflight_judge <scope> <pilot> <feature_complete> <worktree_head> <recorded_commit> <key> <expect>
 # Pure: prints the reason and returns 1 on the first refusal, returns 0 when the run may be staged.
@@ -32,20 +33,27 @@ stage_preflight_judge() {
   case "$key" in "$expect"?*) ;; *) echo "rebuild_code_key '$key' does not start with '$expect'"; return 1;; esac
 }
 
-# stage_floor_kb: the MemAvailable floor in kB from APR; prints nothing and returns 1 unless it is a positive integer.
+# stage_floor_kb: the MemAvailable floor in kB from APR; prints nothing and returns 1 unless it is an integer inside the
+# schema bounds (migration 622: 8 to 512 GiB), so a value written around ConfigService cannot switch the gate off.
 stage_floor_kb() {
   local gib; gib=$("${PSQL[@]}" "select config_value from config_state where config_key='$FLOOR_KEY'") || return 1
-  case "$gib" in ""|*[!0-9]*|0) return 1;; esac
+  case "$gib" in ""|*[!0-9]*) return 1;; esac
+  gib=$((10#$gib))
+  { [ "$gib" -ge 8 ] && [ "$gib" -le 512 ]; } || return 1
   echo $((gib * 1024 * 1024))
 }
 
-# timers_quiesced_gate: every blocking timer is disabled and inactive; the stage reads bars a firing timer would restate.
+# timers_quiesced_gate: every blocking timer is disabled or masked and inactive, the runner's own rule (QUIET_ENABLED_STATES in
+# services/corpus_rerun_quiesce.py): any other enablement state, an unreadable one included, can fire during the stage.
 timers_quiesced_gate() {
   local units u
   units=$(blocking_timer_units) || { fail "cannot read the blocking timers from APR"; return 1; }
   while read -r u; do
     [ -n "$u" ] || continue
-    [ "$(systemctl is-enabled "$u" 2>/dev/null)" != enabled ] || fail "$u is enabled: quiesce first (python -m services.corpus_rerun --quiesce)"
+    case "$(systemctl is-enabled "$u" 2>/dev/null)" in
+      disabled|masked) ;;
+      *) fail "$u is not disabled or masked: quiesce first (python -m services.corpus_rerun --quiesce)";;
+    esac
     [ "$(systemctl is-active "$u" 2>/dev/null)" != active ] || fail "$u is active: quiesce first (python -m services.corpus_rerun --quiesce)"
   done <<< "$units"
 }
@@ -68,7 +76,7 @@ stage_preflight() {   # a launch exits at the first refusal; --check goes on and
     || { fail "cannot compute rebuild_code_key in $WT"; return 1; }
   reason=$(stage_preflight_judge "$scope" "$(step_status pilot)" "$(step_status feature_complete)" "$head_now" "$recorded" "$key" "$EXPECT") \
     || fail "preflight: $reason"   # a check goes on: the gates below are independent of the run's state
-  grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file" || return 1
+  grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
   apr_value_gate infra.feature_factory.workers 4
   apr_value_gate alpha.ic.feature_block_columns 16 "the run pins it; ic_measure_launch.sh refuses any other width"
   if floor_kb=$(stage_floor_kb); then MEM_FLOOR_KB=$floor_kb; else fail "$FLOOR_KEY is not a positive integer in APR"; fi
@@ -91,7 +99,8 @@ GUARDED_STAGE=stage_1d run_guarded "$REPO/logs/corpus_stage_$RUN.out" "$PY" -m s
 rc=$?; log "stage exit=$rc run=$RUN (rss_mb per 20 s is in $TEMPLOG)"
 cd "$REPO" || exit 3
 if [ "$rc" -eq 0 ]; then
-  $CR --release >> "$STATUS" 2>&1; log "timers released"
+  if $CR --release >> "$STATUS" 2>&1; then log "timers released"
+  else log "WARN timers NOT released after a clean stage: run  $PY -m services.corpus_rerun --release  by hand (the nightly capture stays off until then)"; fi
 else
   log "timers held: run $RUN (stage exit=$rc); resume with: bash scripts/ops/corpus_stage_launch.sh $RUN $EXPECT; release with --release after the run is abandoned"
 fi

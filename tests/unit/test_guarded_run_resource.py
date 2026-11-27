@@ -21,6 +21,7 @@ LAUNCHERS = (
     "ic_measure_launch.sh",
     "family10_launch.sh",
     "family10_block2_rerun.sh",
+    "corpus_stage_launch.sh",
 )
 
 
