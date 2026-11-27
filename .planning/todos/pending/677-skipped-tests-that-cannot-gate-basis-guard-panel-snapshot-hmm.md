@@ -1,5 +1,7 @@
 ---
 claimable: true
+claimed_by: indicagent-03
+claimed_at: 2026-11-27T07:54:57+00:00
 status: pending
 priority: P3
 filed: 2026-11-26
