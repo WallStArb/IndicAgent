@@ -1143,6 +1143,65 @@
       ],
       "title": "DIMM temperature and MemAvailable (run ends marked)",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "id": 70,
+      "panels": [],
+      "title": "Oneshot jobs (job_completed_total)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Every oneshot reports job_completed_total{job_name,status} when it ends. Each run is a new series, so a dot is one completion; a status other than success is a finding or a failure. A job with no dot inside its period missed a fire.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 8
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 59
+      },
+      "id": 71,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (job_name, status) (job_completed_total)",
+          "refId": "A",
+          "legendFormat": "{{job_name}} {{status}}"
+        }
+      ],
+      "title": "Oneshot completions by job and status",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",

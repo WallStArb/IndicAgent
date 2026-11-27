@@ -181,6 +181,28 @@ groups:
           summary: "No alpaca-nightly completion in 26h (the 04:40 UTC capture did not run or could not report)"
           description: "Check indicagent-alpaca-nightly.timer and journalctl -u indicagent-alpaca-nightly.service; Persistent=true runs a missed fire at the next boot."
 
+      # Split feed auditor (todo 649), a daily 07:45 UTC oneshot. The 26 h window is literal: a day plus the
+      # timer's jitter, the same as NightlyCaptureMissed. The auditor exits 1 with status gap_found, or writes
+      # candidates under logs/split_candidates/ with status candidates; neither is `failure`, so
+      # OneshotJobFailed stays silent. Each run is its own series, so look for any sample in the window.
+      - alert: SplitFeedAuditorMissed
+        expr: absent_over_time(job_completed_total{job_name="split-feed-auditor"}[26h])
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No split-feed-auditor completion in 26h (the 07:45 UTC run did not fire or could not report)"
+          description: "Check indicagent-split-feed-auditor.timer and journalctl -u indicagent-split-feed-auditor.service; Persistent=true runs a missed fire at the next boot."
+
+      - alert: SplitFeedAuditorFinding
+        expr: max by (job_name, status) (max_over_time(job_completed_total{job_name="split-feed-auditor", status=~"gap_found|candidates"}[26h])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "split-feed-auditor reported {{ $labels.status }}: an active-name split has no corporate_action row or was never matched"
+          description: "Read the split_feed_auditor.gap_found or candidates_written line in logs/split_feed_auditor.log and the files in logs/split_candidates/; check the Yahoo witness and apply the row by hand (this job never writes corporate_action)."
+
       - alert: DataCaptureBehind
         expr: max by (vendor, timeframe) (last_over_time(data_capture_sessions_behind[26h])) > 1
         for: 5m

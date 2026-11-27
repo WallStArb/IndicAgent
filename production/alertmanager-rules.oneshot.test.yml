@@ -1,0 +1,44 @@
+# promtool test rules production/alertmanager-rules.oneshot.test.yml  (run from production/)
+# SplitFeedAuditorMissed and SplitFeedAuditorFinding (todo 649): the daily oneshot reports
+# job_completed_total{job_name="split-feed-auditor", status=...} once per run.
+rule_files:
+  - alertmanager-rules.yml
+evaluation_interval: 1m
+tests:
+  # one completion at t=0, then silence: no alert inside the 26 h window, the missed-fire alert after it
+  - interval: 1m
+    input_series:
+      - series: 'job_completed_total{job_name="split-feed-auditor", status="success"}'
+        values: '1 _x1700'
+    alert_rule_test:
+      - {eval_time: 25h, alertname: SplitFeedAuditorMissed, exp_alerts: []}
+      - eval_time: 26h30m
+        alertname: SplitFeedAuditorMissed
+        exp_alerts:
+          - exp_labels: {severity: warning, job_name: split-feed-auditor}
+            exp_annotations:
+              summary: "No split-feed-auditor completion in 26h (the 07:45 UTC run did not fire or could not report)"
+              description: "Check indicagent-split-feed-auditor.timer and journalctl -u indicagent-split-feed-auditor.service; Persistent=true runs a missed fire at the next boot."
+      # a success never raises the finding alert
+      - {eval_time: 30m, alertname: SplitFeedAuditorFinding, exp_alerts: []}
+  # a run that ended with status candidates raises the finding alert for the 26 h window, then clears
+  - interval: 1m
+    input_series:
+      - series: 'job_completed_total{job_name="split-feed-auditor", status="candidates"}'
+        values: '1x30 _x1700'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: SplitFeedAuditorFinding
+        exp_alerts:
+          - exp_labels: {severity: warning, job_name: split-feed-auditor, status: candidates}
+            exp_annotations:
+              summary: "split-feed-auditor reported candidates: an active-name split has no corporate_action row or was never matched"
+              description: "Read the split_feed_auditor.gap_found or candidates_written line in logs/split_feed_auditor.log and the files in logs/split_candidates/; check the Yahoo witness and apply the row by hand (this job never writes corporate_action)."
+      - {eval_time: 27h, alertname: SplitFeedAuditorFinding, exp_alerts: []}
+  # a different oneshot's gap_found status does not trip this alert
+  - interval: 1m
+    input_series:
+      - series: 'job_completed_total{job_name="other-job", status="gap_found"}'
+        values: '1x30'
+    alert_rule_test:
+      - {eval_time: 20m, alertname: SplitFeedAuditorFinding, exp_alerts: []}

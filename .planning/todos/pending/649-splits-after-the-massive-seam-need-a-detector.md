@@ -62,7 +62,7 @@ Checked: `indicagent-split-feed-auditor.timer` is enabled and loaded, next fire 
 Gaps found (no code edited):
 - The defect-class counts exist only in the log line `split_feed_auditor.judged`, not as metrics. Only the run status is a metric.
 - `NightlyCaptureMissed`-style alerts exist for the alpaca nightly only. The generic oneshot alert fires on `status="failure"`; a `gap_found` or `candidates` run exits 1 or writes a file but sets a different status, so nothing alerts. A missed fire of this timer is also unalerted. Add both with the next alert-rules batch (todo 681 owns the rules file).
-- No Grafana panel reads `job_completed_total`.
+- No Grafana panel reads `job_completed_total` (the oneshot panel on the operations dashboard now does, panel 71).
 
 Base-rate query (defect classes per run, read from the log; run from the repo root, any time):
 
@@ -76,5 +76,5 @@ Close this todo, with no further judgment, when all hold on one read:
 1. At least 28 `split_feed_auditor.complete` lines with status `success` or `candidates`, on at least 28 distinct UTC dates (earliest possible 2026-12-25).
 2. Zero `split_feed_auditor.run_failed` lines in the log, and `max_over_time(job_completed_total{job_name="split-feed-auditor",status="failure"}[30d])` is empty.
 3. `runs_unseen` and `runs_overdue` are 0 on the last 7 runs; every candidate file in `logs/split_candidates/` is applied (a `corporate_action` row exists for its symbol and ex-date) or noted as declined in this todo.
-4. The base-rate output and the monthly active-name split count are pasted here, and the two alert gaps above are either landed in `production/alertmanager-rules.yml` or filed as a todo with a PRIORITIES row.
+4. The base-rate output and the monthly active-name split count are pasted here, and the alerts `SplitFeedAuditorMissed` and `SplitFeedAuditorFinding` are in `production/alertmanager-rules.yml` and the oneshot panel is on the operations dashboard (the alert gaps above); defect counts as metrics are todo 683.
 Then move the todo to `completed/` in the same commit as the PRIORITIES row removal. If the Massive lapse (about 2026-12-10) leaves candidates unreviewed, criterion 3 stays open.
