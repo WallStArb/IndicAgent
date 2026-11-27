@@ -161,7 +161,7 @@ files (no `--delete`) and refuses when the mirror would be left under 40 GB.
 
 1. Done 2026-11-26: `--verify` exit 0; `--mirror-push` exit 0 (7.57 GB sent); `--mirror-verify` exit 0
    (98,381 files, 7,810,833,420 bytes on both sides, 0 missing, 0 differing).
-2. On the lead's go after the repilot ends (2026-11-27 or later): the tape slice (above).
+2. Done 2026-11-27: the tape slice ran beside `stage_1d` from 05:16Z to 08:41Z (20 sessions 2026-10-29 to 2026-11-25, 40 files, 327.2 GB, `logs/massive_tape_slice_20261127.log`, 0 missing); the clean rerun at 11:51Z downloaded 0.0 GB and exited 0. The ubuntu2 mirror excludes `data/massive/tapes` by design, so no mirror verify applies. DIMMs stayed at or under 54 C and the stage ran about 38 s per unit against the pilot's 48.9 s, so the transfer did not slow it.
 3. The final pass runs on the earlier of the day the 2026-11-30 month-end list is served (from
    2026-12-01 or 12-02) and E minus 2 days, where E is the expiry date the owner reads off the
    account page (the lead asks); one heavy job at a time:
