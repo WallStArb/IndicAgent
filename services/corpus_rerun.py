@@ -1505,7 +1505,7 @@ class CorpusRerun:
 
     def _accumulate_pilot_stage(
         self, prefix: str, summary: Mapping[str, Any], seconds: float
-    ) -> dict[str, float]:
+    ) -> dict[str, float] | None:
         """Fold this invocation's stage into the run's pilot measurement under `prefix` and return the
         running figures: wall seconds, units and rows loaded over every invocation, the largest bytes
         per row and stored per spool seen. The per-unit time is cumulative seconds over cumulative
@@ -1518,7 +1518,8 @@ class CorpusRerun:
         a call on 2026-11-26 (last unit loaded to rebuild_complete: 602 s and 600 s), spread here over
         the units that call loaded. Both biases are upward, so the per-unit time and the stage_1d
         projection are a pessimistic bound (9.4 h against about 6.8 h for that run once the two tails are taken out). A pilot that loaded
-        no unit in any invocation has no time to give: it refuses."""
+        no unit in any recorded invocation has no time to give: None, and the step refuses after
+        its unit problems."""
         prior = self.run.measured
         loaded = int(summary["units_loaded"])
         record = {
@@ -1538,9 +1539,7 @@ class CorpusRerun:
         self._merge_measured(record)
         units, rows = record[f"{prefix}_units_loaded"], record[f"{prefix}_rows_loaded"]
         if not units:
-            raise StepFailed(
-                f"pilot: no {prefix} unit was loaded in any invocation, nothing to time", {}
-            )
+            return None
         return {
             "seconds_per_unit": record[f"{prefix}_seconds"] / units,
             "seconds_per_row": record[f"{prefix}_seconds"] / max(rows, 1),
@@ -1597,6 +1596,16 @@ class CorpusRerun:
             problems.append("the pilot sample's chunks have no 1d unit")
         if problems:
             raise StepFailed("pilot units: " + "; ".join(problems), summary)
+        if daily_stage is None or (self.scope == SCOPE_ALL and hourly_stage is None):
+            # every unit is complete but no recorded invocation loaded one (a kill after the loads,
+            # before the step recorded its timing): clearing the run's units with
+            # scripts/ops/ops_corpus_supersede_run_rows.py lets a resume compute and time them
+            untimed = "pilot_1d" if daily_stage is None else "pilot_1h"
+            raise StepFailed(
+                f"pilot: no {untimed} unit was loaded in any recorded invocation, nothing to "
+                "time; clear this run's units (ops_corpus_supersede_run_rows.py) and resume",
+                summary,
+            )
 
         # 1d screens the sample; an intraday timeframe the 5m-tier names of chunk 0, so the screen
         # and the compute gate never name a (symbol, tf) the stage did not compute.
@@ -2113,8 +2122,9 @@ def new_run_check(
     conn: Any, settings: Settings, horizon: datetime, scope: str
 ) -> tuple[list[str], bool]:
     """`--new-run --check`: what a launch of a new run and its pilot would meet, read-only and all at
-    once: the data gate, the d2_landed pin precondition (held verdicts applied) and the stored units
-    that would block the stage's units. The pin checks that need a run (worktree, hash) wait for one.
+    once: the data gate, the d2_landed pin precondition (held verdicts applied), the span plan's disk
+    budget and the stored units that would block the stage's units. The pin checks that need a run
+    (worktree, hash) wait for one.
     """
     from services import corpus_rerun_check as check
     from services import rebuild_preconditions as rp
@@ -2137,6 +2147,11 @@ def new_run_check(
         for s in specs
     ]
     blockers = check.find_blockers(planned, check.fetch_stored_units(conn, "feature_vectors", None))
+    try:  # the span plan --new-run records, refused when the disk budget cannot hold it
+        plan_run(conn, settings, horizon, scope)
+        span_plan = {"name": "span_plan", "ok": True, "detail": "the disk budget holds the plan"}
+    except SpanPlanRefused as refused:
+        span_plan = {"name": "span_plan", "ok": False, "detail": str(refused)}
     refusal = data_gate_refusal(gate)
     checks = [
         {
@@ -2147,6 +2162,7 @@ def new_run_check(
             f"{len(gate.names_without_proven_start)}",
         },
         {"name": d2.name, "ok": d2.ok, "detail": d2.detail},
+        span_plan,
     ]
     return check.render(checks, [], blockers)
 

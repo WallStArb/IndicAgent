@@ -133,3 +133,13 @@ def test_a_scope_all_pilot_that_never_loaded_its_1h_unit_refuses_rather_than_rep
     _timed(world, [_pass(loaded=2)], hourly=[skipped])
     with pytest.raises(cr.StepFailed, match="no pilot_1h unit was loaded"):
         world.runner.execute("pilot")
+
+
+def test_an_untimed_pilot_reports_its_unit_problems_first_with_the_stage_summary():
+    world = _world()
+    _through(world, "pilot")
+    _timed(world, [_pass(loaded=0, failed=2)])
+    with pytest.raises(cr.StepFailed, match="units_failed 2") as refused:
+        world.runner.execute("pilot")
+    assert "nothing to time" not in str(refused.value)
+    assert refused.value.summary["stage_1d_sample"]["units_failed"] == 2

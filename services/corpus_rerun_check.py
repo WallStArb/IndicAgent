@@ -22,7 +22,10 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
-BLOCKING_STATUSES = ("completed", "started")
+# Only a completed row holds rows: bulk_load commits its started row before any COPY and the rows
+# with the completion, so a started (killed) or failed row of another batch key holds none and a
+# load of the same key takes it over.
+BLOCKING_STATUSES = ("completed",)
 
 
 @dataclasses.dataclass(frozen=True)

@@ -59,8 +59,9 @@ def test_a_stored_unit_that_holds_no_rows_in_the_way_does_not_block(stored):
     assert chk.find_blockers([_unit("new", "AAA")], [stored]) == []
 
 
-def test_a_started_unit_blocks_like_a_completed_one():
-    assert chk.find_blockers([_unit("new", "AAA")], [_stored("old", "AAA", status="started")])
+def test_a_started_unit_holds_no_rows_and_blocks_nothing():
+    # bulk_load commits the started row before its COPY: a killed load leaves no rows behind
+    assert not chk.find_blockers([_unit("new", "AAA")], [_stored("old", "AAA", status="started")])
 
 
 def test_apr_diff_names_every_moved_added_and_removed_key():
@@ -164,7 +165,7 @@ def test_fetch_stored_units_reads_blocking_statuses_and_all_rows_without_a_run()
     conn = _Conn([row])
     expected = chk.StoredUnit(_unit("key", "AAA"), OTHER, "completed", 7)
     assert chk.fetch_stored_units(conn, "feature_vectors", None) == [expected]
-    assert conn.params == ("feature_vectors", ["completed", "started"], None, None)
+    assert conn.params == ("feature_vectors", ["completed"], None, None)
     assert conn.sql.count("%s") == len(conn.params)
 
 
@@ -197,7 +198,7 @@ def test_data_gate_refusal_is_the_one_predicate(gate, refused):
     assert (got is None) if refused is None else (refused in got)
 
 
-def _patched_new_run_check(monkeypatch, gate):
+def _patched_new_run_check(monkeypatch, gate, plan_run=None):
     import services.backfill_feature_factory as factory
     import services.corpus_rerun_data_gate as data_gate
     import services.rebuild_preconditions as rp
@@ -215,6 +216,7 @@ def _patched_new_run_check(monkeypatch, gate):
     )
     monkeypatch.setattr(factory, "planned_units", lambda *a, **k: ([], set()))
     monkeypatch.setattr(chk, "fetch_stored_units", lambda conn, table, run_id: [])
+    monkeypatch.setattr(cr, "plan_run", plan_run or (lambda *a: None))
     return cr.new_run_check(object(), SimpleNamespace(), datetime(2026, 11, 1, tzinfo=UTC), "1d")
 
 
@@ -228,3 +230,11 @@ def test_new_run_check_refuses_a_passing_gate_that_returns_no_caveat(monkeypatch
 def test_new_run_check_passes_a_clean_gate(monkeypatch):
     lines, ok = _patched_new_run_check(monkeypatch, _gate(ok=True, caveat={"code": "c"}))
     assert ok, lines
+
+
+def test_new_run_check_reports_a_refused_span_plan(monkeypatch):
+    def refuse(*args):
+        raise cr.SpanPlanRefused("the spans need 900 GB, 400 GB free")
+
+    lines, ok = _patched_new_run_check(monkeypatch, _gate(ok=True, caveat={"code": "c"}), refuse)
+    assert not ok and "FAIL span_plan: the spans need 900 GB, 400 GB free" in lines
