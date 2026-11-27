@@ -12,6 +12,7 @@ unset COLLECT_REFUSALS   # collect mode is corpus_pilot.sh --check only: an inhe
 . "$(dirname "$0")/guarded_run_common.sh"
 [ -z "${PREFLIGHT_ONLY:-}" ] || STATUS=/dev/stdout   # preflight talks to the terminal, never the run's status file
 : >> "$STATUS"; exec 2>> "$STATUS"
+[ -n "${PREFLIGHT_ONLY:-}" ] || run_resource_scope bash "$0" "$@"   # the whole launcher in one user scope (todo 681)
 WT=$SCRATCH/wt-f10run
 if [ -n "${PREFLIGHT_ONLY:-}" ]; then
   pgrep -f 'python.*run_spec' >/dev/null && fail "a run_spec process is live: preflight refuses while a counted run may use the shared checkout"
@@ -57,7 +58,7 @@ PY
 done
 [ -z "${PREFLIGHT_ONLY:-}" ] || { log "preflight OK at $LAUNCH"; exit 0; }
 
-run_guarded "$SCRATCH/repro_frozen.out" "$PY" -m scripts.research.determinism.repro_frozen "$SCRATCH/repro" --logs "$REPO/logs"
+GUARDED_STAGE=repro_frozen run_guarded "$SCRATCH/repro_frozen.out" "$PY" -m scripts.research.determinism.repro_frozen "$SCRATCH/repro" --logs "$REPO/logs"
 rc=$?; log "repro_frozen exit=$rc"
 { [ $rc -eq 0 ] && grep -q "bit-identical" "$SCRATCH/repro_frozen.out"; } || fail "repro_frozen not bit-identical"
 hold_timers   # the counted runs read bars: no timer restates them while a run is live; any exit releases
@@ -65,7 +66,7 @@ hold_timers   # the counted runs read bars: no timer restates them while a run i
 for spec in "${SPECS[@]}"; do
   [ -f "$REPO/logs/${spec}_run.out" ] && mv "$REPO/logs/${spec}_run.out" "$REPO/logs/${spec}_run.prev.$(date -u +%s).out"
   log "start $spec workers=$WORKERS"
-  run_guarded "$REPO/logs/${spec}_run.out" "$PY" scripts/research/run_spec.py --spec "research/specs/${spec}.yaml" --workers "$WORKERS"
+  GUARDED_STAGE=$spec run_guarded "$REPO/logs/${spec}_run.out" "$PY" scripts/research/run_spec.py --spec "research/specs/${spec}.yaml" --workers "$WORKERS"
   rc=$?; log "$spec exit=$rc"
   [ $rc -eq 0 ] || break
   # exit 0 means every row reached a terminal status (refused and guard_failed included); the StepM read needs a series on every member

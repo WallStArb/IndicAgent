@@ -25,6 +25,16 @@ GIT_ENV = {
 }
 
 _STUBS = {
+    # the user scope: run the command after `--` in place, with the --setenv pairs exported; no command is a probe
+    "systemd-run": """#!/bin/sh
+while [ $# -gt 0 ] && [ "$1" != "--" ]; do
+  case "$1" in --setenv=*) export "${1#--setenv=}";; esac
+  shift
+done
+[ $# -gt 0 ] || exit 0
+shift
+exec "$@"
+""",
     "python": """#!/bin/sh
 echo "$*" >> "$STUB_LOG"
 case "$*" in
@@ -103,6 +113,8 @@ class Lab:
         ops.mkdir(parents=True)
         for name in ("guarded_run_common.sh", "corpus_pilot.sh"):
             shutil.copy(SCRIPTS / name, ops / name)
+        (self.repo / "tools").mkdir()
+        shutil.copy(SCRIPTS.parents[1] / "tools" / "run_resource.sh", self.repo / "tools")
         (self.repo / ".venv" / "bin").mkdir(parents=True)
         self.stubs = tmp_path / "bin"
         self.stubs.mkdir()
@@ -123,6 +135,12 @@ class Lab:
         (self.scratch / "memtester_clean").write_text("ok\n")
         self.status = self.repo / "logs" / "family10_run_status.txt"
         self.status.write_text("block2 compare: IDENTICAL []\n")
+        scope = tmp_path / "cg" / "scope"  # the fake cgroup the stubbed user scope "creates"
+        scope.mkdir(parents=True)
+        (scope / "memory.peak").write_text("1048576\n")
+        (scope / "memory.events").write_text("oom_kill 0\n")
+        (scope / "cgroup.procs").write_text("")
+        (tmp_path / "textfile").mkdir()
         self.log = tmp_path / "stub.log"
         self.log.write_text("")
         self.env = {
@@ -131,6 +149,9 @@ class Lab:
             "STUB_RUN_ID": RUN_ID,
             "DIMM_HWMON_ROOT": str(tmp_path / "hw"),
             "MEMINFO": str(tmp_path / "meminfo"),
+            "CGROUP_ROOT": str(tmp_path / "cg"),
+            "RUN_RESOURCE_CGROUP": "/scope",
+            "TEXTFILE_DIR": str(tmp_path / "textfile"),
             "NOW_H": "12",
             "POLL_S": "0.1",
             **GIT_ENV,

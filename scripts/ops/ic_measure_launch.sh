@@ -40,6 +40,7 @@ RUN=${1:?run id}; EXPECT=${2:?expected rebuild_code_key prefix}
 echo "$RUN" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || { echo "run id $RUN is not a uuid"; exit 3; }
 [ -z "${PREFLIGHT_ONLY:-}" ] || STATUS=/dev/stdout   # preflight talks to the terminal, never the run's status file
 : >> "$STATUS"; exec 2>> "$STATUS"
+[ -n "${PREFLIGHT_ONLY:-}" ] || run_resource_scope bash "$0" "$@"   # the whole launcher in one user scope (todo 681)
 CR="$PY -m services.corpus_rerun"
 PSQL=(psql -U postgres -h localhost -d indicagent -tAc)
 export PGPASSWORD=postgres
@@ -73,7 +74,7 @@ if [ -n "${RSS_CHECK:-}" ]; then
   mapfile -t names < "$RSS_SYMBOLS_FILE"
   before=$(wc -l < "$TEMPLOG" 2>/dev/null || echo 0)
   cd "$WT" || fail "cd worktree"
-  run_guarded "$SCRATCH/ic_measure_rss_$RUN.out" "$PY" -m services.ic_measure --tf 1d --dry-run --symbols "${names[@]}"
+  GUARDED_STAGE=ic_measure_rss run_guarded "$SCRATCH/ic_measure_rss_$RUN.out" "$PY" -m services.ic_measure --tf 1d --dry-run --symbols "${names[@]}"
   rc=$?; log "ic_measure rss check exit=$rc width=$width peak_rss_mb=$(peak_rss_mb_since "$TEMPLOG" "$before") symbols=25 (record in todo 471)"
   exit "$rc"
 fi
@@ -81,7 +82,7 @@ fi
 log "quiesce"; $CR --quiesce >> "$STATUS" 2>&1 || { $CR --release >> "$STATUS" 2>&1; fail "quiesce failed"; }
 cd "$WT" || { $CR --release >> "$STATUS" 2>&1; fail "cd worktree"; }
 before=$(wc -l < "$TEMPLOG" 2>/dev/null || echo 0)
-run_guarded "$SCRATCH/ic_measure_$RUN.out" "$PY" -m services.corpus_rerun --run-id "$RUN" --through ic_measure
+GUARDED_STAGE=ic_measure run_guarded "$SCRATCH/ic_measure_$RUN.out" "$PY" -m services.corpus_rerun --run-id "$RUN" --through ic_measure
 rc=$?; log "ic_measure exit=$rc run=$RUN width=$width peak_rss_mb=$(peak_rss_mb_since "$TEMPLOG" "$before")"
 cd "$REPO" || exit 3
 if [ "$rc" -eq 0 ]; then

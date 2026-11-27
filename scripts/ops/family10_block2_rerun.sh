@@ -7,6 +7,7 @@ set -u
 unset COLLECT_REFUSALS   # collect mode is corpus_pilot.sh --check only: an inherited value would make every fail() return
 . "$(dirname "$0")/guarded_run_common.sh"
 : >> "$STATUS"; exec 2>> "$STATUS"
+run_resource_scope bash "$0" "$@"   # the whole launcher in one user scope (todo 681)
 COMMIT=48a65742d44e5357b181a042d495c4d38a6d946f
 WT=$SCRATCH/wt-f10block2
 OUT=$SCRATCH/block2_rerun.json
@@ -17,7 +18,7 @@ cd "$REPO" && git worktree prune && rm -rf "$WT"
 git worktree add --detach "$WT" "$COMMIT" >/dev/null || fail "worktree"
 cd "$WT" || fail "cd"; ln -s "$REPO/.venv" .venv
 log "block2 rerun start workers=$WORKERS"
-run_guarded "$SCRATCH/block2_rerun.out" "$PY" scripts/research/e17_null_battery.py "$OUT" --sims 1000 \
+GUARDED_STAGE=block2 run_guarded "$SCRATCH/block2_rerun.out" "$PY" scripts/research/e17_null_battery.py "$OUT" --sims 1000 \
   --workers "$WORKERS" --battery src.intelligence.research.null_battery_volume_shock --seed-base 12000000
 rc=$?; log "block2 rerun exit=$rc"; [ $rc -eq 0 ] || exit $rc
 "$PY" - "$RECORDED" "$OUT" >> "$STATUS" <<'PY'

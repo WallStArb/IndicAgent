@@ -10,7 +10,7 @@ set -u
 CHECK=""; unset COLLECT_REFUSALS   # set here on --check only: an inherited value would make every fail() return
 if [ "${1:-}" = "--check" ]; then CHECK=1; COLLECT_REFUSALS=1; shift; fi   # before sourcing: collect mode reads it there
 . "$(dirname "$0")/guarded_run_common.sh"
-[ -n "$CHECK" ] || { : >> "$STATUS"; exec 2>> "$STATUS"; }   # a check writes nothing, not even the status file
+[ -n "$CHECK" ] || { : >> "$STATUS"; exec 2>> "$STATUS"; run_resource_scope bash "$0" "$@"; }   # a check writes nothing, not even the status file; the launcher then runs in one user scope (todo 681)
 CR="$PY -m services.corpus_rerun"
 cd "$REPO" || fail "cd repo"
 RESUME=""
@@ -52,7 +52,7 @@ if [ -n "$RESUME" ]; then
   [ "$head_now" = "$recorded" ] || fail "worktree HEAD $head_now is not the run's recorded code_commit $recorded"
   log "pilot resume preflight ok: run $RUN"
   cd "$WT" || fail "cd worktree"
-  run_guarded "$REPO/logs/corpus_pilot_${RUN}_resume.out" "$PY" -m services.corpus_rerun --run-id "$RUN" --through pilot
+  GUARDED_STAGE=pilot run_guarded "$REPO/logs/corpus_pilot_${RUN}_resume.out" "$PY" -m services.corpus_rerun --run-id "$RUN" --through pilot
   rc=$?; log "pilot resume exit=$rc run=$RUN (rss_mb per 20 s is in $TEMPLOG)"
   cd "$REPO" || exit 3
   if [ "$rc" -eq 0 ]; then
@@ -77,7 +77,7 @@ WT="$(dirname "$REPO")/$(basename "$REPO")-corpus-run-$RUN"
 log "run $RUN worktree $WT"
 
 cd "$WT" || { $CR --release >> "$STATUS" 2>&1; fail "cd worktree"; }
-run_guarded "$REPO/logs/corpus_pilot_$RUN.out" "$PY" -m services.corpus_rerun --run-id "$RUN" --through pilot
+GUARDED_STAGE=pilot run_guarded "$REPO/logs/corpus_pilot_$RUN.out" "$PY" -m services.corpus_rerun --run-id "$RUN" --through pilot
 rc=$?; log "pilot exit=$rc run=$RUN (rss_mb per 20 s is in $TEMPLOG)"
 cd "$REPO" || exit 3
 if [ "$rc" -eq 0 ]; then

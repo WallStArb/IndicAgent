@@ -1,6 +1,10 @@
 # Guarded heavy runs: host gate (memory-fault signatures, DIMM temperature) and a process-group
-# watchdog. Shared by family10_launch.sh, family10_block2_rerun.sh and corpus_pilot.sh; sourced, not executed.
+# watchdog, and the run's true memory peak from its cgroup (tools/run_resource.sh, todo 681). Shared by
+# family10_launch.sh, family10_block2_rerun.sh, ic_measure_launch.sh and corpus_pilot.sh; sourced, not executed.
+# Each launcher calls `run_resource_scope bash "$0" "$@"` right after sourcing, so the whole launcher (and every
+# job it starts) runs in one transient user scope; run_guarded emits the gauges after each job.
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+. "$REPO/tools/run_resource.sh"
 PY=$REPO/.venv/bin/python
 SCRATCH=${GUARDED_RUN_DIR:-$REPO/logs/guarded_run}   # memtester_clean, worktrees and outputs
 STATUS=$REPO/logs/family10_run_status.txt
@@ -121,6 +125,24 @@ host_gate() {    # refuse to start on a host that is not demonstrably healthy
   mem_gate
 }
 
+# guarded_emit <rc> <start_epoch> <templog_lines_before>: write the run_resource gauges for the job that just ended and
+# log one status line: the cgroup peak, swap peak, oom_kill and leftovers plus the hottest DIMM the watchdog read
+# during the job. Labels: workload = the launcher (GUARDED_WORKLOAD), stage = GUARDED_STAGE, run_id = RUN or the
+# launcher's start stamp. The scope spans the launcher, so memory_peak_bytes is the running maximum of the launcher:
+# exact for a one-job launcher, an upper bound for a later stage of a multi-job one. One file per stage keeps them all.
+# A failed emit is logged and never changes the job's exit code.
+GUARDED_RUN_ID=${GUARDED_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}
+guarded_emit() {
+  local rc=$1 start=$2 skip=$3 line max_c
+  [ -n "${RUN_RESOURCE_SCOPED:-}" ] || return 0   # a cgroup the launcher did not make (a test, a sourced shell) is not the run's
+  max_c=$(tail -n "+$((skip + 1))" "$TEMPLOG" 2>/dev/null | sed -n 's/.* max_c=\([0-9]\+\) .*/\1/p' | sort -n | tail -1)
+  if line=$(RUN_RESOURCE_START=$start run_resource_emit "${GUARDED_WORKLOAD:-$(basename "${0%.sh}")}" "${GUARDED_STAGE:-run}" "${RUN:-$GUARDED_RUN_ID}" "$rc"); then
+    log "$line max_c=${max_c:-none}"
+  else
+    log "WARN run_resource_emit failed for stage ${GUARDED_STAGE:-run} (exit $?); the job's own exit code stands"
+  fi
+}
+
 # group_alive <pgid>: true while the process group has a member that is not a zombie.
 group_alive() { ps -eo pgid=,stat= | awk -v p="$1" '$1 == p && $2 !~ /^Z/ {f = 1} END {exit !f}'; }
 
@@ -138,13 +160,14 @@ stop_group() {
 # Fail closed: a poll without two readable DIMM sensors stops the group, and MAX_SENSOR_MISSES in a row kill it.
 run_guarded() {
   local out=$1; shift
+  local started temp_lines; started=$(date +%s); temp_lines=$({ wc -l < "$TEMPLOG"; } 2>/dev/null || echo 0)
   setsid "$@" > "$out" 2>&1 &
   local pid=$!; local pgid=""; local i
   for i in 1 2 3 4 5; do pgid=$(ps -o pgid= -p "$pid" | tr -d ' '); [ -n "$pgid" ] && break; sleep 0.2; done
   [ -n "$pgid" ] || { log "ABORT cannot read pgid of $pid"; kill "$pid" 2>/dev/null; return 1; }
   local paused_at=0 killed=0 misses=0 t now why
   # A launcher that dies (TERM, INT, HUP) must not leave a run unprotected or a group stopped for good.
-  trap 'log "ABORT launcher signalled: stopping pgid $pgid"; stop_group "$pgid"; exit 143' TERM INT HUP
+  trap 'log "ABORT launcher signalled: stopping pgid $pgid"; stop_group "$pgid"; guarded_emit 143 "$started" "$temp_lines"; exit 143' TERM INT HUP
   while kill -0 "$pid" 2>/dev/null; do
     now=$(date +%s)
     if t=$(dimm_max_c); then misses=0; else t=""; misses=$((misses + 1)); fi
@@ -167,10 +190,12 @@ run_guarded() {
   if [ $killed -eq 1 ]; then
     log "ABORT watchdog killed pgid $pgid: $why (paused_at=$paused_at)"
     trap - TERM INT HUP
-    stop_group "$pgid"; wait "$pid" 2>/dev/null; return 143
+    stop_group "$pgid"; wait "$pid" 2>/dev/null
+    guarded_emit 143 "$started" "$temp_lines"; return 143
   fi
   wait "$pid"; local rc=$?
   trap - TERM INT HUP
+  guarded_emit "$rc" "$started" "$temp_lines"
   return "$rc"
 }
 
