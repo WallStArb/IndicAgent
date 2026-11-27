@@ -132,7 +132,7 @@ def test_a_launcher_term_still_emits_with_exit_143(tmp_path: Path) -> None:
 def test_a_shell_that_made_no_scope_never_reports_its_cgroup(tmp_path: Path) -> None:
     lab = Lab(tmp_path)
     command, env = lab.command(
-        f'unset RUN_RESOURCE_SCOPED; run_guarded "{tmp_path}/o" true; echo rc=$?'
+        f'unset RUN_RESOURCE_SCOPED; run_guarded "{tmp_path}/o" sleep 0.5; echo rc=$?'
     )
     result = subprocess.run(
         command, env=env, capture_output=True, text=True, check=False, timeout=60
