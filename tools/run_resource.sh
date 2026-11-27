@@ -113,14 +113,15 @@ run_resource_emit() {
     || { run_resource_fail "cannot write under $out"; return 3; }
   {
     local name help value
-    printf '# HELP %s_info Identity of the run the other series describe\n# TYPE %s_info gauge\n%s_info{%s,run_id="%s"} 1\n' \
-      "$RUN_RESOURCE_PREFIX" "$RUN_RESOURCE_PREFIX" "$RUN_RESOURCE_PREFIX" "$labels" "$run_id"
     while IFS='|' read -r name help value; do
+      local series=$labels   # the info series alone carries the run id, so a run costs one extra series
+      [[ $name == info ]] && series="$labels,run_id=\"$run_id\""
       printf '# HELP %s_%s %s\n# TYPE %s_%s gauge\n%s_%s{%s} %s\n' \
         "$RUN_RESOURCE_PREFIX" "$name" "$help" "$RUN_RESOURCE_PREFIX" "$name" \
-        "$RUN_RESOURCE_PREFIX" "$name" "$labels" "$value"
+        "$RUN_RESOURCE_PREFIX" "$name" "$series" "$value"
     done <<METRICS
-memory_peak_bytes|Peak memory of the run's cgroup, page cache included (upper bound on resident need)|$peak
+info|Identity of the run the other series describe|1
+memory_peak_bytes|Peak memory of the run's scope so far (launcher-cumulative for a launcher with several jobs), page cache included, so an upper bound on resident need|$peak
 swap_peak_bytes|Peak swap of the run's cgroup|$swap
 oom_kill|Processes of the run killed by the kernel OOM killer (not systemd-oomd or cgroup.kill)|$oom
 leftover_processes|Processes still in the run's cgroup after the job exited|$left
