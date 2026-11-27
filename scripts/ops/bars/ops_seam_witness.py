@@ -32,6 +32,7 @@ import argparse
 import csv
 import json
 import math
+import re
 import statistics
 import sys
 from collections import Counter
@@ -47,6 +48,7 @@ import psycopg  # noqa: E402
 
 from services.bar_selection import read_split_rows  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
+from src.intelligence.bars.daily_rule import RAW_DAILY_SESSION_ZONE, raw_session_date  # noqa: E402
 from src.intelligence.bars.integrity_checks import run_products  # noqa: E402
 from src.intelligence.bars.level_seams import span_verdict  # noqa: E402
 from src.intelligence.bars.selection import session_date  # noqa: E402
@@ -133,20 +135,42 @@ def split_log_k(
     return logs(keep_b), logs(keep_a)
 
 
-def _key(timeframe: str, ts: datetime, utc_date_stamp: bool) -> tuple[object, date]:
-    """(join key, session date): 1d joins by session date (canonical and IBKR stamp 00:00 UTC,
-    Massive and Alpaca midnight New York); 5m by stamp."""
-    day = ts.astimezone(UTC).date() if utc_date_stamp else session_date(ts)
-    return (day if timeframe == "1d" else ts), day
+def _incoming_source(incoming: str, timeframe: str) -> tuple[str, str] | None:
+    """The (vendor, kind) of `--incoming`, None for canonical. The shape must be `raw:VENDOR/KIND`. A 1d raw series
+    must be one daily_rule dates (RAW_DAILY_SESSION_ZONE: IBKR smart_trades, Tradier, Alpaca sip_rth, Massive
+    sip_flat); any other raises here, before any query, so a typo cannot pass as an all-one_sided answer. That
+    refusal is 1d only: a 5m series has no stamp convention to check, so a 5m typo still reads as one_sided. The
+    venue and IEX series are not seam sources.
+    """
+    if incoming == "canonical":
+        return None
+    match = re.fullmatch(r"raw:([^/\s]+)/([^/\s]+)", incoming)
+    if match is None:
+        raise ValueError(f"--incoming {incoming}: expected canonical or raw:VENDOR/KIND")
+    vendor, kind = match.groups()
+    if timeframe == "1d" and (vendor, kind) not in RAW_DAILY_SESSION_ZONE:
+        raise ValueError(f"--incoming {incoming}: not a 1d series with a known stamp convention")
+    return vendor, kind
+
+
+def _session_day(timeframe: str, source: tuple[str, str] | None, ts: datetime) -> date:
+    """The NYSE session date of a stamp. 1d: canonical (`source` None, stamped 00:00 UTC; no shared helper
+    exists for it) or a raw series dated by its own stamp convention (daily_rule.raw_session_date). 5m: the
+    stamp's New York date, `source` unused."""
+    if timeframe != "1d":
+        return session_date(ts)
+    return ts.astimezone(UTC).date() if source is None else raw_session_date(*source, ts)
 
 
 def _series(
-    rows: Iterable[tuple[datetime, float]], timeframe: str, utc_date_stamp: bool
+    rows: Iterable[tuple[datetime, float]], timeframe: str, source: tuple[str, str] | None
 ) -> tuple[dict[object, float], dict[object, date]]:
+    """Close by join key (1d: session date, 5m: stamp) and the session date of each key."""
     values: dict[object, float] = {}
     days: dict[object, date] = {}
     for ts, close in rows:
-        key, day = _key(timeframe, ts, utc_date_stamp)
+        day = _session_day(timeframe, source, ts)
+        key = day if timeframe == "1d" else ts
         values[key], days[key] = close, day
     return values, days
 
@@ -155,17 +179,15 @@ def witness_name(cur, args, symbol: str, lo: datetime, hi: datetime) -> SeamRow:
     tf = args.timeframe
     splits: list[SplitFactor] = splits_known_at(read_split_rows(cur, symbol), datetime.now(UTC))
     cur.execute(_RAW_SQL, (symbol, tf, "massive", REFERENCE_KIND[tf], lo, hi))
-    ref, ref_days = _series(cur.fetchall(), tf, utc_date_stamp=False)
+    ref, ref_days = _series(cur.fetchall(), tf, ("massive", REFERENCE_KIND[tf]))
     scales = scales_for_sessions(set(ref_days.values()), splits)
     ref = {k: v / scales[ref_days[k]] for k, v in ref.items()}
-    if args.incoming == "canonical":
+    source = _incoming_source(args.incoming, tf)
+    if source is None:
         cur.execute(_CANONICAL_SQL, (symbol, tf, lo, hi))
-        utc_stamp = tf == "1d"
     else:
-        vendor, kind = args.incoming.removeprefix("raw:").split("/")
-        cur.execute(_RAW_SQL, (symbol, tf, vendor, kind, lo, hi))
-        utc_stamp = tf == "1d" and vendor == "ibkr"
-    inc, inc_days = _series(cur.fetchall(), tf, utc_date_stamp=utc_stamp)
+        cur.execute(_RAW_SQL, (symbol, tf, *source, lo, hi))
+    inc, inc_days = _series(cur.fetchall(), tf, source)
     before, after = split_log_k(inc, ref, {**ref_days, **inc_days}, args.seam, args.sessions)
     factors = [s.factor for s in sorted(splits, key=lambda s: s.effective_date)]
     return judge(symbol, before, after, factors)
@@ -180,6 +202,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--symbols", nargs="*", default=None)
     parser.add_argument("--out", type=Path, required=True, help="CSV; a .json summary beside it")
     args = parser.parse_args(argv)
+    try:
+        _incoming_source(args.incoming, args.timeframe)
+    except ValueError as error:
+        parser.error(str(error))
     pad = timedelta(days=int(args.sessions * _CALENDAR_DAYS_PER_SESSION) + 10)
     lo = datetime.combine(args.seam - pad, datetime.min.time(), UTC)
     hi = datetime.combine(args.seam + pad, datetime.min.time(), UTC)

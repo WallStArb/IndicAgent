@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import math
-from datetime import date
+from datetime import UTC, date, datetime
 
-from scripts.ops.bars.ops_seam_witness import LEVEL_TOL, judge, split_log_k
+import pytest
+
+from scripts.ops.bars.ops_seam_witness import (
+    LEVEL_TOL,
+    _incoming_source,
+    _series,
+    judge,
+    split_log_k,
+)
 
 SEAM = date(2016, 1, 4)
 
@@ -49,3 +57,40 @@ def test_split_log_k_takes_the_sessions_nearest_the_seam_on_each_side():
 def test_the_tolerance_is_design_8a_ten_basis_points():
     assert LEVEL_TOL == 0.001
     assert judge("AAA", [0.0], [0.0011], []).verdict == "unexplained"
+
+
+def test_1d_sessions_follow_each_series_own_stamp_convention():
+    # canonical and IBKR stamp 00:00 UTC; Massive and Alpaca stamp midnight New York (05:00 UTC in winter)
+    utc_midnight = datetime(2016, 1, 4, 0, 0, tzinfo=UTC)
+    ny_midnight = datetime(2016, 1, 4, 5, 0, tzinfo=UTC)
+    for source, stamp in (
+        (None, utc_midnight),
+        (("ibkr", "smart_trades"), utc_midnight),
+        (("massive", "sip_flat"), ny_midnight),
+        (("alpaca", "sip_rth"), ny_midnight),
+    ):
+        values, days = _series([(stamp, 10.0)], "1d", source)
+        assert values == {date(2016, 1, 4): 10.0} and days == {date(2016, 1, 4): date(2016, 1, 4)}
+
+
+def test_5m_joins_by_stamp_and_dates_it_in_new_york():
+    stamp = datetime(2016, 1, 4, 3, 0, tzinfo=UTC)  # 22:00 on Jan 3 in New York
+    values, days = _series([(stamp, 10.0)], "5m", None)
+    assert values == {stamp: 10.0} and days == {stamp: date(2016, 1, 3)}
+
+
+def test_a_1d_series_the_rule_does_not_know_is_refused_not_dated_by_guess():
+    with pytest.raises(ValueError, match="not a d2-v4 input series"):
+        _series([(datetime(2016, 1, 4, tzinfo=UTC), 1.0)], "1d", ("yahoo", "daily"))
+
+
+def test_incoming_names_the_series_and_refuses_an_unknown_1d_one_before_any_query():
+    assert _incoming_source("canonical", "1d") is None
+    assert _incoming_source("raw:alpaca/sip_rth", "1d") == ("alpaca", "sip_rth")
+    assert _incoming_source("raw:alpaca/sip_rth_5m", "5m") == ("alpaca", "sip_rth_5m")
+    for typo in ("raw:alpaca/sip_rht", "raw:ibkr/venue_nyse", "raw:alpaca/iex_rth"):
+        with pytest.raises(ValueError, match="known stamp convention"):
+            _incoming_source(typo, "1d")
+    for malformed in ("raw:foo", "alpaca/sip_rth", "raw:a/b/c", "raw:/x"):
+        with pytest.raises(ValueError, match="expected canonical or raw:VENDOR/KIND"):
+            _incoming_source(malformed, "5m")
