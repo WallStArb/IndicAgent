@@ -196,6 +196,7 @@ Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22
 
 | Todo | Why now |
 |---|---|
+| [684](pending/684-stored-dividend-yield-ignores-massive-coverage.md) | New 2026-11-27, P3. The stored `dividend_yield` reads Yahoo coverage only, the snapshot counts Massive too: Massive-only names (ACC, ACCO, ACES, ACAT, ACAS) are all NaN in the stored column. Fix at the next re-pin (kernel reads Massive) or read the yield from the snapshot in the family. No counted test reads it today. |
 | [682](pending/682-skip-the-compression-bound-replan-when-stage-units-are-pending.md) | New 2026-11-26, P3. Every stage call ends with a fixed 600 s `compression_bound` replan that compresses nothing when units are pending (pilot eca9e854: 602 s and 600 s). Skip it when units are pending. Edits fingerprinted `backfill_feature_factory.py`: waits for stage_1d and feature_complete, lands in the post-stage re-pin window. |
 | [677](pending/677-skipped-tests-that-cannot-gate-basis-guard-panel-snapshot-hmm.md) | New 2026-11-26, P3. Three skips that cannot gate: six basis-guard cases (two kernels), the family 1 snapshot test (delete), the HMM causality test that always skips on its pinned seed. One recommendation each. |
 | [678](pending/678-spread-leg-pair-validity-is-a-data-audit-not-a-unit-test.md) | New 2026-11-26, P3. Move the spread_leg pair validity checks from a live-DB unit test to an ops audit with a report. |
