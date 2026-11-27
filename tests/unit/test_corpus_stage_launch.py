@@ -160,18 +160,14 @@ def test_a_failed_stage_holds_the_timers_and_keeps_its_exit_code(stage: Stage) -
 def test_the_launch_never_quiesces_it_refuses_unquiesced_timers(stage: Stage) -> None:
     result = _launch(stage, STUB_ENABLED="enabled")
     assert result.returncode == 3
-    assert "is not disabled or masked: quiesce first" in stage.status_text()
+    assert "is not disabled: quiesce first" in stage.status_text()
     assert not _calls(stage, "--through") and not _calls(stage, "--quiesce")
 
 
-@pytest.mark.parametrize("state", ["enabled-runtime", "static", "linked", ""])
+@pytest.mark.parametrize("state", ["enabled-runtime", "static", "linked", "masked", ""])
 def test_a_timer_in_any_state_but_disabled_or_masked_refuses(stage: Stage, state: str) -> None:
     assert _launch(stage, STUB_ENABLED=state).returncode == 3
-    assert "is not disabled or masked" in stage.status_text()
-
-
-def test_a_masked_timer_passes(stage: Stage) -> None:
-    assert _launch(stage, STUB_ENABLED="masked").returncode == 0, stage.status_text()
+    assert "is not disabled" in stage.status_text()
 
 
 def test_a_floor_with_a_leading_zero_is_read_as_decimal(stage: Stage) -> None:
@@ -182,6 +178,12 @@ def test_a_floor_with_a_leading_zero_is_read_as_decimal(stage: Stage) -> None:
 def test_an_active_timer_refuses(stage: Stage) -> None:
     assert _launch(stage, STUB_TIMER_ACTIVE="active").returncode == 3
     assert "is active: quiesce first" in stage.status_text()
+
+
+def test_an_unusable_floor_adds_no_second_memory_refusal_in_a_check(stage: Stage) -> None:
+    result = stage.stage("--check", RUN_ID, PREFIX, FLOOR_NOW="")
+    assert "is not an integer from 8 to 512 in APR" in result.stdout
+    assert "need 40 GiB" not in result.stdout
 
 
 def test_the_floor_comes_from_apr_and_applies_before_the_host_gate(stage: Stage) -> None:
@@ -195,7 +197,7 @@ def test_the_floor_comes_from_apr_and_applies_before_the_host_gate(stage: Stage)
 @pytest.mark.parametrize("value", ["", "0", "1", "7", "513", "-5", "forty", "2.5"])
 def test_an_unusable_floor_refuses(stage: Stage, value: str) -> None:
     assert _launch(stage, FLOOR_NOW=value).returncode == 3
-    assert "is not a positive integer in APR" in stage.status_text()
+    assert "is not an integer from 8 to 512 in APR" in stage.status_text()
 
 
 def test_a_pilot_that_did_not_complete_refuses(stage: Stage) -> None:
@@ -255,7 +257,7 @@ def test_check_reports_every_refusal_and_writes_nothing(stage: Stage) -> None:
     assert result.returncode == 1
     for refusal in (
         "preflight: pilot step is 'failed', not completed",
-        "a.timer is not disabled or masked: quiesce first",
+        "a.timer is not disabled: quiesce first",
         "infra.feature_factory.workers is 8, expected 4",
         "another heavy job is live",
     ):

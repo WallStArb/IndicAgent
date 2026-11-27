@@ -21,8 +21,7 @@ if [ "${1:-}" = "--check" ]; then CHECK=1; COLLECT_REFUSALS=1; shift; fi   # bef
 . "$(dirname "$0")/guarded_run_common.sh"
 THROUGH=feature_complete
 FLOOR_KEY=infra.run_guarded.mem_floor_gib.stage_1d
-PSQL=(psql -U postgres -h localhost -d indicagent -tAc)
-export PGPASSWORD=postgres
+PSQL=(env PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc)   # the password reaches psql only, never the run
 
 # stage_preflight_judge <scope> <pilot> <feature_complete> <worktree_head> <recorded_commit> <key> <expect>
 # Pure: prints the reason and returns 1 on the first refusal, returns 0 when the run may be staged.
@@ -41,20 +40,20 @@ stage_floor_kb() {
   local gib; gib=$("${PSQL[@]}" "select config_value from config_state where config_key='$FLOOR_KEY'") || return 1
   case "$gib" in ""|*[!0-9]*) return 1;; esac
   gib=$((10#$gib))
-  { [ "$gib" -ge 8 ] && [ "$gib" -le 512 ]; } || return 1
+  { [ "$gib" -ge 8 ] && [ "$gib" -le 512 ]; } || return 1   # the bounds of config_schema in migration 622: change together
   echo $((gib * 1024 * 1024))
 }
 
-# timers_quiesced_gate: every blocking timer is disabled or masked and inactive, the runner's own rule (QUIET_ENABLED_STATES in
-# services/corpus_rerun_quiesce.py): any other enablement state, an unreadable one included, can fire during the stage.
+# timers_quiesced_gate: every blocking timer is disabled (what --quiesce leaves) and inactive. Masked is not accepted: the
+# host gate's timers_gate refuses a unit that is not loaded. Any other enablement state, an unreadable one included, can fire.
 timers_quiesced_gate() {
   local units u
   units=$(blocking_timer_units) || { fail "cannot read the blocking timers from APR"; return 1; }
   while read -r u; do
     [ -n "$u" ] || continue
     case "$(systemctl is-enabled "$u" 2>/dev/null)" in
-      disabled|masked) ;;
-      *) fail "$u is not disabled or masked: quiesce first (python -m services.corpus_rerun --quiesce)";;
+      disabled) ;;
+      *) fail "$u is not disabled: quiesce first (python -m services.corpus_rerun --quiesce)";;
     esac
     [ "$(systemctl is-active "$u" 2>/dev/null)" != active ] || fail "$u is active: quiesce first (python -m services.corpus_rerun --quiesce)"
   done <<< "$units"
@@ -67,7 +66,7 @@ RUN=${1:?run id}; EXPECT=${2:?expected rebuild_code_key prefix}
 CR="$PY -m services.corpus_rerun"
 WT="$(dirname "$REPO")/$(basename "$REPO")-corpus-run-$RUN"
 
-stage_preflight() {   # a launch exits at the first refusal; --check goes on and reports all (it returns early only when no gate can be read)
+stage_preflight() {   # a launch exits at the first refusal; --check goes on and reports all (it returns early only on a bad run id or a missing worktree, where no run-side gate can be read)
   echo "$RUN" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || { fail "run id $RUN is not a uuid"; return 1; }
   [ -d "$WT" ] || { fail "no worktree $WT for run $RUN"; return 1; }
   local scope recorded head_now key reason floor_kb
@@ -81,7 +80,7 @@ stage_preflight() {   # a launch exits at the first refusal; --check goes on and
   grep -q -E "block2 compare: (IDENTICAL|ACCEPTED)" "$STATUS" || fail "no IDENTICAL block 2 comparison in the status file"
   apr_value_gate infra.feature_factory.workers 4
   apr_value_gate alpha.ic.feature_block_columns 16 "the run pins it; ic_measure_launch.sh refuses any other width"
-  if floor_kb=$(stage_floor_kb); then MEM_FLOOR_KB=$floor_kb; else fail "$FLOOR_KEY is not a positive integer in APR"; fi
+  if floor_kb=$(stage_floor_kb); then MEM_FLOOR_KB=$floor_kb; else MEM_FLOOR_KB=0; fail "$FLOOR_KEY is not an integer from 8 to 512 in APR"; fi   # 0: a check does not add a second, misleading memory refusal
   timers_quiesced_gate
   host_gate
   verdict_preflight
@@ -104,6 +103,6 @@ cd "$REPO" || exit 3
 if [ "$rc" -eq 0 ]; then
   log "stage_1d complete, timers held for ic_measure, release after it (ic_measure_launch.sh releases on its own clean exit)"
 else
-  log "timers held: run $RUN (stage exit=$rc); resume with: bash scripts/ops/corpus_stage_launch.sh $RUN $EXPECT; release with --release after the run is abandoned"
+  log "timers held: run $RUN (stage exit=$rc); resume with: setsid -f bash $REPO/scripts/ops/corpus_stage_launch.sh $RUN $EXPECT; release with --release after the run is abandoned"
 fi
 exit "$rc"

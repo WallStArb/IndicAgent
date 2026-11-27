@@ -141,12 +141,12 @@ If a timer is left disabled: `.venv/bin/python -m services.corpus_rerun --releas
 watchdog in one user scope with the `run_resource` gauges (workload `corpus_stage_launch`, stage `stage_1d`); output in
 `logs/corpus_stage_<run_id>.out`. `bash scripts/ops/corpus_stage_launch.sh --check <run_id> <prefix>` lists every refusal a
 launch would meet, read-only: the run-side gates, the two APR keys, the quiesced timers, the host gate, verdict freshness and
-`services.corpus_rerun --run-id <run_id> --check --step stage_1d`.
+`services.corpus_rerun --run-id <run_id> --check --step stage_1d` (the first step only; a refusal specific to `feature_complete` shows at launch).
 
 - Refuses unless: the run's scope is 1d, the pilot step is completed, `feature_complete` is not, the run worktree HEAD equals
   `corpus_run.code_commit`, the worktree's `rebuild_code_key()` starts with the given prefix, block 2 compared IDENTICAL,
   `infra.feature_factory.workers` is 4, `alpha.ic.feature_block_columns` is 16, every blocking timer is disabled and
-  inactive (run `python -m services.corpus_rerun --quiesce` first; the launcher never quiesces, so the bars stay unchanged
+  inactive (masked is refused: the host gate wants a loaded unit) (run `python -m services.corpus_rerun --quiesce` first; the launcher never quiesces, so the bars stay unchanged
   under the run), and the host gate and verdict freshness pass (the 01:00 to 05:00Z window applies).
 - The MemAvailable floor is APR `infra.run_guarded.mem_floor_gib.stage_1d` (migration 622, seed 40), read before the host gate. The shared 40 GiB floor was sized for 16-worker batteries; the idle host reads
   38.6 to 40.7 GiB because Postgres holds 15 GiB of shared memory, and the pilot at 4 workers peaked at 1.90 GiB in its cgroup.
