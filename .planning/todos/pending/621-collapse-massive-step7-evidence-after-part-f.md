@@ -30,3 +30,7 @@ No deletion while any step 7 writer, timer or resumable job is live. The IBKR ra
 ## Status 2026-11-24 (todo consolidation pass)
 
 Part F is closed (eb734e451). `logs/massive_step7` is 1.2 GB; no top-level README exists. 619's remaining scope is folded in here.
+
+## Status 2026-11-28 (housekeeping pass)
+
+Compressed in place, content kept (gzip, reversible with `gunzip`): `partc_c5.log` is now `partc_c5.log.gz` (423 MB to 13 MB), and `switch_losses.csv` in `delta_stale_20261113` and `delta_pre_reopen_20261115` is now `switch_losses.csv.gz` (57 MB to 7 MB each). `logs/massive_step7` is 620 MB. The summary card and the lead's collapse ruling are still open; `unexplained_20261114` is untouched because the runbook commands name its CSVs.

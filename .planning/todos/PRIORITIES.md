@@ -101,7 +101,7 @@ Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22
 | [461](pending/461-gap-z-read-the-next-bars-open.md) | `gap_z` lookahead fixed in code (186-12, db4ef4e80). The ledger note and the n1 combiner card caveat are done (5f1af57f6); left: re-measure `gap_z` IC on the corpus rerun's rows and confirm the drift report shows it moving. |
 | [471](pending/471-ic-measure-intraday-full-universe-memory-and-time.md) | Ruled 2026-11-24: scope-1d pin width 16 with `ic_tfs` = 1d only; no 5m or 15m until 667 (time chunks); 1h only at width 4. Open: record the 25-name `--dry-run` RSS at widths 4, 8, 16 and 32 after the block 2 rerun, then pin the width in the scope-1d APR. |
 | [583](pending/583-hmm-regime-null-on-whole-names-in-the-1d-rebuild.md) | K=3 decided (E20, migration 566, 07d980e87); HMM NaN is judged only on written segments (661). After the rerun: measure the K=3 refusal share across the full 1d universe and declare regime-unknown names before any regime-segmented 1d spec. |
-| [571](pending/571-reset-the-concept-layer-after-the-186-26-rebuild.md) | New 2026-10-30, P1, owner-approved, runs after the 186-26 rebuild and todo 564's batch. Demote the 306 `active` features to `candidate` through `ConceptRegistryService` and clear the 590 old evaluations; back up first. |
+| [571](pending/571-reset-the-concept-layer-after-the-186-26-rebuild.md) | P1, owner-approved, runs after the corpus rerun reaches feature_complete. Demote the 306 `active` features to `candidate` through `ConceptRegistryService` and clear the 590 old evaluations; back up first. |
 
 **Quick and independent**
 
@@ -159,7 +159,7 @@ Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22
 |---|---|
 | [456](pending/456-todo445-rerun-zero-commission-and-longer-horizons.md) | Owner review of 445. Part A is moot (`name_set_5m` feeds no code and Alpaca commission is zero). Open: part B, multi-day horizons for 5m features residualized on 15m, 1h and 1d, run as an `ic_measure` question after todos 667 and 668. |
 | [457](pending/457-family1-slot-subsets-through-the-runner.md) | Family 1 reopen on the stage 2 5m tier: slot-subset mask and keep gate in the runner with the E17 battery (442); rerun slots counted, outside-runner looks disclosed. Includes 460's auction-print check on a Massive source and the auction-to-auction hold. Blocked on a runner keep gate (phase 187 work). |
-| [437](pending/437-first-cut-cost-model-commission-and-spread.md) | Paused (build first). Promotion needs positive net expectation; today only flat bps bands exist. Commission (likely zero at the execution broker) plus validated Abdi-Ranaldo spread, as distributions. |
+| [437](pending/437-first-cut-cost-model-commission-and-spread.md) | Promotion needs positive net expectation; today only flat bps bands exist. Alpaca commission is zero, so the model is regulatory fees plus a quoted or Abdi-Ranaldo spread validated on the tape slice, as distributions. |
 
 **Data and ingestion**
 
