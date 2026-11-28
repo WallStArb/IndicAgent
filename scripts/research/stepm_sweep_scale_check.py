@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.research.select_books import attempt_universe  # noqa: E402
 from scripts.research.stepm_null_battery import stepm_source_sha256  # noqa: E402
+from src.intelligence.research import provenance  # noqa: E402
 from src.intelligence.statistics.stepm import stepm  # noqa: E402
 
 # Declared settings (ledger line before the first run); changing one is a new dated line.
@@ -160,6 +161,13 @@ async def _recorded(dsn: str, vintage: str | None):
     return matrix, max(horizons), labels, apr, vintage
 
 
+def code_commit(root: Path) -> str:
+    """HEAD of the checkout the check runs from, refused when its checked code is dirty: the
+    disclosure cites the commit, so the code must be exactly that commit (todo 690)."""
+    provenance.require_clean(root)
+    return provenance.head_commit(root)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("out")
@@ -176,6 +184,7 @@ def main() -> int:
     from services.batch_support.pool import make_worker_pool  # noqa: PLC0415
     from src.config.settings import Settings  # noqa: PLC0415
 
+    commit = code_commit(provenance.repo_root(Path(__file__).resolve().parent))
     dsn = args.dsn or Settings().database_url.replace("postgresql+asyncpg://", "postgresql://")
     recorded, max_horizon, labels, apr, vintage = asyncio.run(_recorded(dsn, args.vintage))
     n_eff_settings = [int(v) for v in args.n_eff.split(",")]
@@ -212,6 +221,7 @@ def main() -> int:
     record = {
         "schema": "stepm_sweep_scale_check_v1",
         "vintage": vintage,
+        "code_commit": commit,
         "stepm_sha256": stepm_source_sha256(),
         "declared": {
             "cells": args.cells,

@@ -13,7 +13,7 @@
 # Preconditions: pilot and feature_complete completed for the run at this pin, memtester_clean present, no heavy job live.
 set -u
 unset COLLECT_REFUSALS   # collect mode is corpus_pilot.sh --check only: an inherited value would make every fail() return
-. "$(dirname "$0")/guarded_run_common.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/guarded_run_common.sh"
 WIDTH_KEY=alpha.ic.feature_block_columns
 WIDTH_RULED=16
 
@@ -28,13 +28,6 @@ ic_preflight_judge() {
   [ "$icm" != "completed" ] || { echo "ic_measure already completed for this run"; return 1; }
   [ -n "$recorded" ] && [ "$head" = "$recorded" ] || { echo "worktree HEAD '$head' is not the run's code_commit '$recorded'"; return 1; }
   case "$key" in "$expect"?*) ;; *) echo "rebuild_code_key '$key' does not start with '$expect'"; return 1;; esac
-}
-
-# peak_rss_mb_since <file> <line_count_before>: the largest rss_mb the watchdog logged after that line.
-peak_rss_mb_since() {
-  local peak
-  peak=$(tail -n +"$(($2 + 1))" "$1" 2>/dev/null | sed -n 's/.* rss_mb=\([0-9]*\) .*/\1/p' | sort -n | tail -1)
-  echo "${peak:-unknown}"
 }
 
 [ "${BASH_SOURCE[0]}" = "$0" ] || return 0     # sourced by the test: functions only

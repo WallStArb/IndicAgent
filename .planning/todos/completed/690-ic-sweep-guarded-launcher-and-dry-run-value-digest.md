@@ -1,6 +1,6 @@
 ---
 claimable: true
-status: pending
+status: completed
 objective: O1
 priority: P1
 filed: 2026-11-28
@@ -31,3 +31,10 @@ No edit to `services/ic_measure.py`, `src/intelligence/research/` or `src/intell
 ## Done when
 
 The three gaps are closed and tested, and the run section of `docs/research/draft-ledger-2026-11-27a-first-ic-sweep.md` uses the launcher for steps 1, 3 and 6.
+
+## Closed 2026-11-28 (indicagent-b9)
+
+- `scripts/ops/ic_sweep_launch.sh` (modes `dry-run`, `record`, `stepm-check`; `--check`): host gate, watchdog and one user scope through `guarded_run_common.sh`; floor APR `infra.run_guarded.mem_floor_gib.ic_sweep` (migration 626, seed 40). The recorder modes refuse unless the run's `feature_complete` is completed, `ic_measure` is not, and every blocking timer is already quiesced (the lead's 2026-11-28 ruling: the recorder runs inside the stage's held window); the launcher never quiesces or releases, so the inherited-hold design replaced the fresh-hold branch this todo first described. `timers_quiesced_gate` and `peak_rss_mb_since` moved from the stage and IC launchers into `guarded_run_common.sh`, the three launchers source it by `BASH_SOURCE`, and `stepm_sweep_scale_check` joined the one-heavy-job pattern.
+- `services/ic_sweep_recorder.py`: the report's `blocks` list carries each block's spec hash and `series_digest` (SHA-256 of sorted cell names, int64 days and float64 values, little-endian), so two dry runs differing in any IC value, session, cell or spec input compare different.
+- `scripts/research/stepm_sweep_scale_check.py`: `code_commit` in the JSON, refused on a dirty checkout.
+- Tests: `tests/unit/test_ic_sweep_launch.py` (judges and launch paths: no quiesce or release on any path, refusal of unheld timers and after `ic_measure`, dirty and unpublished worktrees, the heavy-job and floor gates, `--check`); digest and report tests in `tests/unit/test_ic_sweep_recorder.py`; the commit test in `tests/unit/research/test_stepm_sweep_scale_check.py`. `rebuild_code_key()` 487f4ab434 before and after; nothing under `src/intelligence/research/` or `statistics/` changed, so no `repro_frozen`.

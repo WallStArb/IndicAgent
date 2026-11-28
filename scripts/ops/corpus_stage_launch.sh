@@ -18,7 +18,7 @@
 set -u
 CHECK=""; unset COLLECT_REFUSALS   # set here on --check only: an inherited value would make every fail() return
 if [ "${1:-}" = "--check" ]; then CHECK=1; COLLECT_REFUSALS=1; shift; fi   # before sourcing: collect mode reads it there
-. "$(dirname "$0")/guarded_run_common.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/guarded_run_common.sh"
 THROUGH=feature_complete
 FLOOR_KEY=infra.run_guarded.mem_floor_gib.stage_1d
 PSQL=(env PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc)   # the password reaches psql only, never the run
@@ -42,21 +42,6 @@ stage_floor_kb() {
   gib=$((10#$gib))
   { [ "$gib" -ge 8 ] && [ "$gib" -le 512 ]; } || return 1   # the bounds of config_schema in migration 622: change together
   echo $((gib * 1024 * 1024))
-}
-
-# timers_quiesced_gate: every blocking timer is disabled (what --quiesce leaves) and inactive. Masked is not accepted: the
-# host gate's timers_gate refuses a unit that is not loaded. Any other enablement state, an unreadable one included, can fire.
-timers_quiesced_gate() {
-  local units u
-  units=$(blocking_timer_units) || { fail "cannot read the blocking timers from APR"; return 1; }
-  while read -r u; do
-    [ -n "$u" ] || continue
-    case "$(systemctl is-enabled "$u" 2>/dev/null)" in
-      disabled) ;;
-      *) fail "$u is not disabled: quiesce first (python -m services.corpus_rerun --quiesce)";;
-    esac
-    [ "$(systemctl is-active "$u" 2>/dev/null)" != active ] || fail "$u is active: quiesce first (python -m services.corpus_rerun --quiesce)"
-  done <<< "$units"
 }
 
 [ "${BASH_SOURCE[0]}" = "$0" ] || return 0     # sourced by a test: functions only

@@ -154,6 +154,43 @@ def test_dry_run_writes_nothing_and_needs_no_declaration():
     }
 
 
+def test_todo_690_two_dry_runs_compare_different_when_one_ic_value_moves():
+    """Pilot gate (b) compares two dry-run reports byte for byte; before todo 690 the report held
+    counts and names only, so a changed IC value compared identical."""
+    from src.core.canonical_json import canonical_json
+
+    def dry(m):
+        return canonical_json(_record(FakeLedger(), m, dry_run=True, declared_n_looks=None))
+
+    base = _measurement()
+    assert dry(base) == dry(_measurement())  # same inputs, same bytes
+    moved_ic = {h: v.copy() for h, v in base.ic.items()}
+    moved_ic[5][3, 0] += 1e-12
+    moved = dry(rec.Measurement(**{**base.__dict__, "ic": moved_ic}))
+    assert moved != dry(base)
+    respec = dry(rec.Measurement(**{**base.__dict__, "features_key": "g"}))  # same values
+    assert respec != dry(base)
+    blocks = _record(FakeLedger(), base, dry_run=True, declared_n_looks=None)["blocks"]
+    assert [(b["horizon"], b["direction"], b["cells"]) for b in blocks] == [
+        (1, "long", 2),
+        (1, "short", 2),
+        (5, "long", 2),
+        (5, "short", 2),
+    ]
+
+
+def test_todo_690_series_digest_ignores_cell_order_and_sees_every_part():
+    days = np.array(["2020-01-02", "2020-01-03"], dtype="datetime64[D]")
+    a = AttemptSeries(sessions=days, values=np.array([0.1, -0.2]))
+    b = AttemptSeries(sessions=days, values=np.array([0.3, 0.4]))
+    digest = rec.series_digest({"a": a, "b": b})
+    assert digest == rec.series_digest({"b": b, "a": a})
+    later = AttemptSeries(sessions=days + 1, values=a.values)
+    assert digest != rec.series_digest({"a": later, "b": b})  # a session moved
+    assert digest != rec.series_digest({"a2": a, "b": b})  # a name changed
+    assert digest != rec.series_digest({"a": a})  # a cell dropped
+
+
 def test_each_recorded_block_counts_its_blocks_and_cells(monkeypatch):
     class _Counter:
         def __init__(self):

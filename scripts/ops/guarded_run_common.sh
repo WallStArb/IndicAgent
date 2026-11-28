@@ -19,7 +19,7 @@ MAX_SENSOR_MISSES=3           # consecutive polls without two readable DIMM sens
 KILL_GRACE_S=30               # seconds between TERM and KILL when the group will not exit
 MEM_FLOOR_KB=$((40 * 1024 * 1024))   # 40 GiB of MemAvailable, compared in kB (exact GiB in the message)
 WINDOW_START_H=1; WINDOW_END_H=5     # UTC hours [start, end) refused for a start: the 04:40Z Alpaca nightly's lead-in
-HEAVY_JOB_RE='python.*(run_spec|e17_null_battery|ic_measure|ops_corpus|ops_bar_nightly|ops_member_verdicts_1d|repro_frozen|services\.corpus_rerun|backfill_feature_factory|ic_sweep_recorder)'
+HEAVY_JOB_RE='python.*(run_spec|e17_null_battery|ic_measure|ops_corpus|ops_bar_nightly|ops_member_verdicts_1d|repro_frozen|services\.corpus_rerun|backfill_feature_factory|ic_sweep_recorder|stepm_sweep_scale_check)'
 
 # Check mode (corpus_pilot.sh --check): COLLECT_REFUSALS=1 makes fail() record the refusal and return 1 instead of
 # exiting, so every gate runs and every refusal is reported at once, and log() prints instead of appending to the
@@ -76,7 +76,7 @@ block2_gate() {
 }
 
 # apr_floor_kb <key>: the MemAvailable floor in kB from an APR key holding GiB; prints nothing and returns 1 unless it is an
-# integer inside the schema bounds (8 to 512 GiB, the config_schema rows of migrations 622 and 623), so a value written
+# integer inside the schema bounds (8 to 512 GiB, the config_schema rows of migrations 622, 623 and 626), so a value written
 # around ConfigService cannot switch the gate off. Returns 1 for an unusable value and 2 when the database cannot be read.
 # The caller sets MEM_FLOOR_KB from it before host_gate.
 apr_floor_kb() {
@@ -127,6 +127,28 @@ timers_gate() {
     esac
   done <<< "$units"
   [ "$n" -gt 0 ] || fail "no blocking timers listed in APR"
+}
+
+# timers_quiesced_gate: every blocking timer is disabled (what --quiesce leaves) and inactive. Masked is not accepted: the
+# host gate's timers_gate refuses a unit that is not loaded. Any other enablement state, an unreadable one included, can fire.
+timers_quiesced_gate() {
+  local units u
+  units=$(blocking_timer_units) || { fail "cannot read the blocking timers from APR"; return 1; }
+  while read -r u; do
+    [ -n "$u" ] || continue
+    case "$(systemctl is-enabled "$u" 2>/dev/null)" in
+      disabled) ;;
+      *) fail "$u is not disabled: quiesce first (python -m services.corpus_rerun --quiesce)";;
+    esac
+    [ "$(systemctl is-active "$u" 2>/dev/null)" != active ] || fail "$u is active: quiesce first (python -m services.corpus_rerun --quiesce)"
+  done <<< "$units"
+}
+
+# peak_rss_mb_since <file> <line_count_before>: the largest rss_mb the watchdog logged after that line.
+peak_rss_mb_since() {
+  local peak
+  peak=$(tail -n +"$(($2 + 1))" "$1" 2>/dev/null | sed -n 's/.* rss_mb=\([0-9]*\) .*/\1/p' | sort -n | tail -1)
+  echo "${peak:-unknown}"
 }
 
 heavy_job_live() { pgrep -f "$HEAVY_JOB_RE" >/dev/null; }

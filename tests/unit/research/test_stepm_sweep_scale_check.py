@@ -140,3 +140,19 @@ def test_the_block_length_covers_the_null_cells_overlap_whatever_the_recorded_ho
     assert out["false_selections"] >= 0
     with pytest.raises(ValueError, match="block_mean"):
         chk.run_replicate(_job(max_horizon=1, n_cells=20, n_eff=0, block_mean=9.0))
+
+
+def test_todo_690_the_code_commit_is_head_and_a_dirty_checkout_is_refused(monkeypatch, tmp_path):
+    from src.intelligence.research import provenance
+
+    calls = []
+    monkeypatch.setattr(provenance, "require_clean", lambda root: calls.append(root))
+    monkeypatch.setattr(provenance, "head_commit", lambda root: "a" * 40)
+    assert chk.code_commit(tmp_path) == "a" * 40 and calls == [tmp_path]
+
+    def dirty(root):
+        raise provenance.ProvenanceRefusal("uncommitted changes")
+
+    monkeypatch.setattr(provenance, "require_clean", dirty)
+    with pytest.raises(provenance.ProvenanceRefusal):
+        chk.code_commit(tmp_path)

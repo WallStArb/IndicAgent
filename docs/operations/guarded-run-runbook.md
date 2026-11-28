@@ -158,3 +158,12 @@ launch would meet, read-only: the run-side gates, the two APR keys, the quiesced
   its own clean exit, so no bar is restated between `feature_complete` and the IC measure. The nightly then backfills two or three
   days of Alpaca bars. On any other exit the launcher logs the resume command (the same command; the runner resumes the run);
   abandon a run with `python -m services.corpus_rerun --release`. A watchdog abort is 143.
+
+## IC sweep launcher (todo 690)
+
+`setsid -f bash scripts/ops/ic_sweep_launch.sh <mode> <sweep_worktree> <run_id|-> [job args]`, from the main checkout, runs one heavy step of the first counted 1d sweep (todo 671's checklist) under the host gate and the DIMM watchdog in one user scope (workload `ic_sweep_launch`, stage `ic_sweep_dry_run`, `ic_sweep_record` or `ic_sweep_stepm_check`); output in `logs/guarded_run/ic_sweep_<mode>_<run id or stamp>.out` (the mode as typed, `dry-run` and so on), peak `rss_mb` in the status file. Modes: `dry-run` (`services.ic_sweep_recorder --tf 1d --dry-run`), `record` (`services.ic_sweep_recorder --tf 1d` with `--horizons` and `--declared-n-looks`) and `stepm-check` (`scripts/research/stepm_sweep_scale_check.py`, run id `-`). `--check` before the mode lists every refusal and runs nothing.
+
+- The job runs in `<sweep_worktree>`: a detached worktree, never a corpus run worktree, with clean tracked files and a HEAD that is an ancestor of origin/main (the commit the records cite).
+- `dry-run` and `record` read the stored features and the bars, so they run inside the window the corpus stage holds, after `feature_complete` and before the IC measure (lead ruling 2026-11-28). They refuse unless the run's scope is 1d, `feature_complete` is completed, `ic_measure` is not, and every blocking timer is disabled and inactive; the launcher never quiesces or releases (only `ic_measure_launch.sh` releases). `stepm-check` reads no bars and needs no hold.
+- The MemAvailable floor is APR `infra.run_guarded.mem_floor_gib.ic_sweep` (migration 626, seed 40); set it from the 25-name recorder peak extrapolated to the full universe, through `ConfigService` with a reason. The `stepm_sweep_scale_check` process counts as a heavy job for every launcher's one-heavy-job gate.
+- Two dry-run reports compare with `cmp`: each block's spec hash and a SHA-256 of its cell series are in the report, so any changed IC value, session, cell or spec input compares different.

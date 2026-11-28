@@ -164,6 +164,22 @@ def cell_series(
     return series
 
 
+def series_digest(cells: Mapping[str, AttemptSeries]) -> str:
+    """SHA-256 of a block's cell series: names sorted, each name's sessions as int64 days and its
+    values as float64, both little-endian. Exact bytes, so any changed value, session or cell
+    moves it, and the order cells were built in does not (pilot gate b: two dry runs on one
+    pin must agree on values, not only on counts)."""
+    h = hashlib.sha256()
+    for name in sorted(cells):
+        series = cells[name]
+        days = np.asarray(series.sessions, dtype="datetime64[D]").astype("<i8")
+        h.update(name.encode() + b"\0")
+        h.update(len(days).to_bytes(8, "little"))
+        h.update(days.tobytes())
+        h.update(np.asarray(series.values, dtype="<f8").tobytes())
+    return h.hexdigest()
+
+
 def cell_evidence(
     *, feature: str, tf: str, horizon: int, direction: str, series: AttemptSeries
 ) -> dict[str, Any]:
@@ -294,6 +310,7 @@ async def record_blocks(
     blocks it would write must equal `declared_n_looks` (E21 rule 6) before the first write."""
     plan: list[tuple[int, str, str, str, str, dict[str, AttemptSeries]]] = []
     unmeasured: dict[int, list[str]] = {}
+    blocks: list[dict[str, Any]] = []  # every block's spec hash and series digest, recorded or not
     already = 0
     for horizon in horizons:
         for direction in DIRECTIONS:
@@ -309,6 +326,15 @@ async def record_blocks(
                 panels_key=m.panels_key,
                 features_key=m.features_key,
                 feature_names=list(cells),
+            )
+            blocks.append(
+                {
+                    "horizon": horizon,
+                    "direction": direction,
+                    "cells": len(cells),
+                    "spec_hash": digest,
+                    "series_digest": series_digest(cells),
+                }
             )
             if await ledger.has_real_run(digest):
                 already += len(cells)
@@ -326,6 +352,7 @@ async def record_blocks(
         "excluded_no_concept": list(m.excluded_no_concept),
         "excluded_inadmissible": list(m.excluded_inadmissible),
         "unmeasured": {str(h): v for h, v in unmeasured.items()},
+        "blocks": blocks,
         "recorded": 0,
         "dry_run": dry_run,
     }

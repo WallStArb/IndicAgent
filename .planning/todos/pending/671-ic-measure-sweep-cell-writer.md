@@ -23,7 +23,7 @@ Done, verified on main at 4b4e3c3a8:
 - [x] The todo 666 dividend decision is ledgered (2026-11-24e, corrected in 2026-11-24j). Todo 674 is closed.
 
 Open, in order:
-1. [ ] Todo 690 lands: a guarded launcher for the heavy sweep steps (watchdog, host and memory gates, one heavy job, timers held) and a dry-run report that carries per-block spec hashes and a digest of the IC values, without which item 6 cannot fail on a changed value.
+1. [x] Todo 690 landed: `scripts/ops/ic_sweep_launch.sh` (host gate, watchdog, one heavy job; recorder modes need the stage's timer hold and never release it) and per-block spec hashes and series digests in the dry-run report.
 2. [ ] Owner confirms draft 2026-11-25c (regime columns stay out of the sweep).
 3. [ ] Ledger line for the new write path (`record_sweep_block`), required by the landing constraint above and not yet written; draft text in the draft doc.
 4. [ ] Todo 670: settings line, run, disclosure line, when the recorded universe is final (its own checklist).
@@ -31,8 +31,8 @@ Open, in order:
 6. [ ] Recorder dry run on 25 names, peak RSS recorded here (review ruling 2026-11-25); check its log for `ic_measure.bar_digests_absent`, because a dry run allows names without bar digests and the real run refuses them.
 7. [ ] Pilot gate (b): two full dry runs on one pin, identical reports including the item 1 digests; the numbers fill the FILL fields of the draft (never before).
 8. [ ] Owner confirms the filled 2026-11-27a entry; the lead appends it and the 670 disclosure line to the ledger.
-9. [ ] Lead rules where the recorder's blocks run. Recommended: inside the window the stage already holds (after item 7, before the IC measure), since the recorder reads no `ic_measure` output and the 2026-11-27 ruling holds the timers so the inputs cannot move between `feature_complete` and the measurement; the spec's "after `ic_measure`" is a place in the chain, not a data dependency. The alternative is a fresh hold through the 690 launcher after `ic_measure_launch.sh` releases.
-10. [ ] IC measure memory: `RSS_CHECK=1 ic_measure_launch.sh` on 25 names (peak in `logs/family10_run_status.txt`), extrapolated to the full grid at width 16 (todo 471: about 15 GiB plus the interpreter), and APR `infra.run_guarded.mem_floor_gib.ic_measure` set from the larger of that projection and the stage_1d peak, with a `config_history` reason (40 today is migration 623's seed). Then `ic_measure_launch.sh`.
+9. [x] Lead ruling 2026-11-28 (indicagent-03): the recorder runs inside the stage's held window, before the IC measure. It reads no `ic_measure` output, and the bars must not move between the features and either reader; the spec's "after `ic_measure`" is a place in the chain, not a data dependency. So items 6, 7, 11 and 12 run before item 10, and the 690 launcher refuses a recorder mode once `ic_measure` has completed.
+10. [ ] (after items 11 and 12, per item 9) IC measure memory: `RSS_CHECK=1 ic_measure_launch.sh` on 25 names (peak in `logs/family10_run_status.txt`), extrapolated to the full grid at width 16 (todo 471: about 15 GiB plus the interpreter), and APR `infra.run_guarded.mem_floor_gib.ic_measure` set from the larger of that projection and the stage_1d peak, with a `config_history` reason (40 today is migration 623's seed). Then `ic_measure_launch.sh`.
 11. [ ] The recorder's volume pilot (`--horizons 1`, `--declared-n-looks` from the entry) through the 690 launcher, at the place item 9 rules. After it: rows equal the declared attempts, every completed row has one series, and `n_sessions`, `span_start` and `span_end` equal its series (the first real block is the only test of the `record_sweep_block` SQL, todo 656); rows and series bytes recorded here.
 12. [ ] If the pilot's volume is as expected, a second declaration for horizons 2, 5 and 10 and the recorder's run.
 

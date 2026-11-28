@@ -17,7 +17,7 @@ Body: Declared before any IC cell is measured or recorded (E21 rule 6; rulings 2
 
 ## Run section: the exact steps from `feature_complete` to the first counted block
 
-These steps close the checklist in todo 671 ("Remaining before the first counted 1d sweep"); the item numbers below are that checklist's. Steps 1, 3 and 6 are heavy. They run through the guarded launcher of todo 690 (watchdog, host and memory gates, one heavy job, timers held) once it lands; the raw commands below are what it wraps, and are not to be run bare on this host (DIMM fault 2026-11-23).
+These steps close the checklist in todo 671 ("Remaining before the first counted 1d sweep"); the item numbers below are that checklist's. Steps 1, 3 and 6 are heavy and run through `scripts/ops/ic_sweep_launch.sh` (todo 690), from the main checkout: host gate, DIMM watchdog, one heavy job, floor APR `infra.run_guarded.mem_floor_gib.ic_sweep`. Its `dry-run` and `record` modes refuse unless the stage still holds the blocking timers and `ic_measure` has not completed, and never quiesce or release them (lead ruling 2026-11-28: the recorder runs inside the stage's window, before the IC measure). `--check` lists every refusal without running anything.
 
 Placeholders: `<RUN>` the successor run id; `<KEY>` its code key prefix (487f4ab434); `<SWEEP>` the commit the recorder and the 670 check run at, a pushed commit containing todo 690 (the recorder reads stored features, so it need not be the run's pin, and its HEAD is the code commit its spec hashes record; before step 0, `git diff --stat <PIN> <SWEEP>` must touch only the recorder, the 670 script and the 690 launcher, or another surface the lead accepts in writing, because the panel, target and refusal code come from `<SWEEP>` while the features came from the pin); `<DATE>` the UTC date; `<SEED>` the 670 seed base its settings line declares; `<N_PILOT>` and `<N_REST>` the n_looks the confirmed entry declares. `PY=/home/bg/dev/indicagent/.venv/bin/python`.
 
@@ -32,7 +32,8 @@ cd /home/bg/dev/indicagent-wt-sweep && ln -s /home/bg/dev/indicagent/.env .env &
 Step 1, todo 670 (item 4; about 1.6 h on 4 cores, needs no feature rows; run when the recorded universe is final). The settings line goes into the ledger first; then:
 
 ```
-$PY scripts/research/stepm_sweep_scale_check.py \
+cd /home/bg/dev/indicagent
+setsid -f bash scripts/ops/ic_sweep_launch.sh stepm-check /home/bg/dev/indicagent-wt-sweep - \
   logs/research/stepm_checks/sweep_scale_<DATE>.json --seed-base <SEED> --cells 1220 --workers 4
 ```
 
@@ -41,6 +42,7 @@ Check the JSON's `baseline_without_null_cells` against `select_books` run on the
 Step 2, item 6, after `feature_complete`: the recorder on 25 names (light), peak RSS into todo 671.
 
 ```
+cd /home/bg/dev/indicagent-wt-sweep   # the sweep code, the same that steps 3 and 6 run
 /usr/bin/time -v $PY -m services.ic_sweep_recorder --tf 1d --dry-run --symbols <25 names> \
   --report logs/ic_sweep_dry_25_<DATE>.json 2> logs/ic_sweep_dry_25_<DATE>.time
 grep "Maximum resident set size" logs/ic_sweep_dry_25_<DATE>.time
@@ -50,12 +52,14 @@ grep bar_digests_absent logs/ic_sweep_recorder.log   # a dry run allows them; th
 Step 3, item 7, pilot gate (b) and the FILL numbers (heavy, twice, one pin, no write between):
 
 ```
-$PY -m services.ic_sweep_recorder --tf 1d --dry-run --report logs/ic_sweep_dry_a_<DATE>.json
-$PY -m services.ic_sweep_recorder --tf 1d --dry-run --report logs/ic_sweep_dry_b_<DATE>.json
+cd /home/bg/dev/indicagent
+L="bash scripts/ops/ic_sweep_launch.sh dry-run /home/bg/dev/indicagent-wt-sweep <RUN>"
+setsid -f bash -c "$L --report logs/ic_sweep_dry_a_<DATE>.json && $L --report logs/ic_sweep_dry_b_<DATE>.json"
+# after two 'ic_sweep dry-run exit=0' lines in logs/family10_run_status.txt:
 cmp logs/ic_sweep_dry_a_<DATE>.json logs/ic_sweep_dry_b_<DATE>.json && echo identical
 ```
 
-`cmp` is a value test only once todo 690 adds the per-block spec hashes and series digests to the report; today the report holds counts and name lists. Fill the entry from it: `batch_attempts` (the n_looks), `excluded_no_concept`, `excluded_inadmissible` and `unmeasured` by horizon; the measured feature count is in the recorder's log line `ic_sweep_recorder.measured` (`features`). Then the owner confirms, and the lead appends this entry and the 670 disclosure line.
+The report carries every block's spec hash and a SHA-256 of its cell series (`blocks`), so `cmp` fails on any changed IC value, session, cell or spec input (todo 690). The two runs are detached in one chain, the second after the first exits (one heavy job), so a dropped shell cannot stop them. Fill the entry from it: `batch_attempts` (the n_looks), `excluded_no_concept`, `excluded_inadmissible` and `unmeasured` by horizon; the measured feature count is in the recorder's log line `ic_sweep_recorder.measured` (`features`). Then the owner confirms, and the lead appends this entry and the 670 disclosure line.
 
 Step 4, item 10, IC measure memory and its floor:
 
@@ -75,17 +79,17 @@ PREFLIGHT_ONLY=1 bash scripts/ops/ic_measure_launch.sh <RUN> <KEY>
 setsid -f bash scripts/ops/ic_measure_launch.sh <RUN> <KEY>
 ```
 
-Item 9 decides whether step 6 runs before step 5, inside the window the stage holds (recommended), or after it under a fresh hold.
+Order (lead ruling 2026-11-28, item 9): steps 2, 3 and 6 (and 7, after its declaration) run before steps 4 and 5, inside the window the stage holds; the launcher refuses a recorder mode once `ic_measure` has completed.
 
 Step 6, item 11, the volume pilot block (heavy; a real run refuses a dirty tree, a moved HEAD and an unpublished commit):
 
 ```
-cd /home/bg/dev/indicagent-wt-sweep
-$PY -m services.ic_sweep_recorder --tf 1d --horizons 1 --declared-n-looks <N_PILOT> \
-  --report logs/ic_sweep_pilot_<DATE>.json
+cd /home/bg/dev/indicagent
+setsid -f bash scripts/ops/ic_sweep_launch.sh record /home/bg/dev/indicagent-wt-sweep <RUN> \
+  --horizons 1 --declared-n-looks <N_PILOT> --report logs/ic_sweep_pilot_<DATE>.json
 ```
 
-Then check the block: rows equal the declared attempts, every completed row has one series, and `n_sessions`, `span_start` and `span_end` equal its series; record rows and series bytes in todo 671. Step 7, item 12, after a second declaration: the same command with `--horizons 2,5,10 --declared-n-looks <N_REST>`.
+Then check the block: rows equal the declared attempts, every completed row has one series, and `n_sessions`, `span_start` and `span_end` equal its series; record rows and series bytes in todo 671. Step 7, item 12, after a second declaration: the same detached command with `--horizons 2,5,10 --declared-n-looks <N_REST>`.
 
 ## Draft text for the two ledger lines this sweep still needs (lead writes them; owner veto reserved)
 

@@ -16,7 +16,7 @@ E21 counts every measured IC cell as an attempt in the StepM universe. A full 1d
 
 The script and its tests are on main (ed2b16c9b, max-horizon fix d282e9ac7); what is left is the run. It is item 4 of the checklist in todo 671; commands in `docs/research/draft-ledger-2026-11-27a-first-ic-sweep.md`. Closes when the disclosure line is in the ledger.
 
-1. [ ] Todo 690 lands (the guarded launcher's `stepm-check` mode, and `code_commit` in the output JSON).
+1. [x] Todo 690 landed: `ic_sweep_launch.sh stepm-check` runs it guarded, and the JSON records `code_commit` (a dirty checkout is refused).
 2. [ ] A dated ledger line declaring every setting before the run: `--cells`, replicates 8, n_eff {8, 50, cells}, tails t5 (5 degrees of freedom) and normal, `WITHIN_GROUP_CORR` 0.9, `SCALE_RANGE` 0.02 to 0.03, `WARMUP_MAX` 252, `CELL_HORIZONS` (1, 2, 5, 10), `max_horizon_sessions` the larger of the recorded maximum and 10, the seed base and the seed rule (`seed_base + 10000 * setting + replicate`); draft text in the draft doc.
 3. [ ] The run, when the recorded universe is final: after the last counted family that runs before the sweep (the sweep stays behind the prior-driven families), because the check measures what the sweep costs the selections that exist then. A run before that states its vintage and series count and is rerun if the universe grows.
 4. [ ] The baseline guard: the report's `baseline_without_null_cells` reproduces exactly the adjusted p-values of `select_books` run on the same vintage at the same time (the universe the check loads; 2026-11-25b is that read only if no series has been added since); a mismatch stops the disclosure.
