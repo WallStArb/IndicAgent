@@ -1,0 +1,13 @@
+# Harness signals snapshot (todo 685): one JSON line to logs/harness/signals.jsonl. A user unit: it reads the
+# session records under ~/.claude/sessions and git, never the database, so it is not a pipeline service and has no
+# _DAG_ORDER entry (docs/foundation/harness-improvement-sop.md). Install steps: todo 685.
+[Unit]
+Description=IndicAgent harness signals snapshot (todo 685)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python tools/harness_signals.py
+Environment=PYTHONUNBUFFERED=1
+Nice=10
+TimeoutStartSec=180

@@ -1,0 +1,12 @@
+# Every 10 minutes (todo 685). Not Persistent: a missed snapshot is a gap the summary reports, never back-filled.
+[Unit]
+Description=IndicAgent harness signals snapshot every 10 minutes (todo 685)
+
+[Timer]
+OnCalendar=*:0/10
+AccuracySec=30s
+Persistent=false
+Unit=indicagent-harness-signals.service
+
+[Install]
+WantedBy=timers.target

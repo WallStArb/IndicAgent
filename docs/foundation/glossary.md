@@ -2657,6 +2657,14 @@ A file ranked high by churn, review findings and escaped defects together; the t
 **Status:** active (owner 2026-11-27); measured by todo 686
 **Code surface:** the code health report (todo 686, not built yet)
 
+### `harness signal`
+
+A measured fact about how the agent harness ran, recorded append-only in `logs/harness/signals.jsonl` by `tools/harness_signals.py`: session states over time (busy, idle waiting for input, shell running a command, gone), open and stale claims, origin/main's CI reds, and the lead's notes (owner interventions, review findings by class), paired in the summary with outcome facts (landings, todos closed, P0 and P1 closed). It never enters a research statistic. **Not:** a trade `signal` (retired v2.x vocabulary) or a research `predictor`.
+**Banned:** (none)
+**Avoid:** bare "signal" for it; always "harness signal"
+**Status:** active (todo 685)
+**Code surface:** `tools/harness_signals.py`, `tools/systemd-user/indicagent-harness-signals.timer`, `logs/harness/signals.jsonl`
+
 ### `retro`
 
 The lead's scheduled review of the harness signals (daily and after any owner intervention): a failure shape seen twice becomes a candidate change with a predicted signal and a check date; monthly, the retro judges its own hit rate. **Not:** a phase `RETROSPECTIVE.md` entry (a milestone narrative).

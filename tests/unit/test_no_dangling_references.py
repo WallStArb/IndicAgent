@@ -33,6 +33,7 @@ from tests.unit._scan_support import assert_scanned
 
 REPO = Path(__file__).resolve().parents[2]
 SYSTEMD = REPO / "production" / "systemd"
+SYSTEMD_USER = REPO / "tools" / "systemd-user"  # user units (the harness signals timer, todo 685)
 BASELINE = Path(__file__).with_name("dangling_reference_baseline.json")
 _REGEN = ".venv/bin/python -m tests.unit.test_no_dangling_references --write-baseline"
 
@@ -53,6 +54,14 @@ def _unit_files() -> set[str]:
         (p for p in SYSTEMD.iterdir() if p.is_file()), 38, "production/systemd files"
     )  # 47
     return {path.name for path in files}
+
+
+def _user_unit_paths() -> list[Path]:
+    """The user units (installed under ~/.config/systemd/user, not by the system manager), kept
+    apart from production/systemd: a system unit or the auditor registry cannot name them."""
+    return sorted(
+        assert_scanned((p for p in SYSTEMD_USER.iterdir() if p.is_file()), 2, "tools/systemd-user")
+    )
 
 
 def _unit_exists(unit: str, files: set[str]) -> bool:
@@ -87,9 +96,12 @@ def _exec_targets(text: str) -> list[str]:
 
 
 def _unit_name_findings() -> list[str]:
-    files = _unit_files()
+    system, user = _unit_files(), {p.name for p in _user_unit_paths()}
     problems = []
-    for path in sorted(SYSTEMD.iterdir()):
+    for path, files in [
+        *((p, system) for p in sorted(SYSTEMD.iterdir())),
+        *((p, user) for p in _user_unit_paths()),
+    ]:
         if path.suffix not in (".service", ".timer", ".target"):
             continue
         text = path.read_text()
@@ -167,7 +179,7 @@ def _doc_files() -> list[Path]:
 
 
 def _dangling_doc_references() -> set[str]:
-    unit_files = _unit_files()
+    unit_files = _unit_files() | {p.name for p in _user_unit_paths()}
     containers = _container_names()
     found = set()
     for doc in _doc_files():
