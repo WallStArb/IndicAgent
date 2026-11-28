@@ -12,6 +12,32 @@ source: indicagent-3d family-order note, lead ruling 2026-11-24
 
 E21 (methodology-change-ledger, adopted 2026-11-13) counts every measured level 1 cell (feature, timeframe, horizon) as one `research_run` evidence attempt in mode `real`, with its per-session pooled cross-sectional IC stored as the attempt's series in `research_run_series`, written only through S6. `services/ic_measure.py` writes only `feature_ic_scores` (pooled IC with a strided sample and a bootstrap interval; no per-session series), and `research_run_series` is written only by `src/intelligence/research/ledger.py` and its callers. Without this writer a sweep is an uncounted look and no IC pass may run (ledger 2026-11-24f).
 
+## Remaining before the first counted 1d sweep (checklist, 2026-11-28, indicagent-b9)
+
+This todo closes when item 12 is recorded here. Commands, with placeholders, are in the run section of `docs/research/draft-ledger-2026-11-27a-first-ic-sweep.md`.
+
+Done, verified on main at 4b4e3c3a8:
+- [x] Writer and recorder landed: build ed2b16c9b; review fixes d282e9ac7, 07368e980, 5f918ea8f, b1e684490 (f242515f7 records the rulings in this file); the 674 refusals in 639c244b1. All are in the successor run's pin (code key 487f4ab434).
+- [x] `repro_frozen` bit-identical on the `ledger.py` change: run on 0b5af0466, which contains it.
+- [x] Pilot gate (a): `session_rank_ic` agrees with `scipy.stats.spearmanr` to 1e-12 per session and feature (`tests/unit/measure/test_session_ic.py::test_matches_scipy_per_session_and_feature`, passing).
+- [x] The todo 666 dividend decision is ledgered (2026-11-24e, corrected in 2026-11-24j). Todo 674 is closed.
+
+Open, in order:
+1. [ ] Todo 690 lands: a guarded launcher for the heavy sweep steps (watchdog, host and memory gates, one heavy job, timers held) and a dry-run report that carries per-block spec hashes and a digest of the IC values, without which item 6 cannot fail on a changed value.
+2. [ ] Owner confirms draft 2026-11-25c (regime columns stay out of the sweep).
+3. [ ] Ledger line for the new write path (`record_sweep_block`), required by the landing constraint above and not yet written; draft text in the draft doc.
+4. [ ] Todo 670: settings line, run, disclosure line, when the recorded universe is final (its own checklist).
+5. [ ] `feature_complete` of the successor run.
+6. [ ] Recorder dry run on 25 names, peak RSS recorded here (review ruling 2026-11-25); check its log for `ic_measure.bar_digests_absent`, because a dry run allows names without bar digests and the real run refuses them.
+7. [ ] Pilot gate (b): two full dry runs on one pin, identical reports including the item 1 digests; the numbers fill the FILL fields of the draft (never before).
+8. [ ] Owner confirms the filled 2026-11-27a entry; the lead appends it and the 670 disclosure line to the ledger.
+9. [ ] Lead rules where the recorder's blocks run. Recommended: inside the window the stage already holds (after item 7, before the IC measure), since the recorder reads no `ic_measure` output and the 2026-11-27 ruling holds the timers so the inputs cannot move between `feature_complete` and the measurement; the spec's "after `ic_measure`" is a place in the chain, not a data dependency. The alternative is a fresh hold through the 690 launcher after `ic_measure_launch.sh` releases.
+10. [ ] IC measure memory: `RSS_CHECK=1 ic_measure_launch.sh` on 25 names (peak in `logs/family10_run_status.txt`), extrapolated to the full grid at width 16 (todo 471: about 15 GiB plus the interpreter), and APR `infra.run_guarded.mem_floor_gib.ic_measure` set from the larger of that projection and the stage_1d peak, with a `config_history` reason (40 today is migration 623's seed). Then `ic_measure_launch.sh`.
+11. [ ] The recorder's volume pilot (`--horizons 1`, `--declared-n-looks` from the entry) through the 690 launcher, at the place item 9 rules. After it: rows equal the declared attempts, every completed row has one series, and `n_sessions`, `span_start` and `span_end` equal its series (the first real block is the only test of the `record_sweep_block` SQL, todo 656); rows and series bytes recorded here.
+12. [ ] If the pilot's volume is as expected, a second declaration for horizons 2, 5 and 10 and the recorder's run.
+
+Sequencing condition the lead holds: the sweep stays behind the prior-driven families (design note 2026-11-24), as the draft entry lists. A bad block is a new spec and a new charge, never an edit (ruling 2026-11-25; the entry text says so).
+
 ## Spec (design 2026-11-24, indicagent-94; implementer follows this)
 
 Two parts, each with one owner, so single_writer holds.
@@ -45,18 +71,15 @@ The `ledger.py` edit (and the new method) lands only while no ledger import and 
 
 ## Build status 2026-11-24 (indicagent-94)
 
-Built and unit-tested on the local branch `wip/670-671-sweep-recorder` (commits 5b961344b and 6eb4540a2, base a70e73758), not pushed. Held: `repro_frozen` (needs the heavy slot) and the push (the branch edits `ledger.py`, `ic_measure.py` and `select_books.py`; it lands only while no pilot or counted run imports them, on the lead's word). The cell lookup is domain-qualified (`_FEATURE_DOMAINS`) instead of widening `_RESEARCH_DOMAINS`, because `ctf_momentum` is both a family and a feature. Migration 618 adds `alpha.ic_sweep.min_names_per_session`. No integration test of the `record_sweep_block` SQL exists (todo 656); the first real block is its test. 670 timing measured: about 81 microseconds per bootstrap draw, about 6 to 8 minutes per StepM run.
+Superseded 2026-11-28: the build landed on main in ed2b16c9b with review fixes d282e9ac7, 07368e980, 5f918ea8f and b1e684490 (rulings recorded in f242515f7), with the 674 refusals in 639c244b1, and is in the pin of run dcb7caa4 and its successor (code key 487f4ab434). `repro_frozen` is bit-identical on 0b5af0466, which contains it (2026-11-28, indicagent-b9). The cell lookup is domain-qualified (`_FEATURE_DOMAINS`) instead of widening `_RESEARCH_DOMAINS`, because `ctf_momentum` is both a family and a feature. Migration 618 adds `alpha.ic_sweep.min_names_per_session`. No integration test of the `record_sweep_block` SQL exists (todo 656); the first real block is its test. 670 timing measured: about 81 microseconds per bootstrap draw, about 6 to 8 minutes per StepM run.
 
-## Draft of the cell-list ledger line (for the lead; to be appended to the methodology ledger before the first real run, numbers marked FILL come from `ic_sweep_recorder --dry-run`)
+## Draft of the cell-list ledger line
 
-Heading: `## <next free 2026-11-24 or later letter>: the first IC sweep, cell list and n_looks (lead record, owner veto reserved)`
-
-Body: Declared before any IC cell is measured or recorded (E21 rule 6; rulings 2026-11-24i). Scope: timeframe 1d, horizons from APR `alpha.ic_measure.horizons` (1, 2, 5, 10), every numeric `feature_vectors` column that has a `feature`-domain concept row (the dry-run report lists the excluded columns without a concept row and the columns with no tested session; neither is measured or counted). Each cell is two attempts, the long (measured per-session rank IC) and the mirrored short (its negation), each tested one-sided positive by the shipped StepM. Targets: `panel.forward_returns` price-only, as ruled in 2026-11-24e and decided in todo 666. Floor: `alpha.ic_sweep.min_names_per_session` = 30 (migration 618). Cell list: FILL features measured, FILL excluded without concept row, FILL unmeasured by horizon; n_looks = FILL (2 x measured cells x 4 horizons) for the full sweep. Volume pilot first (E21 volume gate): block `--horizons 1`, n_looks FILL (2 x measured cells), measured rows and series bytes recorded in todo 671 before the other horizons run; the remaining blocks are a second declaration if the pilot's volume is as expected. Code: the commit that lands the recorder; the run refuses a dirty tree and records HEAD. The 670 disclosure line (settings, seed base) is appended before any run; the sweep stays behind the prior-driven families (design note 2026-11-24), behind 670 and 671, and behind `repro_frozen` bit-identical on the ledger change. Landing note for the same commit: the cell identity lookup is domain-qualified (`_FEATURE_DOMAINS`), not a widening of `_RESEARCH_DOMAINS`, because `ctf_momentum` exists as both a family and a feature; it still reads the feature's own concept row, as 2026-11-24i intends (confirmed by the lead 2026-11-24).
-
+Superseded by `docs/research/draft-ledger-2026-11-27a-first-ic-sweep.md`, which carries the entry text, the owner's questions and the exact run commands; the earlier draft is in git history (269d63c44).
 
 ## Review rulings applied 2026-11-25 (indicagent-8a, after indicagent-c7's review, lead rulings)
 
-Commits on `wip/670-671-sweep-recorder`, rebased on origin/main (held, no push): the two fix commits after the rebased build commits.
+Landed on main in d282e9ac7, 07368e980, 5f918ea8f and b1e684490 on top of ed2b16c9b (the build); f242515f7 records these rulings here.
 
 - Sweep rows are excluded from `backfill_attempt_series._RUNS_SQL` by `spec_path` (the one shared `SWEEP_SPEC_PATH_PREFIX` in `ledger.py`); a test binds it. Other `research_run.spec_blob` readers: `select_books` (counts sweep rows on purpose, now keyed on the path prefix, not a JSON sniff of the blob), `replication_subperiods` (reads only `member.*` concepts of one run group; a sweep row is a `feature` concept, so it is not reachable), the ledger's subset-refit parent read (book kinds only). No other reader resolves a blob through git.
 - Service registry: `ic_measure` is in `_DAG_ORDER`, `_ONESHOT_UNITS` and the unit-file integrity test because it has a systemd unit (`indicagent-ic-measure.service`) and runs in the pipeline. The sweep recorder has no unit: it runs by hand from a detached worktree at a pushed commit, once per declared batch. The integrity test rejects a registry entry with no unit file, so the recorder is exempt from `_DAG_ORDER` and `_AGENT_ID_TO_UNIT` for that reason, and emits `job_completed_total{job="ic-sweep-recorder"}` like any oneshot. If it ever gets a timer, it is registered then.

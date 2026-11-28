@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 objective: O1
 priority: P1
 filed: 2026-11-24
@@ -77,3 +77,10 @@ Both parts are built and held; nothing is pushed. They land in one re-pin on `wi
 - R2: `4d520ebb5` on `wip/674-r2-member-refusal`, stacked on R1. It edits `src/intelligence/research/`, so it needs `repro_frozen` bit-identical and does not land beside a live counted run; sequence it after the counted runs.
 - R1 does not change `vix_reversion_product` or `vix_z` (reach unchanged on the synthetic config; `vix_z` has no definition). The R5 finding in the 652 triage stays open for the vix clock.
 - Before any push: `tests/unit` at `-n 4` and `git log origin/main..HEAD` listing only the intended commits.
+
+## Closed 2026-11-28 (indicagent-b9, checked against the end state, scope and gates above)
+
+- End state met on main. R1: 223afa793 (reach = `max(memory, definition_warmup)`, `feature_memory_bars` takes a tf, first-row definitions for the four columns, pass-through memory stays 0, and the validated `builder_path_dependent` marker with its reviewed-list test). R2: 6af182716 and 3128d6539 (source tf passed through, marked pass-throughs refused as members, the refusal transitive, daily-defined pass-throughs refused on an intraday source). The sweep recorder applies the same refusals (639c244b1).
+- Tests named in the scope exist and pass: `tests/unit/intelligence/test_feature_memory_reach.py`, `tests/unit/intelligence/test_pass_through_memory.py` (exit 0 on 4b4e3c3a8); the unit suite is green in CI on every later landing, so no golden or probe status moved.
+- Gates: the 09708ae249f2 to 212a76c35332 pair in the hand-off was measured on the unlanded branch commit 258deab73; the landed 223afa793 has another parent, so its key is covered by the re-pin that carried R1 with 652 and 583, 487f4ab434, the key run dcb7caa4 and its successor pin. `repro_frozen` for R2: bit-identical (phase 179 S3, phase 181 S2 and S3) on 0b5af0466, which contains 6af182716 and 3128d6539 (run 2026-11-28 by indicagent-b9 for the 678 follow-up). Review: the 2026-11-25 findings above, applied in 3128d6539.
+- Left open elsewhere, not in this todo: the R5 vix clock finding of the 652 triage. The G2 and G6 baseline moves for the four defined columns (review findings above) have no ledger line of their own; the pilot and stage of run dcb7caa4 screened at the re-pinned definitions, so the screen's baselines already include them.
