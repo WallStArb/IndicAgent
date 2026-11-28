@@ -5,8 +5,8 @@
 
 | # | Item | Deadline | Kind |
 |---|---|---|---|
-| 1 | Install the split feed auditor timer (todo 649) | before the Massive lapse, about 2026-12-10 | sudo steps |
-| 2 | Renew or lapse the Massive plan (todo 600) | 2026-12-10, final capture about 2026-12-07 | spend decision |
+| 1 | Done 2026-11-26: split feed auditor timer installed (todo 649) | - | sudo steps |
+| 2 | Done: Massive plan settled (lapse); nothing for the owner (todo 600) | - | spend decision |
 | 3 | Alert credentials for the DIMM alerts | before the next heavy run you leave unattended | credentials |
 | 4 | Cooling and the move from 4 to 8 workers | none; gates the worker count | hardware |
 | 5 | Ledger 2026-11-23b veto, todos 547 and 586 | none; blocks nothing running | rulings |
@@ -34,7 +34,7 @@ Recommendation: install now. It is read-only against the database and the only c
 
 ## 2. Massive plan (todo 600)
 
-Decided 2026-11-26: lapse, and the HX370 copy is dropped. Still open for you: read the exact lapse date off the Massive account page; read the exact lapse date off the Massive account page and tell the lead so the doc's "about" can be replaced. The lead runs the final capture and verification about 2026-12-07 (commands: deadlines doc, item 9; the capture is a lead job, not yours). Also decide whether to keep or drop the HX370 copy of the archive (STATE).
+Settled by the owner (2026-11-26 and 2026-11-27): lapse, the HX370 copy is dropped, and nothing here needs you. The lead runs the final pass on 2026-12-01 or 12-02, once the 2026-11-30 month-end list is served (commands: `docs/operations/massive-final-capture.md`).
 
 Verify: the lead records the lapse date, the final manifest key count and the two `--verify` exit codes in todo 600.
 

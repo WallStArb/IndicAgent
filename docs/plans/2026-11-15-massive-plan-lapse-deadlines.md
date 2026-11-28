@@ -13,7 +13,7 @@
 | 2026-11-30 | Last NYSE month-end inside the plan; its ticker list is raw evidence only, because L stays 2026-11-09 (ruling 2026-11-16) |
 | 2026-12-01 | Filings sizing decision due (item 7) |
 | About 2026-12-07 | Final reference capture, file catch-up and verification (item 9) |
-| About 2026-12-10 | The plan lapses. The exact date is not recorded in the repo: the owner reads it off the Massive account page, then replace "about" here |
+| About 2026-12-10 | The plan lapses. The final pass (2026-12-01 or 12-02) runs before any December expiry, so the exact date is not needed |
 
 ## What is already on disk (verified read-only, 2026-11-15)
 
