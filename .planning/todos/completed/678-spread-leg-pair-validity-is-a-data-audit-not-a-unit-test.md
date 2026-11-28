@@ -1,8 +1,6 @@
 ---
 claimable: true
-claimed_by: indicagent-03
-claimed_at: 2026-11-28T01:05:30+00:00
-status: pending
+status: completed
 objective: O3
 priority: P3
 filed: 2026-11-26
@@ -18,3 +16,7 @@ source: indicagent-8c test hygiene audit (lane O, lead ruling 2026-11-25)
 ## Done when
 
 The audit exists and has run once with its result recorded here, and the unit tests no longer read the live database.
+
+## Closed 2026-11-28 (claimed and landed by indicagent-03)
+
+`scripts/ops/ops_spread_leg_audit.py` reads the `spread_leg` tags and instruments, prints every missing pair, unknown symbol and non-reciprocal pair, writes one `integrity_monitor` row (`spread_leg_audit`, metric `problems`, threshold 0) and exits 1 on any problem. Its checks are pure and unit-tested on seeded cases in `tests/unit/scripts/test_ops_spread_leg_audit.py`; the live-DB unit test and its write-boundary allow-list entry are deleted. First run 2026-11-28 01:06Z: 54 rows, 0 problems, row written (passed true).

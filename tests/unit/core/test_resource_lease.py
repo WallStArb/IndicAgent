@@ -4,8 +4,7 @@ Real advisory locks on a live server, one test-only lease name per test (never a
 name: a parallel CI run holding the same key would turn the blocking tests into flaky
 timeouts). ResourceLease is a generic Ring 0 primitive (CD-09); since plan 189-08 no
 production caller uses it for IBKR history, which takes the phase 189 FetcherLock. Skips
-cleanly when no database is reachable, matching the live-DB convention of
-tests/unit/test_spread_leg_pair_validity.py.
+cleanly when no database is reachable, like the other live-DB tests.
 
 The threaded tests drive the queue semantics PostgreSQL actually implements: a
 waiting session appears in pg_locks as not-granted, and a holder that unlocks and

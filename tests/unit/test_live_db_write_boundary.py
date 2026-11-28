@@ -40,10 +40,6 @@ _LIVE_DSN = re.compile(
 # `pytest.mark.live_db` on the tests that write, and the writes must be self-rolling-back
 # (pg_temp inside a transaction the test aborts), never persistent rows.
 _LIVE_DSN_FILES: Mapping[str, str] = {
-    "test_spread_leg_pair_validity.py": (
-        "read-only: fetches live policy/coverage rows to check a spread-leg predicate against "
-        "real names; skips silently when the database is unreachable"
-    ),
     "services/test_bar_derivation_stage_lock.py": (
         "read-only: proves the stage advisory lock is exclusive (advisory locks and a session "
         "SET are not writes; the read-only default does not block them)"
