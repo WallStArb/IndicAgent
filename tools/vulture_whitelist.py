@@ -381,7 +381,6 @@ run_rules  # unused function (src/intelligence/bars/scrub_rules.py:729)
 _build_obs_matrix_volatility  # unused function (src/intelligence/features/kernels/_hmm.py:398)
 unknown_return_mask  # unused function (src/intelligence/bars/corporate_actions.py:249)
 view_disagreement  # unused function (src/intelligence/bars/scrub_rules.py:518)
-emit_integrity_fact_sync  # unused function (src/core/integrity_monitor.py:88)
 AsyncRequestSink  # unused class (services/ohlcv_request_writer.py:296)
 
 # Todo 614 row 4: public library functions and classes with tests and a documented role but no

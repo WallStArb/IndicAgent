@@ -1,45 +1,24 @@
 """Shared helper for writing to the generic `integrity_monitor` observability fact
 table (schema: production/migrations/211_integrity_monitor.sql).
 
-Ring 0 (no domain vocabulary -- "an observability fact table with a monitor_type/
-subject/metric_name/metric_value shape" is a generic concept, not alpha/IC-specific).
-Before this extraction (todo 150), the exact INSERT + composite `ON CONFLICT
-(monitor_type, training_window_end, metric_name, COALESCE(subject, ''), evaluated_at)
-DO NOTHING` statement shape was hand-copied at 4 independent call sites --
-services/ic_engine.py (x2, since moved to services/feature_lifecycle.py), src/config/vocabulary_drift.py, services/
-forward_return_writer.py -- a correctness risk (a future copy silently drifting from
-the real unique index), not just a style complaint.
+Ring 0 (no domain vocabulary: an observability fact table with a monitor_type/subject/
+metric_name/metric_value shape is a generic concept). The INSERT and its composite
+`ON CONFLICT (monitor_type, training_window_end, metric_name, COALESCE(subject, ''),
+evaluated_at) DO NOTHING` key are defined here once (todo 150), so no call site drifts from
+the real unique index.
 
-Two variants for the two drivers: callers on a plain psycopg connection
-(forward_return_writer.py, a sync argparse-style batch script) use
-emit_integrity_fact_sync(); callers on an asyncpg connection (vocabulary_drift.py,
-feature_lifecycle.py) use emit_integrity_fact_async().
+Guard behavior: on failure, log a warning and return, never raise. A fact recorded here
+is about a primary result that already exists elsewhere; a failure writing the audit
+trail must never look like (or cause) a failure of that primary result.
 
-Guard behavior lives here, once: on failure, log a warning and return -- never raise.
-Every fact this table records is ABOUT a primary write that already committed
-successfully elsewhere; a failure writing the audit trail must never look like (or
-cause) a failure of that primary write. This was previously re-derived independently
-at each call site (forward_return_writer.py's try/except) -- now callers get it for
-free.
+No commit parameter: asyncpg connections autocommit each statement outside an explicit
+`conn.transaction()` block.
 
-commit=False by default: a sync call site may share its connection with other
-statements under a single deferred commit point, which an unconditional commit() here
-would break. Pass commit=True only for a call site that owns its own transaction
-boundary and wants the fact durable immediately (forward_return_writer.py's
-price_sanity fact).
-
-idempotency_check=False by default: the DB-level UNIQUE index (keyed on
-monitor_type/training_window_end/metric_name/subject/evaluated_at) only catches an
-exact-instant duplicate insert, not a rerun of the same training_window_end
-hours/days later (evaluated_at defaults to now() and is part of that key). It
-defaults off because some facts are meant to repeat per window: feature_lifecycle.py
-records a fact on every re-evaluation, and its guard calibration reads only the latest
-fact per window. Callers with no
-equivalent outer guard (forward_return_writer.py's price_sanity fact, called once per
-run with nothing upstream deduping reruns) should pass True. vocabulary_drift.py's
-audit intentionally records one fact per run for calibration history (like
-ic_lifecycle's guard_fail_fraction facts) rather than being idempotent per
-training_window_end, so it also leaves this off -- not an oversight.
+idempotency_check=False by default: the DB-level UNIQUE index only catches an exact-instant
+duplicate insert, not a rerun of the same training_window_end hours or days later
+(evaluated_at defaults to now() and is part of that key). It defaults off because some facts
+are meant to repeat per window: vocabulary_drift.py records one fact per run for calibration
+history. Callers with nothing upstream deduping reruns pass True.
 """
 
 from __future__ import annotations
@@ -51,17 +30,8 @@ import structlog
 
 _logger = structlog.get_logger(__name__)
 
-# Shared INSERT shape -- the one place that defines the composite ON CONFLICT key.
-# psycopg-style (%s positional placeholders).
+# Shared INSERT shape: the one place that defines the composite ON CONFLICT key.
 INTEGRITY_MONITOR_INSERT_SQL = """
-INSERT INTO integrity_monitor
-    (monitor_type, subject, metric_name, metric_value, threshold_value, passed, training_window_end)
-VALUES (%s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT (monitor_type, training_window_end, metric_name, COALESCE(subject, ''), evaluated_at) DO NOTHING
-"""
-
-# Same statement, asyncpg-style ($N positional placeholders).
-_INTEGRITY_MONITOR_INSERT_SQL_ASYNCPG = """
 INSERT INTO integrity_monitor
     (monitor_type, subject, metric_name, metric_value, threshold_value, passed, training_window_end)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -70,76 +40,11 @@ ON CONFLICT (monitor_type, training_window_end, metric_name, COALESCE(subject, '
 
 _IDEMPOTENCY_PRECHECK_SQL = """
 SELECT 1 FROM integrity_monitor
-WHERE monitor_type = %s
-  AND training_window_end = %s
-  AND metric_name = %s
-LIMIT 1
-"""
-
-_IDEMPOTENCY_PRECHECK_SQL_ASYNCPG = """
-SELECT 1 FROM integrity_monitor
 WHERE monitor_type = $1
   AND training_window_end = $2
   AND metric_name = $3
 LIMIT 1
 """
-
-
-def emit_integrity_fact_sync(
-    conn: Any,
-    monitor_type: str,
-    subject: str | None,
-    metric_name: str,
-    metric_value: float | None,
-    threshold_value: float | None,
-    passed: bool,
-    training_window_end: Any,
-    *,
-    idempotency_check: bool = False,
-    commit: bool = False,
-) -> None:
-    """Guarded single-row INSERT into integrity_monitor over a sync psycopg conn.
-
-    See module docstring for the idempotency_check and commit design rationale.
-    Never raises -- an emit failure is logged and swallowed (guard behavior).
-    """
-    try:
-        if idempotency_check:
-            with conn.cursor() as cur:
-                cur.execute(
-                    _IDEMPOTENCY_PRECHECK_SQL, (monitor_type, training_window_end, metric_name)
-                )
-                if cur.fetchone() is not None:
-                    _logger.info(
-                        "integrity_monitor.emit_skipped_already_ran",
-                        monitor_type=monitor_type,
-                        metric_name=metric_name,
-                        training_window_end=str(training_window_end),
-                    )
-                    return
-
-        with conn.cursor() as cur:
-            cur.execute(
-                INTEGRITY_MONITOR_INSERT_SQL,
-                (
-                    monitor_type,
-                    subject,
-                    metric_name,
-                    metric_value,
-                    threshold_value,
-                    passed,
-                    training_window_end,
-                ),
-            )
-        if commit:
-            conn.commit()
-    except Exception as error:
-        _logger.warning(
-            "integrity_monitor.emit_failed",
-            monitor_type=monitor_type,
-            metric_name=metric_name,
-            error=str(error),
-        )
 
 
 async def emit_integrity_fact_async(
@@ -154,17 +59,11 @@ async def emit_integrity_fact_async(
     *,
     idempotency_check: bool = False,
 ) -> None:
-    """asyncpg variant of emit_integrity_fact_sync -- see module docstring for the
-    guard and idempotency-check design rationale.
-
-    No commit parameter: asyncpg connections autocommit each statement outside an
-    explicit `conn.transaction()` block, and none of today's async call sites
-    (vocabulary_drift.py) wrap this in one.
-    """
+    """One guarded INSERT; see the module docstring for the guard and idempotency check."""
     try:
         if idempotency_check:
             exists = await conn.fetchval(
-                _IDEMPOTENCY_PRECHECK_SQL_ASYNCPG,
+                _IDEMPOTENCY_PRECHECK_SQL,
                 monitor_type,
                 training_window_end,
                 metric_name,
@@ -179,7 +78,7 @@ async def emit_integrity_fact_async(
                 return
 
         await conn.execute(
-            _INTEGRITY_MONITOR_INSERT_SQL_ASYNCPG,
+            INTEGRITY_MONITOR_INSERT_SQL,
             monitor_type,
             subject,
             metric_name,
@@ -214,7 +113,7 @@ async def emit_integrity_facts_async(
     if not facts:
         return
     try:
-        await conn.executemany(_INTEGRITY_MONITOR_INSERT_SQL_ASYNCPG, facts)
+        await conn.executemany(INTEGRITY_MONITOR_INSERT_SQL, facts)
     except Exception as error:
         _logger.warning(
             "integrity_monitor.emit_batch_failed",

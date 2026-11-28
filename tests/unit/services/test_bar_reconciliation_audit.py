@@ -656,11 +656,16 @@ def test_the_1d_verdict_names_are_the_backfill_dimension(monkeypatch):
         "_nightly_skipped",
         "_stray_sources",
         "_isolated_wick",
-        "_report",
+        "_spread_leg_pairs",
         "_log_verdicts",
         "_write_verdicts",
     ):
         monkeypatch.setattr(audit.BarReconciliationAudit, name, stub)
+
+    async def report_spy(self, pool, window, params, checks, grid):
+        captured["checks"] = sorted(checks)
+
+    monkeypatch.setattr(audit.BarReconciliationAudit, "_report", report_spy)
 
     async def stub_grid(*a, **kw):
         # execute reads .completeness and .masked off the grid outcome
@@ -712,6 +717,8 @@ def test_the_1d_verdict_names_are_the_backfill_dimension(monkeypatch):
         audit.BarReconciliationAudit.execute(object.__new__(audit.BarReconciliationAudit), _Pool())
     )
     assert sorted(captured["names"]) == ["CANDIDATE", "PROMOTED"]  # the unpromoted name is judged
+    # todo 678: the spread_leg pair check runs in this nightly audit, not in a script nothing calls
+    assert "spread_leg_pairs" in captured["checks"]
     # the intraday half of todo 502 is already the live SQL: every name holding 5m rows
     assert "market_data_ohlcv" in audit._INTRADAY_NAMES_SQL and "'5m'" in audit._INTRADAY_NAMES_SQL
 

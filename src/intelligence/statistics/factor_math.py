@@ -65,9 +65,9 @@ def long_short_daily_returns(long_close: np.ndarray, short_close: np.ndarray) ->
     Args:
         long_close: Shape [n_bars] -- long-leg daily close prices.
         short_close: Shape [n_bars] -- short-leg daily close prices, same length
-            and calendar alignment as long_close (caller's responsibility --
-            see tests/unit/test_spread_leg_pair_validity.py for the pair-symmetry
-            data-contract guard).
+            and calendar alignment as long_close (caller's responsibility; the
+            nightly reconciliation audit's spread_leg_pairs check guards the
+            pair-symmetry data contract).
 
     Returns:
         Shape [n_bars - 1] -- the spread's daily log-return series.

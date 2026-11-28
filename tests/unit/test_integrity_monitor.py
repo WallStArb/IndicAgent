@@ -5,8 +5,7 @@ Before this extraction, the exact `INSERT INTO integrity_monitor ... ON CONFLICT
 (monitor_type, training_window_end, metric_name, COALESCE(subject, ''), evaluated_at)
 DO NOTHING` statement shape was hand-copied at 4 independent call sites
 (services/ic_engine.py x2, src/config/vocabulary_drift.py, services/
-forward_return_writer.py). These tests exercise the sync (psycopg2-style) and async
-(asyncpg-style) helpers directly against fake/mock connections -- no real DB.
+forward_return_writer.py). These tests exercise the asyncpg helpers directly against mock connections, no real DB.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ if str(_project_root) not in sys.path:
 from src.core.integrity_monitor import (
     INTEGRITY_MONITOR_INSERT_SQL,
     emit_integrity_fact_async,
-    emit_integrity_fact_sync,
     emit_integrity_facts_async,
 )
 
@@ -51,159 +49,6 @@ def test_insert_sql_on_conflict_key_matches_migration_211_unique_index():
 
 def test_insert_sql_targets_integrity_monitor_table():
     assert "INSERT INTO integrity_monitor" in INTEGRITY_MONITOR_INSERT_SQL
-
-
-# ---------------------------------------------------------------------------
-# Sync helper (psycopg2-style conn/cursor)
-# ---------------------------------------------------------------------------
-
-
-def _mock_sync_conn(precheck_hit: bool = False) -> MagicMock:
-    cur = MagicMock()
-    cur.fetchone.return_value = (1,) if precheck_hit else None
-    cur.__enter__.return_value = cur
-    cur.__exit__.return_value = False
-    conn = MagicMock()
-    conn.cursor.return_value = cur
-    return conn
-
-
-def test_emit_sync_inserts_with_all_fields_bound():
-    conn = _mock_sync_conn()
-
-    emit_integrity_fact_sync(
-        conn,
-        "ic_lifecycle",
-        None,
-        "decay_cells_flagged",
-        3.0,
-        0.005,
-        True,
-        "2026-01-01T00:00:00+00:00",
-    )
-
-    cur = conn.cursor.return_value
-    cur.execute.assert_called_once_with(
-        INTEGRITY_MONITOR_INSERT_SQL,
-        (
-            "ic_lifecycle",
-            None,
-            "decay_cells_flagged",
-            3.0,
-            0.005,
-            True,
-            "2026-01-01T00:00:00+00:00",
-        ),
-    )
-
-
-def test_emit_sync_does_not_commit_by_default():
-    conn = _mock_sync_conn()
-
-    emit_integrity_fact_sync(
-        conn, "ic_lifecycle", None, "decay_cells_flagged", 3.0, 0.005, True, "2026-01-01"
-    )
-
-    conn.commit.assert_not_called()
-
-
-def test_emit_sync_commits_when_requested():
-    conn = _mock_sync_conn()
-
-    emit_integrity_fact_sync(
-        conn,
-        "price_sanity",
-        None,
-        "rows_flagged_suspect",
-        5.0,
-        None,
-        True,
-        "2026-01-01",
-        commit=True,
-    )
-
-    conn.commit.assert_called_once()
-
-
-def test_emit_sync_no_idempotency_check_by_default_single_cursor_use():
-    conn = _mock_sync_conn()
-
-    emit_integrity_fact_sync(
-        conn, "ic_lifecycle", None, "decay_cells_flagged", 3.0, 0.005, True, "2026-01-01"
-    )
-
-    assert conn.cursor.call_count == 1
-
-
-def test_emit_sync_idempotency_check_skips_insert_when_already_ran():
-    conn = _mock_sync_conn(precheck_hit=True)
-
-    emit_integrity_fact_sync(
-        conn,
-        "price_sanity",
-        None,
-        "rows_flagged_suspect",
-        5.0,
-        None,
-        True,
-        "2026-01-01",
-        idempotency_check=True,
-        commit=True,
-    )
-
-    # Only the pre-check SELECT ran -- no INSERT, no commit.
-    assert conn.cursor.call_count == 1
-    conn.commit.assert_not_called()
-
-
-def test_emit_sync_idempotency_check_inserts_when_not_already_ran():
-    conn = _mock_sync_conn(precheck_hit=False)
-
-    emit_integrity_fact_sync(
-        conn,
-        "price_sanity",
-        None,
-        "rows_flagged_suspect",
-        5.0,
-        None,
-        True,
-        "2026-01-01",
-        idempotency_check=True,
-        commit=True,
-    )
-
-    # Pre-check SELECT + INSERT -- two separate cursor uses.
-    assert conn.cursor.call_count == 2
-    conn.commit.assert_called_once()
-
-
-def test_emit_sync_guards_insert_failure_log_and_continue():
-    conn = _mock_sync_conn()
-    conn.cursor.return_value.execute.side_effect = Exception("boom")
-
-    # Must not raise -- guard behavior lives in the helper.
-    emit_integrity_fact_sync(
-        conn, "ic_lifecycle", None, "decay_cells_flagged", 3.0, 0.005, True, "2026-01-01"
-    )
-
-
-def test_emit_sync_guard_does_not_commit_on_failure():
-    conn = _mock_sync_conn()
-    conn.cursor.return_value.execute.side_effect = Exception("boom")
-
-    emit_integrity_fact_sync(
-        conn,
-        "ic_lifecycle",
-        None,
-        "decay_cells_flagged",
-        3.0,
-        0.005,
-        True,
-        "2026-01-01",
-        commit=True,
-    )
-
-    conn.commit.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

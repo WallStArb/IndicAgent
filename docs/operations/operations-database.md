@@ -137,8 +137,9 @@ Four timers. Sources are chosen per date by `bar_source_policy_current`:
 D7 checks (findings go to `integrity_monitor` and OTel, never the exit code):
 `route_disagreement`, `adjusted_vs_trades`, `unexplained_seams`,
 `late_heads`, `listing_venue_coverage`, `unconfirmed_empty`, `partial_daily`,
-`dividend_freshness`, `nightly_skipped`, `stray_sources`, `switches`, `completeness`,
-`masked_slots`, `held_names`, plus vendor agreement per year (Tradier against IBKR SMART over
+`dividend_freshness`, `nightly_skipped`, `stray_sources`, `switches`, `isolated_wick`,
+`spread_leg_pairs` (every current `spread_leg` tag names a real, reciprocal pair other than
+itself; todo 678), `completeness`, `masked_slots`, `held_names`, plus vendor agreement per year (Tradier against IBKR SMART over
 the stored overlap; Tradier ends at 2026-10-06, so the table is constant and stays for the
 operations dashboard). It also writes the verdict
 report: one `bar_integrity` row per (symbol, timeframe, check) for the 1d checks

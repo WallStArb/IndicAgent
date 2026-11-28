@@ -20,6 +20,8 @@ with the venue study):
   request or ended long ago; a run still answering is unjudged, never a finding (todo 513).
 - stray_sources: 1d/15m/1h rows with a (vendor, kind) the derivation does not write.
 - switches: venue switches differing from the venue study verdict.
+- spread_leg_pairs: a current spread_leg tag whose evidence pair is missing, malformed, itself,
+  not an instrument, or not reciprocal (todo 678; src/intelligence/spread_leg_pairs.py).
 - isolated_wick: bars the tradeable view serves on 1d, 1h, 15m or 5m whose wick the scrub rule
   isolated_wick flags (todo 594), counted per name and timeframe; a bar the scrub has not judged
   yet (a new intraday bar) or a dropped quarantine entry shows here.
@@ -158,6 +160,7 @@ from src.intelligence.bars.vendor_kind import (
     raw_kind_for_canonical,
 )
 from src.intelligence.bars.write_contract import BarValues
+from src.intelligence.spread_leg_pairs import spread_leg_problems
 from src.observability.metrics import counter, point_gauge
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
@@ -916,6 +919,13 @@ SELECT symbol, effective_date FROM corporate_action_current
 WHERE symbol = ANY($1::text[]) AND effective_date >= $2
 """
 _UNIVERSE_SQL = "SELECT i.symbol FROM instruments i WHERE {clause} ORDER BY i.symbol"
+# Current rows only: a tag is in force from valid_from until valid_to (open when NULL).
+# One row per symbol is structural: the primary key is (symbol, tag).
+_SPREAD_LEG_SQL = """
+SELECT symbol, evidence FROM instrument_tags
+WHERE tag = 'spread_leg' AND valid_from <= now() AND (valid_to IS NULL OR valid_to > now())
+"""
+_INSTRUMENT_SYMBOLS_SQL = "SELECT symbol FROM instruments"
 _DAILY_CLOSES_SQL = """
 SELECT symbol, timestamp, close FROM market_data_ohlcv_tradeable
 WHERE timeframe = '1d' AND symbol = ANY($1::text[]) AND timestamp >= $2
@@ -2006,6 +2016,7 @@ class BarReconciliationAudit(BaseBatch):
                 "stray_sources": await self._stray_sources(conn, window),
                 "switches": self._switches(params),
                 "isolated_wick": await self._isolated_wick(conn),
+                "spread_leg_pairs": await self._spread_leg_pairs(conn),
             }
             grid = await self._grid_checks(conn, params, window, compute)
             checks["completeness"] = grid.completeness
@@ -2267,6 +2278,13 @@ class BarReconciliationAudit(BaseBatch):
         except FileNotFoundError:
             verdict = {}
         return _Judged(check_switches(params.switches, verdict), len(_SWITCH_VERDICT_TF))
+
+    @staticmethod
+    async def _spread_leg_pairs(conn: Any) -> _Judged:
+        rows = [(r["symbol"], r["evidence"]) for r in await conn.fetch(_SPREAD_LEG_SQL)]
+        symbols = frozenset(r["symbol"] for r in await conn.fetch(_INSTRUMENT_SYMBOLS_SQL))
+        problems = spread_leg_problems(rows, symbols)
+        return _Judged(CheckResult(len(problems), tuple(problems)), len(rows))
 
     @staticmethod
     async def _isolated_wick(conn: Any) -> _Judged:
