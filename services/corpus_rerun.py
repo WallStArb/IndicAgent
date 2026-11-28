@@ -78,6 +78,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -646,6 +647,42 @@ def adoptable_units(
     ]
 
 
+@dataclasses.dataclass(frozen=True)
+class UnitCounts:
+    """One timeframe's planned units and how many of them the run adopts: a unit whose
+    batch_key is completed is skipped and adopted, every other one computes."""
+
+    planned: int
+    adopt: int
+
+    @property
+    def compute(self) -> int:
+        return self.planned - self.adopt
+
+    def as_record(self) -> dict[str, int]:
+        return {"planned": self.planned, "adopt": self.adopt, "compute": self.compute}
+
+
+def unit_counts(specs: Sequence[Any], completed: set[str]) -> dict[str, UnitCounts]:
+    """UnitCounts per timeframe of the planned units, from the one planning pass."""
+    planned = Counter(spec.tf for spec in specs)
+    adopt = Counter(spec.tf for spec in specs if spec.batch_key in completed)
+    return {tf: UnitCounts(planned[tf], adopt[tf]) for tf in sorted(planned)}
+
+
+@dataclasses.dataclass(frozen=True)
+class Adoption:
+    """What a new run would adopt: the stored rows of its adoptable units (not growth), the unit
+    counts per timeframe and the plan's digest-blind symbols (bar digest absent in some range,
+    so a revision there renames a unit only through its bar count; the same set feature_complete
+    reports). `units` is empty when feature_vectors holds no completed unit at all: nothing is
+    adoptable and the full scope is not planned to count it."""
+
+    rows: RowCounts
+    units: Mapping[str, UnitCounts]
+    digest_blind_symbols: int = 0
+
+
 def stored_row_counts(
     conn: Any,
     settings: Any,
@@ -654,23 +691,24 @@ def stored_row_counts(
     intraday: frozenset[str],
     planned: Callable[..., tuple[list[Any], set[str]]] | None = None,
     timeframes: Sequence[str] | None = None,
-) -> RowCounts:
-    """The rows already stored that the run would adopt, as RowCounts (not growth). Plans the
-    full scope (the run's `timeframes` when given) only when feature_vectors has a completed unit
-    at all."""
+) -> Adoption:
+    """The rows already stored that the run would adopt, as RowCounts (not growth), and the unit
+    counts of the same planning pass. Plans the full scope (the run's `timeframes` when given)
+    only when feature_vectors has a completed unit at all."""
     with conn.cursor() as cur:
         cur.execute(_ANY_COMPLETED_UNIT_SQL, (_FEATURE_TABLE,))
         if not cur.fetchone()[0]:
-            return RowCounts({})
+            return Adoption(RowCounts({}), {})
     if planned is None:
         from services.backfill_feature_factory import planned_units as planned
-    specs, _blind = planned(settings, conn, horizon, timeframes)
+    specs, blind = planned(settings, conn, horizon, timeframes)
     with conn.cursor() as cur:
         cur.execute(_COMPLETED_KEYS_SQL, ([spec.batch_key for spec in specs],))
         completed = {key for (key,) in cur.fetchall()}
+    counts = unit_counts(specs, completed)
     units = adoptable_units(specs, completed, chunks)
     if not units:
-        return RowCounts({})
+        return Adoption(RowCounts({}), counts, len(blind))
     from services.backfill_feature_factory import _chunk_for
 
     # The names each timeframe stores per chunk: an intraday unit owns only the 5m tier's.
@@ -693,7 +731,8 @@ def stored_row_counts(
                 [u[3] for u in units],
             ),
         )
-        return RowCounts({(tf, int(i), month): int(n) for tf, i, month, n in cur.fetchall()})
+        rows = RowCounts({(tf, int(i), month): int(n) for tf, i, month, n in cur.fetchall()})
+    return Adoption(rows, counts, len(blind))
 
 
 def fetch_row_counts(
@@ -2050,6 +2089,8 @@ class Plan:
     horizon: datetime
     counts: RowCounts
     stored: RowCounts
+    units: Mapping[str, UnitCounts]
+    digest_blind_symbols: int
     inputs: BudgetInputs
     spans: list[tuple[datetime, datetime]]
     peaks: list[Peak]
@@ -2067,7 +2108,7 @@ def plan_run(conn: Any, settings: Settings, horizon: datetime, scope: str) -> Pl
     ctx = factory._stage_context(settings, conn, None, None)
     tfs = [DAILY_TF] if scope == SCOPE_1D else ctx.all_timeframes
     counts = fetch_row_counts(conn, ctx.chunks, ctx.starts, horizon, tfs, ctx.intraday)
-    stored = stored_row_counts(
+    adoption = stored_row_counts(
         conn,
         settings,
         horizon,
@@ -2085,10 +2126,19 @@ def plan_run(conn: Any, settings: Settings, horizon: datetime, scope: str) -> Pl
         chunk_interval=chunk_interval(conn),
     )
     if scope == SCOPE_1D:
-        plan = plan_daily_only(counts, inputs, stored=stored)
+        plan = plan_daily_only(counts, inputs, stored=adoption.rows)
     else:
-        plan = plan_spans(counts, inputs, stored=stored)
-    return Plan(horizon, counts, stored, inputs, plan.spans, plan.peaks)
+        plan = plan_spans(counts, inputs, stored=adoption.rows)
+    return Plan(
+        horizon,
+        counts,
+        adoption.rows,
+        adoption.units,
+        adoption.digest_blind_symbols,
+        inputs,
+        plan.spans,
+        plan.peaks,
+    )
 
 
 def _print_plan(plan: Plan) -> None:
@@ -2097,9 +2147,21 @@ def _print_plan(plan: Plan) -> None:
         for tf in ("1d", *INTRADAY_ORDER)
     }
     print(
-        f"horizon {plan.horizon:%Y-%m-%d}; rows "
+        f"horizon {plan.horizon:%Y-%m-%d}; bar-based row estimate (tradeable bars from each "
+        "name's proven start, not stored rows) "
         + ", ".join(f"{tf} {n:,.0f}" for tf, n in total.items())
     )
+    for tf, units in plan.units.items():
+        print(
+            f"{tf} units: planned {units.planned:,}, adopt {units.adopt:,}, compute {units.compute:,}"
+        )
+    if not plan.units:
+        print("units: no completed unit is stored, so every planned unit computes")
+    if plan.digest_blind_symbols:
+        print(
+            f"digest-blind symbols {plan.digest_blind_symbols:,}: a revision in their blind ranges "
+            "renames a unit only through its bar count"
+        )
     print(
         f"free at launch {plan.inputs.free_bytes_at_launch / 1e9:,.0f} GB; limit "
         f"{plan.inputs.limit_bytes / 1e9:,.0f} GB; max_wal_size {plan.inputs.wal_bytes / 1e9:,.0f} GB; "
@@ -2199,6 +2261,22 @@ def _data_gate_verdict(conn: Any, settings: Settings, horizon: datetime, scope: 
         )
 
 
+def launch_measured(plan: Plan, identity: Mapping[str, Any], scope: str) -> dict[str, Any]:
+    """The corpus_run.measured a new run starts with: its plan, its pinned APR and its scope."""
+    return {
+        "row_counts": counts_record(plan.counts),
+        "stored_row_counts": counts_record(plan.stored),
+        "unit_counts": {tf: units.as_record() for tf, units in plan.units.items()},
+        "digest_blind_symbols": plan.digest_blind_symbols,
+        "apr_keys": identity["apr_keys"],
+        "apr_values": identity["apr_values"],
+        "apr_unseeded": identity["apr_unseeded"],
+        "plan": [p.as_record() for p in plan.peaks],
+        "wal_bytes_at_launch": plan.inputs.wal_bytes,
+        DATA_GATE_SCOPE_KEY: scope,
+    }
+
+
 def new_run(conn: Any, settings: Settings, horizon: datetime, commit: str, scope: str) -> str:
     """Plan the spans, create the pinned worktree and record the run; returns the run id."""
     plan = plan_run(conn, settings, horizon, scope)
@@ -2227,16 +2305,7 @@ def new_run(conn: Any, settings: Settings, horizon: datetime, commit: str, scope
         spans=tuple(plan.spans),
         free_bytes_at_launch=plan.inputs.free_bytes_at_launch,
         caveats=(),
-        measured={
-            "row_counts": counts_record(plan.counts),
-            "stored_row_counts": counts_record(plan.stored),
-            "apr_keys": identity["apr_keys"],
-            "apr_values": identity["apr_values"],
-            "apr_unseeded": identity["apr_unseeded"],
-            "plan": [p.as_record() for p in plan.peaks],
-            "wal_bytes_at_launch": plan.inputs.wal_bytes,
-            DATA_GATE_SCOPE_KEY: scope,
-        },
+        measured=launch_measured(plan, identity, scope),
     )
     RunStore(conn).create_run(run)
     print(f"run {run_id} created at {commit[:12]}; worktree {worktree}")

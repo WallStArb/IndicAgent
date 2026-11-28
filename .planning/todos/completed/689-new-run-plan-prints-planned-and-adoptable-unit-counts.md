@@ -1,6 +1,6 @@
 ---
 objective: O1
-status: pending
+status: completed
 priority: P2
 filed: 2026-11-28
 source: indicagent-03 (lead), successor-run adoption proof
@@ -17,3 +17,7 @@ source: indicagent-03 (lead), successor-run adoption proof
 ## Done when
 
 The plan line reads `1d units: planned N, adopt A, compute C`; `tests/unit/services/test_corpus_rerun.py` covers a full-adopt and a partial plan. `corpus_rerun.py` is outside the rebuild code key (check `module_files()` before landing; if it is inside, land between runs).
+
+## Closed 2026-11-28 (indicagent-b9)
+
+`plan_run` takes the unit counts from the one planning pass `stored_row_counts` already makes (`Adoption`: stored rows, `UnitCounts` per tf, digest-blind symbol count). `--new-run` and `--plan-only` print `1d units: planned N, adopt A, compute C`, label the row line a bar-based estimate, and print the digest-blind symbol count when it is nonzero; `--new-run` records `unit_counts` and `digest_blind_symbols` in `measured` (`launch_measured`). Adopt is every completed `batch_key`, as the stage skips them without looking at blindness; blindness is a plan-wide symbol set, so it is reported as a count, never split per unit. Tests: full-adopt, partial, digest-blind and the printed and recorded lines. `corpus_rerun.py` is outside the rebuild code key (487f4ab434 before and after). Not covered: a `--plan-only` refused by the span budget still prints no unit line.

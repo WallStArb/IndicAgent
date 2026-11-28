@@ -1031,13 +1031,13 @@ def test_a_new_run_over_a_dead_runs_rows_at_another_code_key_projects_them_as_gr
         frozenset(s for c in CHUNKS for s in c),
         planned=planned,
     )
-    assert stored.cells == {} and conn.unit_queries == []
+    assert stored.rows.cells == {} and conn.unit_queries == []
     counts = RowCounts({("5m", 0, date(2010, m, 1)): 1000 for m in range(1, 13)})
     inputs = _world().runner._inputs()
     from services.corpus_rerun_budget import plan_spans
 
     fresh = plan_spans(counts, inputs)
-    over_dead = plan_spans(counts, inputs, stored=stored)
+    over_dead = plan_spans(counts, inputs, stored=stored.rows)
     assert [p.total for p in over_dead.peaks] == [p.total for p in fresh.peaks]
 
 
@@ -1056,7 +1056,7 @@ def test_only_the_rows_of_units_the_run_would_adopt_count_as_stored():
         frozenset(s for c in CHUNKS for s in c),
         planned=planned,
     )
-    assert stored.cells == {("5m", 0, date(2010, 1, 1)): 1000}
+    assert stored.rows.cells == {("5m", 0, date(2010, 1, 1)): 1000}
     (params,) = conn.unit_queries
     assert params[3:] == (["5m"], [0], [_jan1(2010)], [_jan1(2011)])  # the adoptable unit only
 
@@ -1066,17 +1066,14 @@ def test_an_empty_table_plans_nothing_to_find_stored_rows():
         raise AssertionError("must not plan the full scope")
 
     conn = _StoredConn(False, set(), [])
-    assert (
-        cr.stored_row_counts(
-            conn,
-            object(),
-            _jan1(2026),
-            CHUNKS,
-            frozenset(s for c in CHUNKS for s in c),
-            planned=planned,
-        ).cells
-        == {}
-    )
+    assert cr.stored_row_counts(
+        conn,
+        object(),
+        _jan1(2026),
+        CHUNKS,
+        frozenset(s for c in CHUNKS for s in c),
+        planned=planned,
+    ) == cr.Adoption(RowCounts({}), {})
 
 
 # ---------------------------------------------------------------------------
@@ -1253,6 +1250,62 @@ def test_stored_rows_of_an_adopted_intraday_unit_are_asked_for_the_tier_names_on
     cr.stored_row_counts(conn, object(), _jan1(2026), CHUNKS, frozenset({"AAA"}), planned=planned)
     (params,) = conn.unit_queries
     assert params[0] == ["AAA"] and params[2] == ["5m"]  # BBB's old 5m rows are not counted
+
+
+def _adoption(completed: set[str], keys: list[str], blind: frozenset[str] = frozenset()):
+    conn = _StoredConn(True, completed=completed, stored_rows=[("1d", 0, date(2010, 1, 1), 7)])
+    specs = [_unit(k, tf="1d", year=2000 + i) for i, k in enumerate(keys)]
+    planned = lambda settings, c, horizon, timeframes=None: (specs, set(blind))  # noqa: E731
+    return cr.stored_row_counts(
+        conn, object(), _jan1(2026), CHUNKS, frozenset(), planned=planned, timeframes=["1d"]
+    )
+
+
+def test_todo_689_a_full_adopt_plan_counts_every_unit_as_adopt_and_none_as_compute():
+    """2026-11-28Z: a successor adopting all 515 units of its predecessor printed a bar-based row
+    estimate 3.14 M above the stored rows, which read as compute. The unit line says it."""
+    units = _adoption({"a", "b", "c"}, ["a", "b", "c"]).units
+    assert units == {"1d": cr.UnitCounts(planned=3, adopt=3)}
+    assert units["1d"].compute == 0
+
+
+def test_todo_689_a_partial_plan_counts_the_renamed_units_as_compute():
+    units = _adoption({"a"}, ["a", "b", "c"]).units
+    assert units["1d"] == cr.UnitCounts(planned=3, adopt=1)
+    assert units["1d"].compute == 2
+
+
+def test_todo_689_a_digest_blind_completed_unit_is_adopted_and_the_blind_names_counted():
+    """The stage skips a completed batch_key without looking at blindness, so a digest-blind
+    unit is adopt, not compute; blindness is a plan-wide symbol set, reported as its count."""
+    adoption = _adoption({"a", "b"}, ["a", "b"], blind={"BBB"})
+    assert adoption.units["1d"] == cr.UnitCounts(planned=2, adopt=2)
+    assert adoption.digest_blind_symbols == 1
+
+
+def test_todo_689_the_plan_prints_unit_counts_and_labels_rows_an_estimate(capsys):
+    plan = cr.Plan(
+        _jan1(2026),
+        RowCounts({("1d", 0, date(2020, 1, 1)): 100}),
+        RowCounts({}),
+        {"1d": cr.UnitCounts(planned=515, adopt=515)},
+        0,
+        _world().runner._inputs(),
+        [],
+        [],
+    )
+    cr._print_plan(plan)
+    out = capsys.readouterr().out
+    assert "1d units: planned 515, adopt 515, compute 0\n" in out
+    assert "bar-based row estimate" in out
+    assert "digest-blind" not in out
+    cr._print_plan(dataclasses.replace(plan, units={}, digest_blind_symbols=3))
+    out = capsys.readouterr().out
+    assert "every planned unit computes" in out and "digest-blind symbols 3:" in out
+    identity = {"apr_keys": [], "apr_values": {}, "apr_unseeded": []}
+    measured = cr.launch_measured(plan, identity, "1d")
+    assert measured["unit_counts"] == {"1d": {"planned": 515, "adopt": 515, "compute": 0}}
+    assert measured["digest_blind_symbols"] == 0
 
 
 # ---------------------------------------------------------------------------

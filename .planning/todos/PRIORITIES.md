@@ -131,7 +131,6 @@ Verified against live state 2026-11-24: the P0 and P1 rows (lead pass 2026-11-22
 
 | Todo | Why now |
 |---|---|
-| [689](pending/689-new-run-plan-prints-planned-and-adoptable-unit-counts.md) | New 2026-11-28, P2 (lead). The new-run plan prints a bar-based row estimate next to stored rows, so a run that adopts every unit looked like 3.14 M rows of compute and held the successor launch; print planned, adopt and compute unit counts instead. |
 | [686](pending/686-code-health-report-hotspots-ratchets-escaped-defects.md) | New 2026-11-27, P2, owner ruling (constant refinement is north star). The code loop of `docs/foundation/harness-improvement-sop.md`: one read-only report of file hotspots, `fixes <sha>` escaped defects and every ratchet baseline, so the refactor queue is ranked by evidence. Pairs with 685. |
 | [687](pending/687-hmm-stationary-prior-of-an-absorbing-chain-misdecodes-bar-0.md) | New 2026-11-27, P2 (lead ruling; todo 677 side finding). The stationary prior of an absorbing fitted chain puts zero mass on the first regime, so bar 0 of a one-switch segment decodes wrong. Measure first (bar 0 vs bar 1 labels per series in `market_regimes`, light reads after nothing heavy is live); the kernel is in the rebuild pin, so any fix lands at the next re-pin. |
 | [688](pending/688-one-reference-hmm-forward-filter-in-tests.md) | New 2026-11-27, P3 (cb review of 677). The numpy reference HMM forward filter is copied in two test files; keep one. Tests only. |

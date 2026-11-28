@@ -329,7 +329,7 @@ def test_plan_run_at_scope_1d_counts_1d_only_and_plans_no_span(monkeypatch):
 
     def stored(conn, settings, horizon, chunks, intraday, planned=None, timeframes=None):
         seen["stored_tfs"] = timeframes
-        return RowCounts({})
+        return cr.Adoption(RowCounts({}), {})
 
     monkeypatch.setattr(cr, "fetch_row_counts", counts)
     monkeypatch.setattr(cr, "stored_row_counts", stored)
