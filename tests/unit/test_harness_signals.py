@@ -149,6 +149,9 @@ def test_a_dead_timer_reads_as_low_coverage_not_as_no_idle_time() -> None:
     assert empty["coverage"]["covered_share"] == 0
     assert empty["coverage"]["last_snapshot_age_minutes"] is None
     assert empty["activity"]["idle_minutes_per_covered_hour"] is None
+    # one snapshot a second ago (the first reading after install): no rate from a second of data
+    first = hs.summarize([_snap(0, {"a": "idle"})], [], [], T0 + timedelta(seconds=1), days=1)
+    assert first["activity"]["idle_minutes_per_covered_hour"] is None
 
 
 def test_a_long_outage_between_few_snapshots_credits_nothing() -> None:

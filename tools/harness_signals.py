@@ -320,8 +320,9 @@ def summarize(
         },
         "activity": {
             "minutes_by_status": {k: round(v, 1) for k, v in sorted(by_status.items())},
+            # a rate needs at least one cadence of coverage: seconds of it would read as noise
             "idle_minutes_per_covered_hour": (
-                round(idle / covered_hours, 2) if covered_hours else None
+                round(idle / covered_hours, 2) if covered >= CADENCE.total_seconds() / 60 else None
             ),
             "idle_minutes_by_session": {
                 name: round(m.get(IDLE, 0.0), 1) for name, m in sorted(minutes.items())
