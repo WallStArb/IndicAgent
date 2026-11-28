@@ -24,7 +24,7 @@ Done, verified on main at 4b4e3c3a8:
 
 Open, in order:
 1. [x] Todo 690 landed: `scripts/ops/ic_sweep_launch.sh` (host gate, watchdog, one heavy job; recorder modes need the stage's timer hold and never release it) and per-block spec hashes and series digests in the dry-run report.
-2. [ ] Owner confirms draft 2026-11-25c (regime columns stay out of the sweep).
+2. [x] Owner confirms draft 2026-11-25c (regime columns stay out of the sweep): confirmed 2026-11-28 in the lead's session; ledger entry appended.
 3. [ ] Ledger line for the new write path (`record_sweep_block`), required by the landing constraint above and not yet written; draft text in the draft doc.
 4. [ ] Todo 670: settings line, run, disclosure line, when the recorded universe is final (its own checklist).
 5. [ ] `feature_complete` of the successor run.

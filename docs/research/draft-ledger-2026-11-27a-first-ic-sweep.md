@@ -1,6 +1,6 @@
 # Draft ledger entry: the first IC sweep, cell list and n_looks
 
-Status: draft for owner confirmation (lead ruling 2026-11-27). Not in `docs/plans/methodology-change-ledger.md`; the lead writes the entry there only after the owner confirms it in the lead's own session. The FILL numbers come from `ic_sweep_recorder --dry-run` and cannot be known before `feature_complete` of the successor run (the run that adopts the 515 units of dcb7caa4, ledger 2026-11-27c); a dry run before it would count columns of a table the run has not certified. Assembled from todo 671's draft (269d63c44), ledger 2026-11-24f, 2026-11-24i, 2026-11-24e and the draft 2026-11-25c (`docs/research/draft-ledger-2026-11-25c-sweep-regime-columns.md`, which this entry assumes confirmed).
+Status: draft for owner confirmation (lead ruling 2026-11-27). Not in `docs/plans/methodology-change-ledger.md`; the lead writes the entry there only after the owner confirms it in the lead's own session. The FILL numbers come from `ic_sweep_recorder --dry-run` and cannot be known before `feature_complete` of the successor run (the run that adopts the 515 units of dcb7caa4, ledger 2026-11-27c); a dry run before it would count columns of a table the run has not certified. Assembled from todo 671's draft (269d63c44), ledger 2026-11-24f, 2026-11-24i, 2026-11-24e and the draft 2026-11-25c (`docs/plans/methodology-change-ledger.md (2026-11-25c)`, which this entry assumes confirmed).
 
 ## What the owner is asked to rule on, in plain words
 
